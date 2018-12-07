@@ -7,6 +7,7 @@ from .base import Type
 from ..base import Property
 from .detection import Detection
 from .prediction import MeasurementPrediction, Prediction
+from ..types.numeric import Probability
 
 
 class Hypothesis(Type):
@@ -71,6 +72,31 @@ class DistanceHypothesis(Hypothesis):
 
     def __ge__(self, other):
         return self.distance <= other.distance
+
+
+class ProbabilityHypothesis(Hypothesis):
+    """Probability scored hypothesis subclass.
+
+    """
+
+    probability = Property(
+        Probability,
+        doc="Probability that detection is true location of prediction")
+
+    def __lt__(self, other):
+        return self.probability < other.probability
+
+    def __le__(self, other):
+        return self.probability <= other.probability
+
+    def __eq__(self, other):
+        return self.probability == other.probability
+
+    def __gt__(self, other):
+        return self.probability > other.probability
+
+    def __ge__(self, other):
+        return self.probability >= other.probability
 
 
 class JointHypothesis(Type, UserDict):
