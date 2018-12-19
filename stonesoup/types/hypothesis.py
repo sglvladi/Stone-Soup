@@ -15,20 +15,6 @@ class Hypothesis(Type):
 
     """
 
-    prediction = Property(
-        Prediction,
-        doc="Predicted track state")
-    measurement = Property(
-        Detection,
-        doc="Detection used for hypothesis and updating")
-    measurement_prediction = Property(
-        MeasurementPrediction,
-        default=None,
-        doc="Optional track prediction in measurement space")
-
-    def __bool__(self):
-        return self.measurement is not None
-
     def __lt__(self, other):
         return NotImplemented
 
@@ -45,7 +31,26 @@ class Hypothesis(Type):
         return NotImplemented
 
 
-class DistanceHypothesis(Hypothesis):
+class SingleMeasurementHypothesis(Hypothesis):
+    """A hypothesis based on a single measurement.
+
+    """
+    prediction = Property(
+        Prediction,
+        doc="Predicted track state")
+    measurement = Property(
+        Detection,
+        doc="Detection used for hypothesis and updating")
+    measurement_prediction = Property(
+        MeasurementPrediction,
+        default=None,
+        doc="Optional track prediction in measurement space")
+
+    def __bool__(self):
+        return self.measurement is not None
+
+
+class SingleMeasurementDistanceHypothesis(SingleMeasurementHypothesis):
     """Distance scored hypothesis subclass.
 
     Notes
@@ -74,8 +79,8 @@ class DistanceHypothesis(Hypothesis):
         return self.distance <= other.distance
 
 
-class ProbabilityHypothesis(Hypothesis):
-    """Probability scored hypothesis subclass.
+class SingleMeasurementProbabilityHypothesis(Hypothesis):
+    """Single Measurement Probability scored hypothesis subclass.
 
     """
 
@@ -99,7 +104,7 @@ class ProbabilityHypothesis(Hypothesis):
         return self.probability >= other.probability
 
 
-class JointHypothesis(Type, UserDict):
+class SingleMeasurementJointHypothesis(Type, UserDict):
     """Joint Hypothesis base type
 
     """
@@ -109,9 +114,9 @@ class JointHypothesis(Type, UserDict):
         doc='Association hypotheses')
 
     def __new__(cls, hypotheses):
-        if all(isinstance(hypothesis, DistanceHypothesis)
+        if all(isinstance(hypothesis, SingleMeasurementDistanceHypothesis)
                for hypothesis in hypotheses.values()):
-            return super().__new__(DistanceJointHypothesis)
+            return super().__new__(SingleMeasurementDistanceJointHypothesis)
         else:
             raise NotImplementedError
 
@@ -140,7 +145,8 @@ class JointHypothesis(Type, UserDict):
         raise NotImplementedError
 
 
-class DistanceJointHypothesis(JointHypothesis):
+class SingleMeasurementDistanceJointHypothesis(
+   SingleMeasurementJointHypothesis):
     """Distance scored hypothesis subclass.
 
     Notes

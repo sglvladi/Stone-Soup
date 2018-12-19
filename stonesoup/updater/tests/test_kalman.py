@@ -2,15 +2,15 @@
 """Test for updater.kalman module"""
 import numpy as np
 
-from stonesoup.types.detection import Detection
+from stonesoup.types.detection import Detection, MissedDetection
 from stonesoup.types.numeric import Probability
 from stonesoup.updater.kalman import KalmanUpdater, PDAKalmanUpdater,\
     ExtendedKalmanUpdater
 from stonesoup.models.measurement.linear import LinearGaussian
 from stonesoup.types import GaussianState, GaussianStatePrediction,\
-    GaussianMeasurementPrediction, Hypothesis
-from stonesoup.types.hypothesis import ProbabilityHypothesis
-from stonesoup.types.multiplehypothesis import ProbabilityMultipleHypothesis
+    GaussianMeasurementPrediction, SingleMeasurementHypothesis
+from stonesoup.types.multimeasurementhypothesis import \
+    ProbabilityMultipleMeasurementHypothesis
 from stonesoup.types.array import CovarianceMatrix
 
 
@@ -53,7 +53,7 @@ def test_kalman():
                           eval_measurement_prediction.cross_covar))
 
     # Perform and assert state update (without measurement prediction)
-    posterior = updater.update(Hypothesis(
+    posterior = updater.update(SingleMeasurementHypothesis(
         prediction=prediction,
         measurement=measurement))
     assert(np.array_equal(posterior.mean, eval_posterior.mean))
@@ -68,7 +68,7 @@ def test_kalman():
     assert(posterior.timestamp == prediction.timestamp)
 
     # Perform and assert state update
-    posterior = updater.update(Hypothesis(
+    posterior = updater.update(SingleMeasurementHypothesis(
         prediction=prediction,
         measurement=measurement,
         measurement_prediction=measurement_prediction))
@@ -99,7 +99,7 @@ def test_pdakalman():
                                           [0.0053, 0.0027, 0.0326, 0.4561]]))
 
     # define Detections and their prob of association with the target/track
-    measurements = [None,
+    measurements = [MissedDetection(),
                     Detection(np.array([[-6.23], [14.23]])),
                     Detection(np.array([[-6.54], [14.53]])),
                     Detection(np.array([[-6.18], [14.98]]))]
@@ -115,14 +115,6 @@ def test_pdakalman():
         lg.matrix()@prediction.covar@lg.matrix().T+lg.covar(),
         cross_covar=prediction.covar@lg.matrix().T)
 
-    # form the Detections and their prob of association into hypotheses
-    hypotheses = list()
-    for index in range(0, len(measurements)):
-        hypotheses.append(ProbabilityHypothesis(
-                            prediction, measurements[index],
-                            measurement_prediction=eval_measurement_prediction,
-                            probability=probabilities[index]))
-
     # Initialise a kalman updater
     updater = PDAKalmanUpdater(measurement_model=lg)
 
@@ -136,9 +128,10 @@ def test_pdakalman():
                           eval_measurement_prediction.cross_covar))
 
     # Perform and assert state update
-    posterior = updater.update(
-        ProbabilityMultipleHypothesis(None, None, probability=None,
-                                      hypotheses=hypotheses))
+    multihypothesis = ProbabilityMultipleMeasurementHypothesis(
+        prediction, measurement_prediction)
+    multihypothesis.add_weighted_detections(measurements, probabilities)
+    posterior = updater.update(multihypothesis)
 
     eval_posterior_mean = [[-6.3361], [0.7000], [14.5656], [-0.3992]]
     eval_posterior_covar = CovarianceMatrix(
@@ -149,43 +142,37 @@ def test_pdakalman():
 
     assert(np.allclose(posterior.mean, eval_posterior_mean, rtol=5e-2))
     assert(np.allclose(posterior.covar, eval_posterior_covar, rtol=5e-2))
-    for index, post_hypothesis in enumerate(posterior.hypothesis.hypotheses):
-        assert(np.array_equal(post_hypothesis.prediction, prediction))
-        assert (np.array_equal(
-            post_hypothesis.measurement_prediction.state_vector,
-            measurement_prediction.state_vector))
-        assert (np.array_equal(
-            post_hypothesis.measurement_prediction.covar,
-            measurement_prediction.covar))
-        if post_hypothesis.measurement is not None:
-            assert(np.array_equal(post_hypothesis.measurement,
-                                  measurements[index]))
-        assert(posterior.timestamp == prediction.timestamp)
+    assert (np.array_equal(posterior.hypothesis.prediction, prediction))
+    assert (np.array_equal(
+        posterior.hypothesis.measurement_prediction.state_vector,
+        measurement_prediction.state_vector))
+    assert (np.array_equal(
+        posterior.hypothesis.measurement_prediction.covar,
+        measurement_prediction.covar))
+    for index, weighted_measurement in \
+            enumerate(posterior.hypothesis.weighted_measurements):
+        assert weighted_measurement["measurement"] is measurements[index]
+        assert weighted_measurement["weight"] is probabilities[index]
 
     # Perform and assert state update (without measurement prediction)
-    hypotheses = list()
-    for index in range(0, len(measurements)):
-        hypotheses.append(ProbabilityHypothesis(
-                            prediction, measurements[index],
-                            probability=probabilities[index]))
-
-    posterior = updater.update(
-        ProbabilityMultipleHypothesis(None, None, None, hypotheses=hypotheses))
+    multihypothesis = ProbabilityMultipleMeasurementHypothesis(
+        prediction, None)
+    multihypothesis.add_weighted_detections(measurements, probabilities)
+    posterior = updater.update(multihypothesis)
 
     assert(np.allclose(posterior.mean, eval_posterior_mean, rtol=5e-2))
     assert(np.allclose(posterior.covar, eval_posterior_covar, rtol=5e-2))
-    for index, post_hypothesis in enumerate(posterior.hypothesis.hypotheses):
-        assert(np.array_equal(post_hypothesis.prediction, prediction))
-        assert (np.array_equal(
-            post_hypothesis.measurement_prediction.state_vector,
-            measurement_prediction.state_vector))
-        assert (np.array_equal(
-            post_hypothesis.measurement_prediction.covar,
-            measurement_prediction.covar))
-        if post_hypothesis.measurement is not None:
-            assert(np.array_equal(post_hypothesis.measurement,
-                                  measurements[index]))
-        assert(posterior.timestamp == prediction.timestamp)
+    assert (np.array_equal(posterior.hypothesis.prediction, prediction))
+    assert (np.array_equal(
+        posterior.hypothesis.measurement_prediction.state_vector,
+        measurement_prediction.state_vector))
+    assert (np.array_equal(
+        posterior.hypothesis.measurement_prediction.covar,
+        measurement_prediction.covar))
+    for index, weighted_measurement in \
+            enumerate(posterior.hypothesis.weighted_measurements):
+        assert weighted_measurement["measurement"] is measurements[index]
+        assert weighted_measurement["weight"] is probabilities[index]
 
 
 def test_extendedkalman():
@@ -227,7 +214,7 @@ def test_extendedkalman():
                           eval_measurement_prediction.cross_covar))
 
     # Perform and assert state update (without measurement prediction)
-    posterior = updater.update(Hypothesis(
+    posterior = updater.update(SingleMeasurementHypothesis(
         prediction=prediction,
         measurement=measurement))
     assert(np.array_equal(posterior.mean, eval_posterior.mean))
@@ -242,7 +229,7 @@ def test_extendedkalman():
     assert(posterior.timestamp == prediction.timestamp)
 
     # Perform and assert state update
-    posterior = updater.update(Hypothesis(
+    posterior = updater.update(SingleMeasurementHypothesis(
         prediction=prediction,
         measurement=measurement,
         measurement_prediction=measurement_prediction))

@@ -3,7 +3,7 @@
 from .base import DataAssociator
 from ..base import Property
 from ..hypothesiser import Hypothesiser
-from ..types.multiplehypothesis import ProbabilityMultipleHypothesis
+from ..types import Probability, MissedDetection
 
 
 class SimplePDA(DataAssociator):
@@ -50,42 +50,29 @@ class SimplePDA(DataAssociator):
         associated_measurements = set()
         while tracks > associations.keys():
             # Define a 'greedy' association
-            best_hypothesis = None
+            highest_probability_detection = None
+            highest_probability = Probability(0)
             for track in tracks - associations.keys():
-                for hypothesis in hypotheses[track]:
+                for weighted_measurement in \
+                        hypotheses[track].weighted_measurements:
                     # A measurement may only be associated with a single track
-                    if hypothesis.measurement in associated_measurements:
+                    current_probability = weighted_measurement["weight"]
+                    if weighted_measurement["measurement"] in \
+                            associated_measurements:
                         continue
                     # best_hypothesis is 'greater than' other
-                    if (best_hypothesis is None
-                            or hypothesis > best_hypothesis):
-                        best_hypothesis = hypothesis
-                        best_hypothesis_track = track
+                    if (highest_probability_detection is None
+                            or current_probability > highest_probability):
+                        highest_probability_detection = \
+                            weighted_measurement["measurement"]
+                        highest_probability = current_probability
+                        highest_probability_track = track
 
-            # form the 'best multihypothesis' - MultipleHypothesis that
-            # contains all hypotheses related to 'best_hypothesis_track' (but
-            # different detections), with the information relevant to
-            # 'best_hypothesis' residing in the top level of the
-            # MultipleHypothesis
-            # - the null hypothesis (hypothesis.measurement == None) must
-            #   be the first Hypothesis in the MultipleHypothesis
-            multihypothesis = [hypothesis for hypothesis in
-                               hypotheses[best_hypothesis_track] if
-                               hypothesis.measurement is None] + \
-                              [hypothesis for hypothesis in
-                               hypotheses[best_hypothesis_track] if
-                               hypothesis.measurement is not None]
-
-            best_multihypothesis = \
-                ProbabilityMultipleHypothesis(
-                    best_hypothesis.prediction, best_hypothesis.measurement,
-                    measurement_prediction=best_hypothesis.
-                    measurement_prediction,
-                    probability=best_hypothesis.probability,
-                    hypotheses=multihypothesis)
-
-            associations[best_hypothesis_track] = best_multihypothesis
-            if best_hypothesis.measurement is not None:
-                associated_measurements.add(best_hypothesis.measurement)
+            hypotheses[highest_probability_track].\
+                set_selected_measurement(highest_probability_detection)
+            associations[highest_probability_track] = \
+                hypotheses[highest_probability_track]
+            if not isinstance(highest_probability_detection, MissedDetection):
+                associated_measurements.add(highest_probability_detection)
 
         return associations

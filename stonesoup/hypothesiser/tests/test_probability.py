@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
-from operator import attrgetter
 import datetime
 
 import numpy as np
 
 from ..probability import PDAHypothesiser
-from ...types import Track, Detection, GaussianState
+from ...types import Track, Detection, GaussianState, Probability, \
+    MissedDetection
 
 
 def test_pda(predictor, updater):
@@ -20,22 +20,21 @@ def test_pda(predictor, updater):
                                    clutter_spatial_density=1.2e-2,
                                    prob_detect=0.9, prob_gate=0.99)
 
-    hypotheses = hypothesiser.hypothesise(track, detections, timestamp)
+    mulltimeasurehypothesis = \
+        hypothesiser.hypothesise(track, detections, timestamp)
 
-    # There are 3 hypotheses - Detection 1, Detection 2, Missed Dectection
-    assert len(hypotheses) == 3
+    # There are 3 weighted detections - Detections 1 and 2, MissedDectection
+    assert len(mulltimeasurehypothesis.weighted_measurements) == 3
 
-    # Each hypothesis has a probability attribute
-    assert all(hypothesis.probability >= 0 for hypothesis in hypotheses)
+    # Each measurements has a probability/weight attribute
+    assert all(detection["weight"] >= 0 and
+               isinstance(detection["weight"], Probability)
+               for detection in mulltimeasurehypothesis.weighted_measurements)
 
-    # highest-probability hypothesis is Detection 1
-    assert hypotheses[0].measurement is detection1
-
-    # second-highest-probability hypothesis is Missed Detection
-    assert hypotheses[1].measurement is None
-
-    # lowest-probability hypothesis is Detection 2
-    assert hypotheses[-1].measurement is detection2
-
-    # The hypotheses are sorted correctly
-    assert max(hypotheses, key=attrgetter('probability')) is hypotheses[0]
+    #  Detection 1, 2 and MissedDetection are present
+    assert any(detection["measurement"] is detection1 for detection in
+               mulltimeasurehypothesis.weighted_measurements)
+    assert any(detection["measurement"] is detection2 for detection in
+               mulltimeasurehypothesis.weighted_measurements)
+    assert any(isinstance(detection["measurement"], MissedDetection)
+               for detection in mulltimeasurehypothesis.weighted_measurements)

@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 import pytest
 
-from ...types import DistanceHypothesis, GaussianStatePrediction,\
-    GaussianMeasurementPrediction
+from ...types import SingleMeasurementDistanceHypothesis, \
+    GaussianStatePrediction, GaussianMeasurementPrediction
 from ...hypothesiser.probability import PDAHypothesiser
 
 
@@ -21,12 +21,13 @@ def hypothesiser():
                                                   prediction.timestamp)
                 distance = abs(track.state_vector - detection.state_vector)
 
-                hypotheses.append(DistanceHypothesis(
+                hypotheses.append(SingleMeasurementDistanceHypothesis(
                     prediction, detection, distance, measurement_prediction))
 
             prediction = GaussianStatePrediction(track.state_vector + 1,
                                                  track.covar * 2, timestamp)
-            hypotheses.append(DistanceHypothesis(prediction, None, 10))
+            hypotheses.append(
+                SingleMeasurementDistanceHypothesis(prediction, None, 10))
             return hypotheses
     return TestGaussianHypothesiser()
 

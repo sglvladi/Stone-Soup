@@ -2,7 +2,9 @@ from scipy.stats import multivariate_normal as mn
 
 from .base import Hypothesiser
 from ..base import Property
-from ..types import ProbabilityHypothesis
+from ..types import MissedDetection
+from ..types.multimeasurementhypothesis import \
+    ProbabilityMultipleMeasurementHypothesis
 from ..types.numeric import Probability
 from ..predictor import Predictor
 from ..updater import Updater
@@ -39,17 +41,19 @@ class PDAHypothesiser(Hypothesiser):
     def hypothesise(self, track, detections, timestamp):
         r"""Hypothesise track and detection association
 
-        For a given track and a set of N detections, return a set of
-        N+1 hypotheses, each with an associated probability.  Hypotheses are
-        assumed to be exhaustive (sum of probabilities is 1) and mutually
-        exclusive (two hypotheses cannot be true at the same time).
+        For a given track and a set of N detections, return a
+        MultipleMeasurementHypothesis with N+1 detections (first detection is
+        a 'MissedDetection'), each with an associated probability.
+        Probabilities are assumed to be exhaustive (sum to 1) and mutually
+        exclusive (two detections cannot be the correct association at the
+        same time).
 
-        Hypothesis 0: missed detection, none of the detections are associated
+        Detection 0: missed detection, none of the detections are associated
         with the track.
-        Hypothesis :math:`m, m\epsilon{1...N}`: detection m is associated
+        Detection :math:`m, m\epsilon{1...N}`: detection m is associated
         with the track.
 
-        The probabilities for these hypotheses are calculated as follow:
+        The probabilities for these detections are calculated as follow:
 
         .. math::
 
@@ -92,38 +96,36 @@ class PDAHypothesiser(Hypothesiser):
 
         """
 
-        hypotheses = list()
+        weighted_detections = list()
+        probabilities = list()
+
+        # top-level items for the MultipleMeasurementHypothesis
+        prediction = self.predictor.predict(track.state, timestamp=timestamp)
+        measurement_prediction = self.updater.get_measurement_prediction(
+            prediction)
 
         # Missed detection hypothesis
         # probability = (1 - prob_detect) * prob_false_alarm
-        prediction = self.predictor.predict(track.state, timestamp=timestamp)
-        probability = 1-(self.prob_detect * self.prob_gate)
-        hypotheses.append(ProbabilityHypothesis(
-            prediction, None,
-            measurement_prediction=None,
-            probability=probability))
+        probabilities.append(
+            Probability(1-(self.prob_detect * self.prob_gate)))
+        weighted_detections.append(MissedDetection(timestamp=timestamp))
 
         for detection in detections:
 
             # hypothesis that track and given detection are associated
             # probability = (prob associated)* prob_detect
-            prediction = self.predictor.predict(
-                track.state, timestamp=detection.timestamp)
-            measurement_prediction = self.updater.get_measurement_prediction(
-                prediction)
             log_pdf = mn.logpdf(detection.state_vector.ravel(),
                                 measurement_prediction.state_vector.ravel(),
                                 measurement_prediction.covar)
             pdf = Probability(log_pdf, log_value=True)
             probability = (pdf * self.prob_detect)/self.clutter_spatial_density
 
-            hypotheses.append(ProbabilityHypothesis(
-                prediction, detection,
-                measurement_prediction=measurement_prediction,
-                probability=probability))
+            probabilities.append(probability)
+            weighted_detections.append(detection)
 
-        # Normalize probabilities
-        sum_probabilities = Probability.sum([hypothesis.probability
-                                             for hypothesis in hypotheses])
+        result = ProbabilityMultipleMeasurementHypothesis(
+            prediction, measurement_prediction)
+        result.add_weighted_detections(
+            weighted_detections, probabilities, normalize=True)
 
         return result

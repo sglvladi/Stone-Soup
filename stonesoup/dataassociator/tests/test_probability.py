@@ -5,7 +5,7 @@ import pytest
 import numpy as np
 
 from ..probability import SimplePDA
-from ...types import Track, Detection, GaussianState
+from ...types import Track, Detection, GaussianState, MissedDetection
 
 
 @pytest.fixture(params=[SimplePDA])
@@ -49,5 +49,5 @@ def test_missed_detection_probability(associator):
     associations = associator.associate(tracks, detections, timestamp)
 
     # Best hypothesis should be missed detection hypothesis
-    assert all(hypothesis.measurement is None
+    assert all(isinstance(hypothesis.measurement, MissedDetection)
                for hypothesis in associations.values())

@@ -5,6 +5,7 @@ import numpy as np
 from .base import Updater
 from ..types import (GaussianMeasurementPrediction,
                      GaussianStateUpdate)
+from ..types import MissedDetection
 
 
 class KalmanUpdater(Updater):
@@ -219,46 +220,55 @@ class PDAKalmanUpdater(Updater):
 
         Parameters
         ----------
-        multihypothesis : :class:`~.MultipleHypothesis`
-            MultipleHypothesis with predicted state and associated detection
-            used for updating.
+        multihypothesis : :class:`~.MultipleMeasurementHypothesis`
+            MultipleMeasurementHypothesis with predicted state and associated
+            detection used for updating.
 
         Returns
         -------
         : :class:`~.GaussianStateUpaate`
             The computed state posterior
 
-        Notes
-        -----
-        hypothesis.measurement_prediction should be the same for all
-        hypothesis in multihypothesis
         """
 
-        for hypothesis in multihypothesis.hypotheses:
-            if hypothesis.measurement_prediction is None:
-                hypothesis.measurement_prediction = \
-                    self.get_measurement_prediction(hypothesis.prediction,
-                                                    **kwargs)
+        if multihypothesis.measurement_prediction is None:
+            multihypothesis.measurement_prediction = \
+                self.get_measurement_prediction(multihypothesis.prediction,
+                                                **kwargs)
 
+        measurements = \
+            np.hstack(measurement["measurement"].state_vector
+                      for measurement in multihypothesis.weighted_measurements
+                      if not isinstance(
+                        measurement["measurement"], MissedDetection))
+        weights = np.concatenate(
+            (np.hstack([float(measurement["weight"])
+                       for measurement in
+                        multihypothesis.weighted_measurements
+                       if isinstance(
+                        measurement["measurement"], MissedDetection)]),
+                np.hstack([float(measurement["weight"])
+                          for measurement in
+                           multihypothesis.weighted_measurements
+                          if not isinstance(
+                           measurement["measurement"], MissedDetection)])))
         posterior_mean, posterior_covar, _ = \
             self._update_on_measurement_prediction(
-                multihypothesis.hypotheses[0].prediction.mean,
-                multihypothesis.hypotheses[0].prediction.covar,
-                np.hstack(hypothesis.measurement.state_vector
-                          for hypothesis in multihypothesis.hypotheses
-                          if hypothesis.measurement is not None),
-                np.array([float(hypothesis.probability)
-                          for hypothesis in multihypothesis.hypotheses]),
-                multihypothesis.hypotheses[0].measurement_prediction.mean,
-                multihypothesis.hypotheses[0].measurement_prediction.covar,
-                multihypothesis.hypotheses[0].measurement_prediction.
-                cross_covar)
+                multihypothesis.prediction.mean,
+                multihypothesis.prediction.covar,
+                measurements,
+                weights,
+                multihypothesis.measurement_prediction.mean,
+                multihypothesis.measurement_prediction.covar,
+                multihypothesis.measurement_prediction.cross_covar)
 
-        return GaussianStateUpdate(posterior_mean,
-                                   posterior_covar,
-                                   multihypothesis,
-                                   multihypothesis.hypotheses[-1].
-                                   measurement.timestamp)
+        return \
+            GaussianStateUpdate(posterior_mean,
+                                posterior_covar,
+                                multihypothesis,
+                                multihypothesis.weighted_measurements[-1]
+                                ["measurement"].timestamp
+                                )
 
     @staticmethod
     def update_lowlevel(x_pred, P_pred, H, R, y, W):
