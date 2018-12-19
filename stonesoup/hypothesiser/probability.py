@@ -126,7 +126,4 @@ class PDAHypothesiser(Hypothesiser):
         sum_probabilities = Probability.sum([hypothesis.probability
                                              for hypothesis in hypotheses])
 
-        for hypothesis in hypotheses:
-            hypothesis.probability /= sum_probabilities
-
-        return sorted(hypotheses, reverse=True)
+        return result
