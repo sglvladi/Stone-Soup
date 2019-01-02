@@ -12,6 +12,21 @@ from .detection import Detection, MissedDetection
 class MultipleMeasurementHypothesis(Hypothesis):
     """Multiple Measurement Hypothesis base type
 
+    A Multiple Measurement Hypothesis relates to 1 Track with 1 Prediction,
+    and then multiple measurements ('weighted_measurements') that *could* be
+    the correct association for this Track.  Each 'weighted_measurement' is
+    recorded as a 'dict' with a 'measurement' and a 'weight'.  If one of the
+    measurements has been recorded as the *correct* measurement, then it is
+    linked to 'selected_measurement' (associated weight is not linked).
+
+    Properties
+    ----------
+    prediction : :class:`Prediction`
+        prediction of Track position at prediction.timestamp
+    measurement_prediction : :class:`MeasurementPrediction`
+        prediction of the correct measurement with covariance matrix
+    weighted_measurements : :class:`list`
+        list of dict{"measurement": Detection, "weight": float or int}
     """
 
     prediction = Property(
@@ -29,6 +44,10 @@ class MultipleMeasurementHypothesis(Hypothesis):
         Detection,
         default=None,
         doc="The measurement that was selected to associate with a track.")
+
+    @property
+    def measurement(self):
+        return self.get_selected_measurement()
 
     def add_weighted_detections(self, measurements, weights, normalize=False):
 
@@ -57,7 +76,7 @@ class MultipleMeasurementHypothesis(Hypothesis):
                  "weight": weights[index]})
 
     def __bool__(self):
-        if (self.selected_measurement is not None):
+        if self.selected_measurement is not None:
             return not isinstance(self.selected_measurement, MissedDetection)
         else:
             raise Exception('Cannot check whether a '
@@ -83,15 +102,17 @@ class MultipleMeasurementHypothesis(Hypothesis):
             raise Exception('best measurement in MultipleMeasurementhypothesis'
                             ' not selected, so it cannot be returned!')
 
-    @property
-    def measurement(self):
-        return self.get_selected_measurement()
-
 
 class ProbabilityMultipleMeasurementHypothesis(MultipleMeasurementHypothesis):
     """Probability-scored multiple measurement hypothesis.
 
+    Sub-type of MultipleMeasurementHypothesis where 'weight' must be of
+    type Probability.  One of the 'weighted_measurements' MUST be a
+    MissedDetection.  Used primarily with Probabilistic Data Association (PDA).
     """
+
+    def __init__(self, prediction, measurement_prediction, *args, **kwargs):
+        super().__init__(prediction, measurement_prediction, *args, **kwargs)
 
     def add_weighted_detections(self, measurements, weights, normalize=False):
         self.weighted_measurements = list()
@@ -118,3 +139,9 @@ class ProbabilityMultipleMeasurementHypothesis(MultipleMeasurementHypothesis):
             self.weighted_measurements.append(
                 {"measurement": measurements[index],
                  "weight": weights[index]})
+
+    def get_missed_detection_probability(self):
+        for measurement in self.weighted_measurements:
+            if isinstance(measurement["measurement"], MissedDetection):
+                return measurement["weight"]
+        return None
