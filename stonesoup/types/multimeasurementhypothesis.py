@@ -5,143 +5,107 @@ import numpy as np
 from ..base import Property
 from ..types import Hypothesis
 from .numeric import Probability
-from .prediction import MeasurementPrediction, Prediction
-from .detection import Detection, MissedDetection
+from .detection import MissedDetection
+from .hypothesis import SingleMeasurementHypothesis
 
 
 class MultipleMeasurementHypothesis(Hypothesis):
     """Multiple Measurement Hypothesis base type
 
-    A Multiple Measurement Hypothesis relates to 1 Track with 1 Prediction,
-    and then multiple measurements ('weighted_measurements') that *could* be
-    the correct association for this Track.  Each 'weighted_measurement' is
-    recorded as a 'dict' with a 'measurement' and a 'weight'.  If one of the
-    measurements has been recorded as the *correct* measurement, then it is
-    linked to 'selected_measurement' (associated weight is not linked).
+    A Multiple Measurement Hypothesis relates to a situation where there is
+    one Target with a predicted position, and multiple measurements that could
+    be associated with that Target.  'single_measurement_hypotheses' contains
+    the hypotheses for each of these individual measurements to be associated
+    with that Target; the likelihood of each association is stored in the
+    'probability' or 'distance' parameter of the hypothesis.  The
+    'MissedDetection' hypothesis is also included in
+    'single_measurement_hypotheses'.  If one of these hypotheses has been
+    selected as the *correct* association, then it is linked to
+    'selected_hypothesis'.
 
     Properties
     ----------
-    prediction : :class:`Prediction`
-        prediction of Track position at prediction.timestamp
-    measurement_prediction : :class:`MeasurementPrediction`
-        prediction of the correct measurement with covariance matrix
-    weighted_measurements : :class:`list`
-        list of dict{"measurement": Detection, "weight": float or int}
+    single_measurement_hypotheses : :class:`list`
+        list of Target/Measurement association hypotheses
+    selected_hypothesis : :class:`SingleMeasurementHypothesis`
+        the selected *correct* hypothesis
     """
 
-    prediction = Property(
-        Prediction,
-        doc="Predicted track state")
-    measurement_prediction = Property(
-        MeasurementPrediction,
+    single_measurement_hypotheses = Property(
+        [SingleMeasurementHypothesis],
+        doc='Hypotheses of Measurements being associated with a Target.'
+    )
+    selected_hypothesis = Property(
+        SingleMeasurementHypothesis,
         default=None,
-        doc="Optional track prediction in measurement space")
-    weighted_measurements = Property(
-        list,
-        default=list(),
-        doc="Weighted measurements used for hypothesis and updating")
-    selected_measurement = Property(
-        Detection,
-        default=None,
-        doc="The measurement that was selected to associate with a track.")
+        doc="The Hypothesis that was selected as the association with a Target.")
 
     @property
     def measurement(self):
-        return self.get_selected_measurement()
+        return self.single_measurement_hypotheses[0].measurement
 
-    def add_weighted_detections(self, measurements, weights, normalize=False):
+    @property
+    def prediction(self):
+        return self.single_measurement_hypotheses[0].prediction
 
-        # verify that 'measurements' and 'weights' are the same size and the
-        # correct data types
-        if any(not (isinstance(measurement, Detection))
-               for measurement in measurements):
-            raise Exception('measurements must all be of type Detection!')
-        if any(not (isinstance(weight, float) or isinstance(weight, int))
-               for weight in weights):
-            raise Exception('weights must all be of type float or int!')
-        if len(measurements) != len(weights):
-            raise Exception('There must be the same number of weights '
-                            'and measurements!')
+    @property
+    def measurement_prediction(self):
+        return self.single_measurement_hypotheses[0].measurement_prediction
 
-        # normalize the weights to sum up to 1 if indicated
-        if normalize is True:
-            sum_weights = sum(weights)
-            for index in range(0, len(weights)):
-                weights[index] /= sum_weights
-
-        # store weights and measurements in 'weighted_measurements'
-        for index in range(0, len(measurements)):
-            self.weighted_measurements.append(
-                {"measurement": measurements[index],
-                 "weight": weights[index]})
+    @property
+    def timestamp(self):
+        return self.single_measurement_hypotheses[0].measurement.timestamp
 
     def __bool__(self):
-        if self.selected_measurement is not None:
-            return not isinstance(self.selected_measurement, MissedDetection)
+        if self.selected_hypothesis is not None:
+            return not isinstance(self.selected_hypothesis.measurement, MissedDetection)
         else:
             raise Exception('Cannot check whether a '
                             'MultipleMeasurementHypothesis.'
                             'selected_measurement is a MissedDetection before'
                             ' it has been set!')
 
-    def set_selected_measurement(self, detection):
-        if any(np.array_equal(detection.state_vector,
-                              measurement["measurement"].state_vector)
-               for measurement in self.weighted_measurements):
-            self.selected_measurement = detection
+    def set_selected_hypothesis(self, selected_hypothesis):
+        if any(np.array_equal(hypothesis.measurement.state_vector,
+                              selected_hypothesis.measurement.state_vector)
+               for hypothesis in self.single_measurement_hypotheses):
+            self.selected_hypothesis = selected_hypothesis
         else:
             raise Exception('Cannot set MultipleMeasurementHypothesis.'
-                            'selected_measurement to a value not contained in'
+                            'selected_hypothesis to a value not contained in'
                             ' MultipleMeasurementHypothesis.'
-                            'weighted_detections!')
+                            'single_measurement_hypotheses!')
 
-    def get_selected_measurement(self):
-        if self.selected_measurement is not None:
-            return self.selected_measurement
+    def get_selected_hypothesis(self):
+        if self.selected_hypothesis is not None:
+            return self.selected_hypothesis
         else:
-            raise Exception('best measurement in MultipleMeasurementhypothesis'
+            raise Exception('best hypothesis in MultipleMeasurementHypothesis'
                             ' not selected, so it cannot be returned!')
 
 
 class ProbabilityMultipleMeasurementHypothesis(MultipleMeasurementHypothesis):
     """Probability-scored multiple measurement hypothesis.
 
-    Sub-type of MultipleMeasurementHypothesis where 'weight' must be of
-    type Probability.  One of the 'weighted_measurements' MUST be a
-    MissedDetection.  Used primarily with Probabilistic Data Association (PDA).
+    Sub-type of MultipleMeasurementHypothesis where the hypotheses must be of
+    type 'SingleMeasurementProbabilityHypothesis'. One of the hypotheses MUST
+    be the MissedDetection hypothesis.  Used with Probabilistic Data
+    Association (PDA).
     """
 
-    def __init__(self, prediction, measurement_prediction, *args, **kwargs):
-        super().__init__(prediction, measurement_prediction, *args, **kwargs)
+    def __init__(self, single_measurement_hypotheses, *args, **kwargs):
+        super().__init__(single_measurement_hypotheses, *args, **kwargs)
 
-    def add_weighted_detections(self, measurements, weights, normalize=False):
-        self.weighted_measurements = list()
+    def normalize_probabilities(self):
+        sum_weights = Probability.sum(hypothesis.probability for hypothesis in self.single_measurement_hypotheses)
 
-        # verify that 'measurements' and 'weights' are the same size and the
-        # correct data types
-        if any(not (isinstance(measurement, Detection))
-               for measurement in measurements):
-            raise Exception('measurements must all be of type Detection!')
-        if any(not isinstance(weight, Probability) for weight in weights):
-            raise Exception('weights must all be of type Probability!')
-        if len(measurements) != len(weights):
-            raise Exception('There must be the same number of weights '
-                            'and measurements!')
+        for hypothesis in self.single_measurement_hypotheses:
+            hypothesis.probability = hypothesis.probability/sum_weights
 
-        # normalize the weights to sum up to 1 if indicated
-        if normalize is True:
-            sum_weights = Probability.sum(weights)
-            for index in range(0, len(weights)):
-                weights[index] /= sum_weights
-
-        # store probabilities and measurements in 'weighted_measurements'
-        for index in range(0, len(measurements)):
-            self.weighted_measurements.append(
-                {"measurement": measurements[index],
-                 "weight": weights[index]})
+        #return self
 
     def get_missed_detection_probability(self):
-        for measurement in self.weighted_measurements:
-            if isinstance(measurement["measurement"], MissedDetection):
-                return measurement["weight"]
+        for hypothesis in self.single_measurement_hypotheses:
+            if isinstance(hypothesis.measurement, MissedDetection):
+                return hypothesis.probability
         return None
