@@ -1,8 +1,13 @@
 # -*- coding: utf-8 -*-
 
+import numpy as np
+
 from .base import DataAssociator
 from ..base import Property
 from ..hypothesiser import Hypothesiser
+from ..types.detection import MissedDetection
+from ..types.hypothesis import JointHypothesis
+from ..functions import auction
 
 
 class NearestNeighbour(DataAssociator):
@@ -91,13 +96,39 @@ class GlobalNearestNeighbour(DataAssociator):
             Key value pair of tracks with associated detection
         """
 
+        # Assign an index to each detection
+        for ind, detection in enumerate(detections):
+            detection.metadata["ind"] = ind + 1
+
         # Generate a set of hypotheses for each track on each detection
         hypotheses = {
             track: self.hypothesiser.hypothesise(track, detections, time)
             for track in tracks}
 
+        # Construct cost matrix
+        num_tracks, num_detections = (len(tracks), len(detections))
+        cost_matrix = np.full((num_tracks, num_detections + 1), -np.inf)
+        for t_ind, track in enumerate(tracks):
+            for hypothesis in hypotheses[track]:
+                if isinstance(hypothesis.measurement, MissedDetection):
+                    cost_matrix[t_ind, 0] = -hypothesis.distance
+                else:
+                    cost_matrix[t_ind, hypothesis.measurement.metadata["ind"]] = -hypothesis.distance
+
+        # Perform auction
+        assignments, _ = auction(cost_matrix)
+
+        # Get joint hypothesis
+        joint_hypothesis = dict()
+        for t_ind, track in enumerate(tracks):
+            joint_hypothesis[track] = [x for x in hypotheses[track]
+                                       if (assignments[t_ind] == 0 and isinstance(x.measurement, MissedDetection))
+                                       or (not isinstance(x.measurement, MissedDetection)
+                                           and x.measurement.metadata["ind"] == assignments[t_ind])][0]
+        associations = JointHypothesis(joint_hypothesis)
+
         # Link hypotheses into a set of joint_hypotheses and evaluate
-        joint_hypotheses = self.enumerate_joint_hypotheses(hypotheses)
-        associations = max(joint_hypotheses)
+        # joint_hypotheses = self.enumerate_joint_hypotheses(hypotheses)
+        # associations = max(joint_hypotheses)
 
         return associations

@@ -121,17 +121,23 @@ class LongLatToUTMConverter(Feeder):
                 if self.northern is None:
                     self.northern = northern >= 'N'
                 elif (self.northern and northern < 'N') or (
-                            not self.northern and northern >= 'N'):
+                        not self.northern and northern >= 'N'):
                     warnings.warn("Detection cannot be converted to UTM zone")
                     continue
 
                 state_vector = detection.state_vector.copy()
                 state_vector[self.mapping, 0] = easting, northing
+                metadata = detection.metadata.copy()
+                metadata.update({
+                    'Latitute': detection.state_vector[self.mapping[1], 0],
+                    'Longitude': detection.state_vector[self.mapping[0], 0],
+                    'Zone_Number': self.zone_number,
+                    'Northern': self.northern})
                 self._detections.add(
                     Detection(
                         state_vector,
                         timestamp=detection.timestamp,
                         measurement_model=detection.measurement_model,
-                        metadata=detection.metadata))
+                        metadata=metadata))
 
             yield time, self.detections

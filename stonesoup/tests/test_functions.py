@@ -3,7 +3,7 @@ from numpy import deg2rad
 from pytest import approx
 
 from ..functions import (
-    jacobian, gm_reduce_single, mod_bearing, mod_elevation)
+    jacobian, gm_reduce_single, mod_bearing, mod_elevation, auction)
 
 
 def test_jacobian():
@@ -97,3 +97,9 @@ def test_elevation():
 
     for ind, val in enumerate(rad_in):
         assert rad_out[ind] == approx(mod_elevation(val))
+
+def test_auction():
+    valuematrix = np.array([[1, 5, 9], [0, -1, 5]])
+    print(auction(valuematrix))
+
+test_auction()

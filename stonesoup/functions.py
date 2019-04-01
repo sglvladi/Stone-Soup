@@ -2,6 +2,7 @@
 """Mathematical functions used within Stone Soup"""
 
 import numpy as np
+# from .types.array import StateVector, CovarianceMatrix
 
 
 def tria(matrix):
@@ -156,11 +157,12 @@ def sigma2gauss(sigma_points, mean_weights, covar_weights, covar_noise=None):
         Calculated covariance
     """
 
-    mean = sigma_points@mean_weights[:, np.newaxis]
+    mean = sigma_points.astype(np.float_)@mean_weights[:, np.newaxis]
 
     points_diff = sigma_points - mean
 
-    covar = points_diff@(np.diag(covar_weights))@(points_diff.T)
+    covar = points_diff.astype(np.float_)@(
+        np.diag(covar_weights))@(points_diff.astype(np.float_).T)
     if covar_noise is not None:
         covar = covar + covar_noise
     return mean, covar
@@ -228,9 +230,9 @@ def unscented_transform(sigma_points, mean_weights, covar_weights,
 
     # Calculate cross-covariance
     cross_covar = (
-        (sigma_points-sigma_points[:, 0:1])
+        (sigma_points-sigma_points[:, 0:1]).astype(np.float_)
         @np.diag(mean_weights)
-        @(sigma_points_t-mean).T
+        @(sigma_points_t-mean).astype(np.float_).T
     )
 
     return mean, covar, cross_covar,\
@@ -541,3 +543,48 @@ def mod_elevation(x):
     elif N == 3:
         x = x - 2.0 * np.pi
     return x
+
+
+def auction(valuearray):
+    """
+    Calculate the assignment vector a to maximise sum_i valuearray[i,a(i)]
+    where a(i) cannot have common nonzero values (i.e. first column of
+    valuearray is the weights of the null hypothesis
+    Return assigns, total value
+    """
+    nobjs, nhyps = valuearray.shape
+    bidincrement = 1e-6 # change later
+    prices = [0.]*nhyps # price of each hypothesis
+    assigns = [0]*nobjs # hypothesis assigned to each object
+    hyps2objs = [None]*nhyps # object assigned to each hypothesis
+    ishappy = [False]*nobjs # whether each object is happy
+
+    while not all(ishappy):
+        # Get unhappy object
+        unhappyobj = [i for i,x in enumerate(ishappy) if not x][0]
+        # Get net benefit of hypotheses to this object at current prices
+        netvalues = list(valuearray[unhappyobj,:] - prices)
+        bestval = max(netvalues)
+        besthyp = netvalues.index(bestval)
+        # If object already has the best deal, it is happy
+        if netvalues[assigns[unhappyobj]] < bestval - bidincrement:
+            # Otherwise, object puts a higher bid on its best deal and claims it
+            if besthyp > 0: # new assignment not null
+                # Increase price of new assignment
+                secondbestval = max(netvalues[:besthyp] + netvalues[besthyp+1:])
+                prices[besthyp] += bestval - secondbestval + bidincrement
+                oldobj = hyps2objs[besthyp]
+                # If the hypothesis was already assigned, deassign from whatever
+                # object had it
+                if oldobj is not None:
+                    assigns[oldobj] = 0
+                    ishappy[oldobj] = False
+            # Unhappy object claims assignment and becomes happy
+            assigns[unhappyobj] = besthyp
+            hyps2objs[besthyp] = unhappyobj
+        ishappy[unhappyobj] = True
+    # Get total value of assignment
+    totvalue = 0
+    for i, assign in enumerate(assigns):
+        totvalue += valuearray[i, assign]
+    return assigns, totvalue
