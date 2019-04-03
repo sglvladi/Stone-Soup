@@ -35,3 +35,42 @@ def test_mahalanobis(predictor, updater):
 
     # The hypotheses are sorted correctly
     assert min(hypotheses, key=attrgetter('distance')) is hypotheses[0]
+
+
+def test_gm_mahalanobis(predictor, updater):
+
+    timestamp = datetime.datetime.now()
+    gaussian_mixture = GaussianMixtureState(
+        [WeightedGaussianState(
+            np.array([[0.3]]), np.array([[1]]), timestamp, 0.4),
+            WeightedGaussianState(
+                np.array([[5]]), np.array([[0.5]]), timestamp, 0.3)])
+    detection1 = Detection(np.array([[1]]),
+                           timestamp=timestamp+datetime.timedelta(seconds=1))
+    detection2 = Detection(np.array([[6.2]]),
+                           timestamp=timestamp+datetime.timedelta(seconds=1))
+    detections = {detection1, detection2}
+
+    hypothesiser = GMMahalanobisDistanceHypothesiser(predictor, updater, 10)
+
+    hypotheses = hypothesiser.hypothesise(gaussian_mixture,
+                                          detections, timestamp)
+
+    # There are 4 hypotheses - 2 each associated with detection1/detection2
+    assert all(isinstance(multi_hyp, MultipleHypothesis)
+               for multi_hyp in hypotheses)
+    assert all(isinstance(hyp, SingleHypothesis)
+               for multi_hyp in hypotheses for hyp in multi_hyp)
+    assert len(hypotheses) == 2
+    assert len(hypotheses[0]) == 2
+    assert len(hypotheses[1]) == 2
+
+    # each SingleHypothesis has a distance attribute
+    assert all(hyp.distance >= 0
+               for multi_hyp in hypotheses for hyp in multi_hyp)
+
+    # sanity-check the values returned by the hypothesiser
+    assert hypotheses[0][0].distance < 10
+    assert hypotheses[0][1].distance > 0
+    assert hypotheses[1][0].distance > 0
+    assert hypotheses[1][1].distance < 10

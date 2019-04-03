@@ -10,9 +10,8 @@ from ...types.hypothesis import SingleDistanceHypothesis, \
     SingleProbabilityHypothesis
 from ...types.multihypothesis import MultipleHypothesis
 from ...types.prediction import StateMeasurementPrediction, \
-    GaussianStatePrediction
-from ...types.track import Track
-from ...types.update import GaussianStateUpdate
+    GaussianStatePrediction, GaussianMeasurementPrediction
+from ...types import Track, GaussianStateUpdate
 
 
 @pytest.fixture()
@@ -120,7 +119,23 @@ def updater():
     class TestUpdater:
         def update(self, hypothesis):
             return GaussianStateUpdate(hypothesis.measurement.state_vector,
-                                       hypothesis.measurement.covar,
+                                       hypothesis.prediction.covar,
                                        hypothesis,
                                        0)
+
+        def get_measurement_prediction(self, state_prediction, **kwargs):
+            return GaussianMeasurementPrediction(
+                    state_prediction.state_vector,
+                    state_prediction.covar,
+                    state_prediction.timestamp)
+
     return TestUpdater()
+
+
+@pytest.fixture()
+def predictor():
+    class TestGaussianPredictor:
+        def predict(self, prior, control_input=None, timestamp=None, **kwargs):
+            return GaussianStatePrediction(prior.state_vector+1,
+                                           prior.covar * 2, timestamp)
+    return TestGaussianPredictor()

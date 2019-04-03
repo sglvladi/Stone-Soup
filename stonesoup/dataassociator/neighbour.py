@@ -101,3 +101,41 @@ class GlobalNearestNeighbour(DataAssociator):
         associations = max(joint_hypotheses)
 
         return associations
+
+
+class GaussianMixtureAssociator(DataAssociator):
+    """Gaussian Mixture (GM) Associator
+
+    Hypothesiser returns a list of MultipleHypothesis objects where each
+    object contains SingleHypotheses with the Mahalanobis Distance between a
+    Detection and each component of the predicted Gaussian Mixture state, and
+    each MultipleHypothesis contains SingleHypotheses related to a SINGLE
+    Detection.  This associator just passes through the results.
+    """
+
+    hypothesiser = Property(
+        Hypothesiser,
+        doc="Generates hypotheses for each Gaussian Mixture component-"
+            "detection pair")
+
+    def associate(self, predict_state, detections, time):
+        """Returns the result of calling the hypothesiser.
+
+        Parameters
+        ----------
+        predict_state : :class:`list`
+            List of :class:`WeightedGaussianState` components
+            representing the predicted state of the space
+        detections : list of :class:`Detection`
+            Retrieved measurements
+        time : datetime
+            time of the detections/predicted state
+
+        Returns
+        -------
+        list of :class:`MultipleHypothesis`
+            each MultipleHypothesis in the list contains SingleHypotheses
+            pertaining to the same Detection
+        """
+
+        return self.hypothesiser.hypothesise(predict_state, detections, time)

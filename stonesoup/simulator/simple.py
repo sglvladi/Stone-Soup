@@ -90,13 +90,12 @@ class MultiTargetGroundTruthSimulator(SingleTargetGroundTruthSimulator):
                     time_interval=self.timestep)
                 gttrack.append(GroundTruthState(
                     trans_state_vector, timestamp=time))
-
             # Random create
             for _ in range(np.random.poisson(self.birth_rate)):
                 gttrack = GroundTruthPath()
                 gttrack.append(GroundTruthState(
                     self.initial_state.state_vector +
-                    np.sqrt(self.initial_state.covar) @
+                    self.initial_state.covar @
                     np.random.randn(self.initial_state.ndim, 1),
                     timestamp=time))
                 self._groundtruth_paths.add(gttrack)
@@ -140,19 +139,32 @@ class SimpleDetectionSimulator(DetectionSimulator):
                                      self.meas_range[dim][-1]))
         return self.clutter_rate/meas_volume
 
+    def in_state_space(self, detection):
+        """
+        Checks if a measurement is in the state space
+        """
+        is_valid = True
+        for dim in range(self.meas_range.ndim):
+            if not self.meas_range[dim][0] <= detection.state_vector[dim] \
+                                            <= self.meas_range[dim][-1]:
+                is_valid = False
+        return is_valid
+
     def detections_gen(self):
         for time, tracks in self.groundtruth.groundtruth_paths_gen():
             self.real_detections.clear()
             self.clutter_detections.clear()
-
+            self.number_of_active_targets = 0
             for track in tracks:
-                if np.random.rand() < self.detection_probability:
-                    detection = Detection(
-                        self.measurement_model.function(
-                            track[-1].state_vector),
-                        timestamp=track[-1].timestamp)
-                    detection.clutter = False
-                    self.real_detections.add(detection)
+                detection = Detection(
+                    self.measurement_model.function(
+                        track[-1].state_vector),
+                    timestamp=track[-1].timestamp)
+                detection.clutter = False
+                if self.in_state_space(detection):
+                    self.number_of_active_targets += 1
+                    if np.random.rand() < self.detection_probability:
+                        self.real_detections.add(detection)
 
             # generate clutter
             for _ in range(np.random.poisson(self.clutter_rate)):
@@ -160,6 +172,7 @@ class SimpleDetectionSimulator(DetectionSimulator):
                     np.random.rand(self.measurement_model.ndim_meas, 1) *
                     np.diff(self.meas_range) + self.meas_range[:, :1],
                     timestamp=time)
-                self.clutter_detections.add(detection)
+                if self.in_state_space(detection):
+                    self.clutter_detections.add(detection)
 
             yield time, self.detections
