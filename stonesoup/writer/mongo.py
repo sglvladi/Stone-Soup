@@ -12,20 +12,16 @@ from ..models.measurement.nonlinear import RangeBearingGaussianToCartesian
 
 class MongoWriter(Writer):
     """MongoDB Writer"""
-    """Parameters"""
-
-    # tracks_source = Property(Tracker)
 
     def write(self, tracks, host_name, host_port, db_name, collection_name, drop=False):
-        # client = MongoClient()
-        # client = MongoClient(host_name, port=host_port)
-        # db = client[db_name]
-        # collection = db[collection_name]
-        # if drop:
-        #     collection.drop()
+        client = MongoClient(host_name, port=host_port)
+        db = client[db_name]
+        collection = db[collection_name]
+        if drop:
+            collection.drop()
 
         for track in tracks:
-
+            # Determine data type
             if 'mmsi' in track.metadata and 'sensorTrackID' in track.metadata:
                 datatype = 'fused'
             elif 'sensorTrackID' in track.metadata:
@@ -33,12 +29,14 @@ class MongoWriter(Writer):
             else:
                 datatype = 'self_reported'
 
+            # Compute track latlon position
             position = to_latlon(
                 track.state_vector[0, 0],
                 track.state_vector[2, 0],
                 track.metadata['Zone_Number'],
                 northern=track.metadata['Northern'])
 
+            # Prepare values to insert
             values = {
                 'MMSI': track.metadata.get('mmsi'),
                 'dataType': datatype,
@@ -74,6 +72,5 @@ class MongoWriter(Writer):
                                                          and track.metadata['dsc'] != '' else None,
             }
 
-            # print(values)
-            # x = collection.insert_one(
-            #     values).inserted_id
+            # Insert values into Mongo
+            x = collection.insert_one(values).inserted_id
