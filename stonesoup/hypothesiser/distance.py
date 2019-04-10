@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 from .base import Hypothesiser
 from ..base import Property
-from ..measures import Measure
+from ..measures import Measure, Mahalanobis
 from ..predictor import Predictor
 from ..types.hypothesis import SingleDistanceHypothesis
 from ..types.multihypothesis import MultipleHypothesis
@@ -102,7 +102,6 @@ class GMMahalanobisDistanceHypothesiser(Hypothesiser):
         """
 
         hypotheses = list()
-
         for detection in detections:
 
             this_detect_hypotheses = list()

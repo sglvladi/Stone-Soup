@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import numpy as np
 from scipy.stats import multivariate_normal
 
 from ..base import Property
@@ -20,13 +21,13 @@ class GMLCCTargetTracker(GaussianMixtureMultiTargetTracker):
     """
     first_order_cumulant = Property(
         float,
-        default=0,
+        default=1,
         doc="The first order cumulant of the filter. This is equal to the mean"
             "estimated number of targets"
         )
     second_order_cumulant = Property(
         float,
-        default=0,
+        default=1,
         doc="The second order cumulant of the filter. This is equal to the "
             "variance on the estimated number of targets minus the mean of "
             "the estimated number of targets over a region. "
@@ -124,9 +125,11 @@ class GMLCCTargetTracker(GaussianMixtureMultiTargetTracker):
         # Detected intensity
         mu_d = self.prob_of_detection*self.first_order_cumulant
         # Calculate the beta value of the Panjer
-        beta = (self.first_order_cumulant + self.mean_FA) \
-            / (self.second_order_cumulant+self.c2_FA)
-        if beta == float('Inf'):
+        beta = 0
+        try:
+            beta = float(self.first_order_cumulant + self.mean_FA) \
+                / float(self.second_order_cumulant+self.c2_FA)
+        except ZeroDivisionError:
             beta = 1
         # Calculate the alpha value of the Panjer
         alpha_pred = ((self.first_order_cumulant + self.mean_FA)**2) \
@@ -154,11 +157,17 @@ class GMLCCTargetTracker(GaussianMixtureMultiTargetTracker):
                 measurement = hypotheses[i][j].measurement
                 prediction = hypotheses[i][j].prediction
                 # Calculate new weight and add to weight sum
-                q = multivariate_normal.pdf(
-                    measurement.state_vector.flatten(),
-                    mean=measurement_prediction.mean.flatten(),
-                    cov=measurement_prediction.covar
-                )
+                try:
+                    q = multivariate_normal.pdf(
+                        measurement.state_vector.flatten(),
+                        mean=measurement_prediction.mean.flatten(),
+                        cov=measurement_prediction.covar
+                    )
+                except ValueError:
+                    q = 1e-9
+                    print(measurement.state_vector.flatten())
+                    print(measurement_prediction.mean.flatten())
+                    print(measurement_prediction.covar)
                 new_weight = self.prob_of_detection*prediction.weight*q
                 weight_sum += new_weight
                 # Perform single target Kalman Update
@@ -198,10 +207,22 @@ class GMLCCTargetTracker(GaussianMixtureMultiTargetTracker):
             self.reducer.reduce(self.gaussian_mixture.components)
 
         # Calulate the updated second order cumulant
-        detected_c2 = sum((weight_sum_array /
-                          (weight_sum_array+self.clutter_spatial_density))**2)
+        weight_sum_array_w_clutter = \
+            np.array(
+                [x+self.clutter_spatial_density for x in weight_sum_array])
+        weight_sum_array = np.array(weight_sum_array)
+
+        detected_c2 = sum((weight_sum_array / weight_sum_array_w_clutter)**2)
         misdetected_c2 = (mu_phi**2) * l2
         self.second_order_cumulant = misdetected_c2 - detected_c2
-
+        # Calulate the first order cumulant
+        self.first_order_cumulant = self.estimated_number_of_targets
         # Update the tracks
-        self.tracks_gen()
+        # self.tracks_gen()
+
+    @property
+    def estimated_target_number_variance(self):
+        """
+        The estimated variance on the number of hypothesised targets.
+        """
+        return self.second_order_cumulant + self.first_order_cumulant

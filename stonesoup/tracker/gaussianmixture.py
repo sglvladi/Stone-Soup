@@ -4,7 +4,7 @@ from ..reader import DetectionReader
 from ..predictor import Predictor
 from ..types import TaggedWeightedGaussianState, GaussianMixtureState, Track
 from ..updater import Updater
-from ..hypothesiser import GMMahalanobisDistanceHypothesiser
+from ..hypothesiser.distance import GMMahalanobisDistanceHypothesiser
 from ..dataassociator.neighbour import GaussianMixtureAssociator
 from ..mixturereducer import GaussianMixtureReducer
 from .. import measures

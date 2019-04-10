@@ -164,7 +164,7 @@ class GaussianMixtureReducer(MixtureReducer):
             ]
             # Get highest weighted component
             best_weight = 0
-            best_component = None
+            best_component = remaining_components[0]
             for index, component in enumerate(remaining_components):
                 if component.weight > best_weight:
                     best_weight = component.weight
