@@ -1,9 +1,9 @@
 # -*- coding: utf-8 -*-
 import numpy as np
-from scipy.spatial import distance as dist
 
 from ..base import Property
 from .base import MixtureReducer
+from ..measures import Measure, GaussianHellinger
 from ..types import TaggedWeightedGaussianState, WeightedGaussianState
 
 
@@ -33,7 +33,7 @@ class GaussianMixtureReducer(MixtureReducer):
 
     prune_threshold = Property(float, default=1e-9,
                                doc="Threshold for pruning.")
-    merge_threshold = Property(float, default=16,
+    merge_threshold = Property(float, default=0.9,
                                doc='Threshold for merging')
 
     def reduce(self, components_list):
@@ -153,6 +153,7 @@ class GaussianMixtureReducer(MixtureReducer):
             Merged components
 
         """
+        hellinger = GaussianHellinger()
         remaining = [True] * len(components_list)
 
         merged_components = []
@@ -174,10 +175,9 @@ class GaussianMixtureReducer(MixtureReducer):
             # Check for similar Components
             for index, component in enumerate(remaining_components):
                 # Calculate distance between component and best component
-                distance = dist.mahalanobis(
-                    best_component.mean,
-                    component.mean,
-                    best_component.covar
+                distance = hellinger(
+                    best_component,
+                    component,
                 )
                 # Merge if similar
                 if distance < self.merge_threshold:

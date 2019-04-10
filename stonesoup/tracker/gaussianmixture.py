@@ -74,7 +74,7 @@ class GaussianMixtureMultiTargetTracker(Tracker):
         if ("merge_threshold" in kwargs):
             merge_threshold = kwargs.pop("merge_threshold")
         else:
-            merge_threshold = 16
+            merge_threshold = 0.3
 
         if ("prune_threshold" in kwargs):
             prune_threshold = kwargs.pop("prune_threshold")
