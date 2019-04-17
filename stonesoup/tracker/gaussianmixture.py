@@ -95,7 +95,7 @@ class GaussianMixtureMultiTargetTracker(Tracker):
         measure = measures.Mahalanobis()
         hypothesiser = GMMahalanobisDistanceHypothesiser(
                 self.predictor, self.updater, measure=measure,
-                association_distance=10)
+                association_distance=association_threshold)
 
         self.data_associator = GaussianMixtureAssociator(hypothesiser)
         # Create reducer
