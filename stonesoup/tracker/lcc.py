@@ -130,7 +130,7 @@ class GMLCCTargetTracker(GaussianMixtureMultiTargetTracker):
             beta = float(self.first_order_cumulant + self.mean_FA) \
                 / float(self.second_order_cumulant+self.c2_FA)
         except ZeroDivisionError:
-            beta = 1
+            beta = 1  # noqa: F841
         # Calculate the alpha value of the Panjer
         alpha_pred = ((self.first_order_cumulant + self.mean_FA)**2) \
             / (self.second_order_cumulant+self.c2_FA)

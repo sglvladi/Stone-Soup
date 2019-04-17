@@ -3,7 +3,7 @@ import numpy as np
 
 from ..base import Property
 from .base import MixtureReducer
-from ..measures import Measure, GaussianHellinger
+from ..measures import GaussianHellinger
 from ..types import TaggedWeightedGaussianState, WeightedGaussianState
 
 
@@ -52,10 +52,12 @@ class GaussianMixtureReducer(MixtureReducer):
             Reduced components
 
             """
+        print(len(components_list))
         if len(components_list) > 0:
             components_list = self.prune(components_list)
             if len(components_list) > 1:
                 components_list = self.merge(components_list)
+        print(len(components_list))
         return components_list
 
     def prune(self, components_list):
@@ -174,11 +176,8 @@ class GaussianMixtureReducer(MixtureReducer):
             remaining_components.remove(best_component)
             # Check for similar Components
             for index, component in enumerate(remaining_components):
-                # Calculate distance between component and best component
-                distance = hellinger(
-                    best_component,
-                    component,
-                )
+                # Calculate distance between component   and best component
+                distance = hellinger(best_component, component)
                 # Merge if similar
                 if distance < self.merge_threshold:
                     remaining[components_list.index(component)] = False

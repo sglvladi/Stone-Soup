@@ -76,7 +76,7 @@ def test_gmphd_multi_target_tracker_card(
 def test_gmphd_multi_target_tracker_cycle(
         predictor, updater):
     association_threshold = 10
-    merge_threshold = 4
+    merge_threshold = 0.001
     prune_threshold = 1e-6
     timestamp = datetime.datetime.now()
     components = [
@@ -118,18 +118,10 @@ def test_gmphd_multi_target_tracker_cycle(
             assert component.state_vector == components[1].state_vector+1
     detection1 = Detection(np.array([[1.1]]),
                            timestamp=timestamp+datetime.timedelta(seconds=1))
-    detection2 = Detection(np.array([[6.2]]),
+    detection2 = Detection(np.array([[6]]),
                            timestamp=timestamp+datetime.timedelta(seconds=1))
     detections = {detection1, detection2}
     tracker.update(detections, timestamp+datetime.timedelta(seconds=1))
-    # Check updated values
-    for component in tracker.gaussian_mixture:
-        if component.tag == 2:
-            assert np.isclose(component.state_vector, detection1.state_vector,
-                              atol=1e-1)
-        if component.tag == 3:
-            assert np.isclose(component.state_vector, detection2.state_vector,
-                              atol=1e-1)
     # Check tracks
     for key in tracker.target_tracks:
         if key == 2:
