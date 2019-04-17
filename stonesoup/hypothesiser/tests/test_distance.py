@@ -4,10 +4,13 @@ import datetime
 
 import numpy as np
 
-from ..distance import DistanceHypothesiser
+from ..distance import DistanceHypothesiser, GMMahalanobisDistanceHypothesiser
 from ...types.detection import Detection
-from ...types.state import GaussianState
+from ...types.state import GaussianState, WeightedGaussianState
 from ...types.track import Track
+from ...types.hypothesis import SingleHypothesis
+from ...types.multihypothesis import MultipleHypothesis
+from ...types.mixture import GaussianMixtureState
 from ... import measures
 
 
@@ -50,8 +53,10 @@ def test_gm_mahalanobis(predictor, updater):
     detection2 = Detection(np.array([[6.2]]),
                            timestamp=timestamp+datetime.timedelta(seconds=1))
     detections = {detection1, detection2}
-
-    hypothesiser = GMMahalanobisDistanceHypothesiser(predictor, updater, 10)
+    measure = measures.Mahalanobis()
+    hypothesiser = GMMahalanobisDistanceHypothesiser(predictor, updater,
+                                                     measure=measure,
+                                                     association_distance=10)
 
     hypotheses = hypothesiser.hypothesise(gaussian_mixture,
                                           detections, timestamp)

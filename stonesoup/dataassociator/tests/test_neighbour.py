@@ -10,6 +10,7 @@ from ...types import (Track, Detection, GaussianState, SingleHypothesis,
                       MultipleHypothesis, TaggedWeightedGaussianState,
                       GaussianMixtureState)
 from ...hypothesiser import GMMahalanobisDistanceHypothesiser
+from ... import measures
 
 
 @pytest.fixture(params=[NearestNeighbour, GlobalNearestNeighbour])
@@ -59,8 +60,11 @@ def test_missed_detection_nearest_neighbour(associator):
 
 def test_gm_associator(probability_predictor, probability_updater):
 
-    hypothesiser = GMMahalanobisDistanceHypothesiser(
-        probability_predictor, probability_updater, 10)
+    measure = measures.Mahalanobis()
+    hypothesiser = GMMahalanobisDistanceHypothesiser(probability_predictor,
+                                                     probability_updater,
+                                                     measure=measure,
+                                                     association_distance=10)
     associator = GaussianMixtureAssociator(hypothesiser)
 
     timestamp = datetime.datetime.now()
