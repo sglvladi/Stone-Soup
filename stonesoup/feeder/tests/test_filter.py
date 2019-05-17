@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 import datetime
+import operator
 
-from ..filter import MetadataReducer
+from ..filter import MetadataReducer, MetadataValueFilter
 
 
 def test_metadata_reducer(detector):
@@ -28,3 +29,29 @@ def test_metadata_reducer(detector):
         assert all(time == detection.timestamp for detection in detections)
 
     assert multi_none
+
+
+def test_metadata_value_filter(detector):
+    feeder = MetadataValueFilter(detector,
+                                 metadata_field="score",
+                                 operator=operator.le,
+                                 reference_value=0.1)
+
+
+    nones = False
+    for time, detections in feeder.detections_gen():
+        all_scores = [detection.metadata.get('score')
+                       for detection in detections]
+        print(all_scores)
+        nones = nones | (len([score for score in all_scores if score is None]) > 1)
+
+        scores = [score for score in all_scores if score is not None]
+        assert len(scores) == len(set(scores))
+
+        assert 0 not in scores
+        if time < datetime.datetime(2019, 4, 1, 14, 0, 2):
+            assert all([score<=0.5 for score in scores])
+
+        assert all(time == detection.timestamp for detection in detections)
+
+    assert not nones
