@@ -224,10 +224,10 @@ for i, filename in enumerate(filenames):
 
         # Write data
         writer.write(tracks,
-                     host_name="138.253.118.205",
+                     host_name="138.253.118.175",
                      host_port=27017,
-                     db_name="Nelson",
-                     collection_name="AISData",
+                     db_name="TA_IHS",
+                     collection_name="SS_Tracks",
                      drop=False)
 
         # Plot the data

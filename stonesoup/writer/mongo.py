@@ -1,3 +1,4 @@
+
 # -*- coding: utf-8 -*-
 from pymongo import MongoClient
 from ..base import Property
@@ -16,22 +17,22 @@ from ..functions import cart2pol
 class MongoWriter(Writer):
     """MongoDB Writer"""
 
-    def __init__(self):
-        with open('tracks_3.csv', 'a', newline='') as f:
-            fields = ['ID', 'MMSI', 'LRIMOShipNo', 'Location', 'Latitude', 'Longitude',
-                      'DetectionHistory', 'ShipType', 'ShipName', 'CallSign', 'Beam', 'Draught',
-                      'Length', 'Speed', 'Heading', 'ETA', 'Destination', 'DestinationTidied',
-                      'AdditionalInfo', 'MovementDateTime', 'MovementID', 'MoveStatus', 'Time']
-
-            writer = csv.DictWriter(f, fieldnames=fields)
-            writer.writeheader()
+    # def __init__(self):
+        # with open('tracks_3.csv', 'a', newline='') as f:
+        #     fields = ['ID', 'MMSI', 'LRIMOShipNo', 'Location', 'Latitude', 'Longitude',
+        #               'DetectionHistory', 'ShipType', 'ShipName', 'CallSign', 'Beam', 'Draught',
+        #               'Length', 'Speed', 'Heading', 'ETA', 'Destination', 'DestinationTidied',
+        #               'AdditionalInfo', 'MovementDateTime', 'MovementID', 'MoveStatus', 'Time']
+        #
+        #     writer = csv.DictWriter(f, fieldnames=fields)
+        #     writer.writeheader()
 
     def write(self, tracks, host_name, host_port, db_name, collection_name, drop=False):
-        # client = MongoClient(host_name, port=host_port)
-        # db = client[db_name]
-        # collection = db[collection_name]
-        # if drop:
-        #     collection.drop()
+        client = MongoClient(host_name, port=host_port)
+        db = client[db_name]
+        collection = db[collection_name]
+        if drop:
+            collection.drop()
 
         values_list = []
         for track in tracks:
@@ -99,8 +100,8 @@ class MongoWriter(Writer):
             }
             values_list.append(values)
             # Insert values into Mongo
-            # x = collection.insert_one(values).inserted_id
+            x = collection.insert_one(values).inserted_id
 
-        with open('tracks_3.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fields)
-            writer.writerows(values_list)
+        # with open('tracks_3.csv', 'a', newline='') as f:
+        #     writer = csv.DictWriter(f, fieldnames=fields)
+        #     writer.writerows(values_list)
