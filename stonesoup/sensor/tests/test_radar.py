@@ -144,9 +144,7 @@ def test_rotating_radar():
     measurement = radar.gen_measurement(target_state, noise=0)
     eval_m = h2d(target_state.state_vector,
                  radar.position,
-                 radar.orientation+[[0],
-                                    [0],
-                                    [radar.dwell_center.state_vector[0, 0]]])
+                 radar.orientation)
 
     # Assert correction of generated measurement
     assert(measurement.timestamp == target_state.timestamp)
