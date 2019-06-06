@@ -237,8 +237,7 @@ class RangeBearingElevationGaussianToCartesian(NonLinearGaussianMeasurement):
         return out
 
 
-class RangeBearingGaussianToCartesian(
-        NonLinearGaussianMeasurement):
+class RangeBearingGaussianToCartesian(NonLinearGaussianMeasurement):
     r"""This is a class implementation of a time-invariant measurement model, \
     where measurements are assumed to be received in the form of bearing \
     (:math:`\phi`) and range (:math:`r`), with Gaussian noise in each dimension.
@@ -460,4 +459,114 @@ class BearingElevationGaussianToCartesian(NonLinearGaussianMeasurement):
     def rvs(self, num_samples=1, **kwargs):
         out = super().rvs(num_samples, **kwargs)
         out = sp.array([[Elevation(0.)], [Bearing(0.)]]) + out
+        return out
+
+class BearingGaussianToCartesian(NonLinearGaussianMeasurement):
+    r"""This is a class implementation of a time-invariant measurement model, \
+    where measurements are assumed to be received in the form of bearing \
+    (:math:`\phi`) with zero-mean Gaussian noise.
+
+    The model is described by the following equations:
+
+    .. math::
+
+      \vec{y}_t = h(\vec{x}_t, \vec{v}_t)
+
+    where:
+
+    * :math:`\vec{y}_t` is a measurement vector of the form:
+
+    .. math::
+
+      \vec{y}_t = \begin{bmatrix}
+                \theta
+            \end{bmatrix}
+
+    * :math:`h` is a non-linear model function of the form:
+
+    .. math::
+
+      h(\vec{x}_t,\vec{v}_t) = \begin{bmatrix}
+                atan2(\mathcal{y},\mathcal{x}) \\
+                \end{bmatrix} + \vec{v}_t
+
+    * :math:`\vec{v}_t` is Gaussian distributed with covariance :math:`R`, i.e.:
+
+    .. math::
+
+      \vec{v}_t \sim \mathcal{N}(0,R)
+
+    .. math::
+
+      R = \begin{bmatrix}
+            \sigma_{\theta}^2 
+            \end{bmatrix}
+
+    The :py:attr:`mapping` property of the model is a 3 element vector, \
+    whose first (i.e. :py:attr:`mapping[0]`), second (i.e. \
+    :py:attr:`mapping[1]`) and third (i.e. :py:attr:`mapping[2]`) elements  \
+    contain the state index of the :math:`x`, :math:`y` and :math:`z`  \
+    coordinates, respectively.
+
+    Note
+    ----
+    The current implementation of this class assumes a 3D Cartesian plane.
+
+    """  # noqa:E501
+
+    translation_offset = Property(
+        StateVector, default=StateVector(sp.array([[0], [0], [0]])),
+        doc="A 3x1 array specifying the origin offset in terms of :math:`x,y,z`\
+            coordinates.")
+
+    @property
+    def ndim_meas(self):
+        """ndim_meas getter method
+
+        Returns
+        -------
+        :class:`int`
+            The number of measurement dimensions
+        """
+
+        return 1
+
+    def function(self, state_vector, noise=None, **kwargs):
+        r"""Model function :math:`h(\vec{x}_t,\vec{v}_t)`
+
+        Parameters
+        ----------
+        state_vector: :class:`~.StateVector`
+            An input state vector
+        noise: :class:`numpy.ndarray`
+            An externally generated random process noise sample (the default in
+            `None`, in which case process noise will be generated internally)
+
+        Returns
+        -------
+        :class:`numpy.ndarray` of shape (:py:attr:`~ndim_state`, 1)
+            The model function evaluated given the provided time interval.
+        """
+
+        if noise is None:
+            noise = self.rvs()
+
+        # Account for origin offset
+        xyz = [[state_vector[self.mapping[0], 0]
+                - self.translation_offset[0, 0]],
+               [state_vector[self.mapping[1], 0]
+                - self.translation_offset[1, 0]],
+               [0]]
+
+        # Rotate coordinates
+        xyz_rot = self._rotation_matrix @ xyz
+
+        # Convert to Angles
+        phi, theta = cart2angles(*xyz_rot[:, 0])
+
+        return sp.array([[Bearing(phi)]]) + noise
+
+    def rvs(self, num_samples=1, **kwargs):
+        out = super().rvs(num_samples, **kwargs)
+        out = sp.array([[Bearing(0.)]]) + out
         return out

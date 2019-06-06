@@ -5,7 +5,7 @@ from scipy.stats import multivariate_normal
 
 from ..nonlinear import (
     BearingElevationGaussianToCartesian, RangeBearingGaussianToCartesian,
-    RangeBearingElevationGaussianToCartesian)
+    RangeBearingElevationGaussianToCartesian, BearingGaussianToCartesian)
 from ....functions import jacobian as compute_jac
 from ....types.angle import Bearing, Elevation
 
@@ -87,7 +87,7 @@ def h3d(state_vector,  translation_offset, rotation_offset):
     return np.array([[Elevation(theta)], [Bearing(phi)], [rho]])
 
 
-def hbearing(state_vector, translation_offset, rotation_offset):
+def hbearings(state_vector, translation_offset, rotation_offset):
     xyz = [[state_vector[0, 0] - translation_offset[0, 0]],
            [state_vector[1, 0] - translation_offset[1, 0]],
            [state_vector[2, 0] - translation_offset[2, 0]]]
@@ -124,6 +124,43 @@ def hbearing(state_vector, translation_offset, rotation_offset):
 
     return np.array([[Elevation(theta)], [Bearing(phi)]])
 
+def hbearing(state_vector, translation_offset, rotation_offset):
+    xyz = [[state_vector[0, 0] - translation_offset[0, 0]],
+           [state_vector[1, 0] - translation_offset[1, 0]],
+           [state_vector[2, 0] - translation_offset[2, 0]]]
+
+    # Get rotation matrix
+    theta_z = - rotation_offset[2, 0]
+    cos_z, sin_z = np.cos(theta_z), np.sin(theta_z)
+    rot_z = np.array([[cos_z, -sin_z, 0],
+                      [sin_z, cos_z, 0],
+                      [0, 0, 1]])
+
+    theta_y = - rotation_offset[1, 0]
+    cos_y, sin_y = np.cos(theta_y), np.sin(theta_y)
+    rot_y = np.array([[cos_y, 0, sin_y],
+                      [0, 1, 0],
+                      [-sin_y, 0, cos_y]])
+
+    theta_x = - rotation_offset[0, 0]
+    cos_x, sin_x = np.cos(theta_x), np.sin(theta_x)
+    rot_x = np.array([[1, 0, 0],
+                      [0, cos_x, -sin_x],
+                      [0, sin_x, cos_x]])
+
+    rotation_matrix = rot_z@rot_y@rot_x
+
+    xyz_rot = rotation_matrix @ xyz
+    x = xyz_rot[0, 0]
+    y = xyz_rot[1, 0]
+    z = xyz_rot[2, 0]
+
+    rho = np.sqrt(x**2 + y**2 + z**2)
+    phi = np.arctan2(y, x)
+    theta = np.arcsin(z/rho)
+
+    return np.array([[Bearing(phi)]])
+
 
 @pytest.mark.parametrize(
     "h, ModelClass, state_vec, R , mapping,\
@@ -152,7 +189,7 @@ def hbearing(state_vector, translation_offset, rotation_offset):
             np.array([[.2], [3], [-1]])
         ),
         (   # 2D meas, 3D state
-            hbearing,
+            hbearings,
             BearingElevationGaussianToCartesian,
             np.array([[1], [2], [3]]),
             np.array([[0.05, 0],
@@ -160,9 +197,18 @@ def hbearing(state_vector, translation_offset, rotation_offset):
             np.array([0, 1, 2]),
             np.array([[0], [0], [0]]),
             np.array([[-3], [0], [np.pi/3]])
+        ),
+        (   # 1D meas, 3D state
+            hbearing,
+            BearingGaussianToCartesian,
+            np.array([[1], [2], [0]]),
+            np.array([[0.05]]),
+            np.array([0, 1, 2]),
+            np.array([[0], [0], [0]]),
+            np.array([[-3], [0], [np.pi/3]])
         )
     ],
-    ids=["standard", "RBE", "BearingsOnly"]
+    ids=["standard", "RBE", "BearingsOnly", "Bearing"]
 )
 def test_models(h, ModelClass, state_vec, R,
                 mapping, translation_offset, rotation_offset):
