@@ -10,7 +10,7 @@ from ..types.particle import Particle
 from ..types.state import GaussianState
 from ..types.track import Track
 from ..types.update import GaussianStateUpdate, ParticleStateUpdate
-from ..updater.kalman import KalmanUpdater
+from ..updater.kalman import UnscentedKalmanUpdater
 
 
 class SinglePointInitiator(GaussianInitiator):
@@ -34,7 +34,7 @@ class SinglePointInitiator(GaussianInitiator):
             A list of new tracks with an initial :class:`~.GaussianState`
         """
 
-        updater = KalmanUpdater(self.measurement_model)
+        updater = UnscentedKalmanUpdater(self.measurement_model)
 
         tracks = set()
         for detection in unassociated_detections:
