@@ -5,6 +5,7 @@ import numpy as np
 from .base import Sensor
 from ..base import Property
 from ..models.measurement.nonlinear import RangeBearingGaussianToCartesian
+from ..types.angle import Bearing
 from ..types.array import CovarianceMatrix
 from ..types.detection import Detection
 from ..types.state import State, StateVector
@@ -97,11 +98,9 @@ class RadarRotatingRangeBearing(RadarRangeBearing):
      rotations per minute (RPM), that generates measurements of targets, using\
      a :class:`~.RangeBearingGaussianToCartesian` model, relative to its\
      position.
-
     Note
     ----
     * The current implementation of this class assumes a 3D Cartesian plane.
-
     """
 
     dwell_center = Property(
@@ -147,18 +146,8 @@ class RadarRotatingRangeBearing(RadarRangeBearing):
         # Read timestamp from ground truth
         timestamp = ground_truth.timestamp
 
-        # Rotate the radar antenna and compute new heading
+        # Rotate the radar antenna
         self.rotate(timestamp)
-        antenna_heading = self.orientation[2, 0] + \
-            self.dwell_center.state_vector[0, 0]
-
-        # Set rotation offset of underlying measurement model
-        rot_offset =\
-            StateVector(
-                [[self.orientation[0, 0]],
-                 [self.orientation[1, 0]],
-                 [antenna_heading]])
-        self.measurement_model.rotation_offset = rot_offset
 
         # Transform state to measurement space and generate
         # random noise
@@ -172,7 +161,8 @@ class RadarRotatingRangeBearing(RadarRangeBearing):
         # Check if state falls within sensor's FOV
         fov_min = -self.fov_angle/2
         fov_max = +self.fov_angle/2
-        bearing_t = measurement_vector[0, 0]
+        bearing_t = Bearing(measurement_vector[0, 0]
+                            - self.dwell_center.state_vector[0, 0])
         range_t = measurement_vector[1, 0]
 
         # Return None if state not in FOV
@@ -204,7 +194,7 @@ class RadarRotatingRangeBearing(RadarRangeBearing):
         # Update dwell center
         rps = self.rpm/60  # rotations per sec
         self.dwell_center = State(
-            StateVector([[self.dwell_center.state_vector[0, 0]
-                          + duration.total_seconds()*rps*2*np.pi]]),
+            StateVector([[Bearing(self.dwell_center.state_vector[0, 0]
+                          + duration.total_seconds()*rps*2*np.pi)]]),
             timestamp
         )
