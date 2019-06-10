@@ -27,34 +27,20 @@ class MongoWriter(Writer):
         #     writer = csv.DictWriter(f, fieldnames=fields)
         #     writer.writeheader()
 
-    def write(self, tracks, host_name, host_port, db_name, collection_name, drop=False):
+    def write(self, tracks, detections, host_name, host_port, db_name,
+              collection_name, drop=False):
         client = MongoClient(host_name, port=host_port)
         db = client[db_name]
-        collection = db[collection_name]
+        tracks_collection = db[collection_name[0]]
+        points_collection = db[collection_name[1]]
         if drop:
-            collection.drop()
+            tracks_collection.drop()
+            points_collection.drop()
 
-        values_list = []
+        # Tracks
+        # values_list = []
         for track in tracks:
             metadata = track.metadata
-
-            # # Determine data type
-            # if 'mmsi' in metadata and 'sensorTrackID' in metadata:
-            #     datatype = 'fused'
-            # elif 'sensorTrackID' in metadata:
-            #     datatype = 'radar'
-            # else:
-            #     datatype = 'self_reported'
-
-            # Compute track latlon position and speed & heading
-            # position = to_latlon(
-            #     track.state_vector[0, 0],
-            #     track.state_vector[2, 0],
-            #     metadata['Zone_Number'],
-            #     northern=metadata['Northern'])
-            # speed, heading = cart2pol(track.state_vector[1, 0],
-            #                           track.state_vector[3, 0])
-            # heading = mod_bearing(- heading + np.pi / 2)
             position = [track.state_vector[0, 0],
                         track.state_vector[2, 0]]
             speed = float(metadata['Speed'])
@@ -64,44 +50,93 @@ class MongoWriter(Writer):
             for state in track.states:
                 if hasattr(state, 'hypothesis'):
                     detection_history.append(state.hypothesis.measurement.metadata.get('ID'))
-            fields = ['ID', 'MMSI', 'LRIMOShipNo', 'Location', 'Latitude', 'Longitude',
-                      'DetectionHistory', 'ShipType', 'ShipName', 'CallSign', 'Beam', 'Draught',
-                      'Length', 'Speed', 'Heading', 'ETA', 'Destination', 'DestinationTidied',
-                      'AdditionalInfo', 'MovementDateTime', 'MovementID', 'MoveStatus', 'Time']
 
             # Prepare values to insert
             values = {
-                'MMSI': metadata.get('MMSI'),
                 'ID': track.id,
-                'DetectionHistory': detection_history,
+                'Latitude': position[1],
+                'Longitude': position[0],
+                'ReceivedTime': int(tm.mktime(track.timestamp.timetuple()) *
+                                 1000),
+                'DataType': 'fused',
+                'Speed': speed,
+                'Heading': heading,
                 'LRIMOShipNo': metadata['LRIMOShipNo'],
-                'ShipType': metadata['ShipType'],
+                'MMSI': metadata.get('MMSI'),
                 'ShipName': metadata['ShipName'],
+                'ShipType': metadata['ShipType'],
+                'AdditionalInfo': metadata['AdditionalInfo'],
+                'DetectionHistory': detection_history,
                 'CallSign': metadata['CallSign'],
                 'Beam': metadata['Beam'],
                 'Draught': metadata['Draught'],
                 'Length': metadata['Length'],
-                'Latitude': position[1],
-                'Longitude': position[0],
-                'Speed': speed,
-                'Heading': heading,
                 'ETA': metadata['ETA'],
                 'Destination': metadata['Destination'],
                 'DestinationTidied': metadata['DestinationTidied'],
-                'AdditionalInfo': metadata['AdditionalInfo'],
                 'MovementDateTime': metadata['MovementDateTime'],
                 'MovementID': metadata['MovementID'],
                 'MoveStatus': metadata['MoveStatus'],
-                'Time': int(tm.mktime(track.timestamp.timetuple()) * 1000),
                 'Location': {
                     'type': "Point",
                     'coordinates': [position[1], position[0]]
                 }
             }
-            values_list.append(values)
+            # values_list.append(values)
             # Insert values into Mongo
-            x = collection.insert_one(values).inserted_id
+            x = tracks_collection.insert_one(values).inserted_id
+            x = points_collection.insert_one(values).inserted_id
 
+        # Detections
+        for detection in detections:
+            metadata = detection.metadata
+            position = [detection.state_vector[0, 0],
+                        detection.state_vector[1, 0]]
+            speed = float(metadata['Speed'])
+            heading = mod_bearing(
+                -np.deg2rad(float(metadata['Heading'])) + np.pi / 2)
+
+            # Prepare values to insert
+            values = {
+                'ID': metadata["ID"],
+                'Latitude': float(position[1]),
+                'Longitude': float(position[0]),
+                'ReceivedTime': int(tm.mktime(detection.timestamp.timetuple()) *
+                                    1000),
+                'DataType': 'self_reported',
+                'Speed': speed,
+                'Heading': heading,
+                'LRIMOShipNo': metadata['LRIMOShipNo'],
+                'MMSI': metadata.get('MMSI'),
+                'ShipName': metadata['ShipName'],
+                'ShipType': metadata['ShipType'],
+                'AdditionalInfo': metadata['AdditionalInfo'],
+                'CallSign': metadata['CallSign'],
+                'Beam': metadata['Beam'],
+                'Draught': metadata['Draught'],
+                'Length': metadata['Length'],
+                'ETA': metadata['ETA'],
+                'Destination': metadata['Destination'],
+                'DestinationTidied': metadata['DestinationTidied'],
+                'MovementDateTime': metadata['MovementDateTime'],
+                'MovementID': metadata['MovementID'],
+                'MoveStatus': metadata['MoveStatus'],
+                'Location': {
+                    'type': "Point",
+                    'coordinates': [float(position[1]), float(position[0])]
+                }
+            }
+            # values_list.append(values)
+            # Insert values into Mongo
+            x = points_collection.insert_one(values).inserted_id
+
+
+        # fields = ['ID', 'DataType', 'MMSI', 'LRIMOShipNo', 'Location',
+        #           'Latitude', 'Longitude', 'DetectionHistory', 'ShipType',
+        #           'ShipName', 'CallSign', 'Beam', 'Draught',
+        #           'Length', 'Speed', 'Heading', 'ETA', 'Destination',
+        #           'DestinationTidied', 'AdditionalInfo',
+        #           'MovementDateTime', 'MovementID', 'MoveStatus', 'Time']
         # with open('tracks_3.csv', 'a', newline='') as f:
         #     writer = csv.DictWriter(f, fieldnames=fields)
         #     writer.writerows(values_list)
