@@ -165,7 +165,7 @@ filenames = ['AIS_2017-01-23_2017-01-28_id',
              'AIS_2017-01-28_2017-02-02_id',
              'AIS_2017-02-01_2017-02-06_id']
 tracks = set()
-deleted_tracks = set();
+deleted_tracks = set()
 
 # We process the files sequentially
 for i, filename in enumerate(filenames):
@@ -174,7 +174,8 @@ for i, filename in enumerate(filenames):
     # ================
     # (Needs to be re-instantiated for each file)
     detector = CSVDetectionReader(
-        path=os.path.join(os.getcwd(), 'data/{}.csv'.format(filename)),
+        path=os.path.join(os.getcwd(),
+                          r'\\bh-fs01\rdm01\TrackAnalytics\Phase 2a\Technical\Work in Progress\Stone Soup\SS_input_data\{}.csv'.format(filename)),
         state_vector_fields=["Longitude", "Latitude"],
         time_field="Time",
         metadata_fields=['ID', 'LRIMOShipNo', 'ShipType', 'ShipName', 'MMSI',
