@@ -230,7 +230,7 @@ for i, filename in enumerate(filenames):
                      host_port=27017,
                      db_name="TA_IHS",
                      collection_name=["Live_SS_Tracks", "Live_SS_Points"],
-                     drop=True)
+                     drop=False)
 
         # Plot the data
         # plt.clf()
