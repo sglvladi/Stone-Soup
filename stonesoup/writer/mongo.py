@@ -60,7 +60,8 @@ class MongoWriter(Writer):
 
             # Prepare values to insert
             values = {
-                'ID': track.id,
+                'ID': track.id,  # TODO: confirm required as well as TrackID
+                'TrackID': track.id,
                 'Latitude': float(position[1]),
                 'Longitude': float(position[0]),
                 'ReceivedTime': int(tm.mktime(track.timestamp.timetuple()) *
