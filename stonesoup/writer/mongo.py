@@ -54,10 +54,10 @@ class MongoWriter(Writer):
             # Prepare values to insert
             values = {
                 'ID': track.id,
-                'Latitude': position[1],
-                'Longitude': position[0],
+                'Latitude': float(position[1]),
+                'Longitude': float(position[0]),
                 'ReceivedTime': int(tm.mktime(track.timestamp.timetuple()) *
-                                 1000),
+                                    1000),
                 'DataType': 'fused',
                 'Speed': speed,
                 'Heading': heading,
@@ -79,7 +79,7 @@ class MongoWriter(Writer):
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
-                    'coordinates': [position[1], position[0]]
+                    'coordinates': [float(position[1]), float(position[0])]
                 }
             }
             # values_list.append(values)
@@ -106,15 +106,15 @@ class MongoWriter(Writer):
                 'DataType': 'self_reported',
                 'Speed': speed,
                 'Heading': heading,
-                'LRIMOShipNo': metadata['LRIMOShipNo'],
-                'MMSI': metadata.get('MMSI'),
+                'LRIMOShipNo': int(metadata['LRIMOShipNo']),
+                'MMSI': int(metadata.get('MMSI')),
                 'ShipName': metadata['ShipName'],
                 'ShipType': metadata['ShipType'],
                 'AdditionalInfo': metadata['AdditionalInfo'],
                 'CallSign': metadata['CallSign'],
-                'Beam': metadata['Beam'],
-                'Draught': metadata['Draught'],
-                'Length': metadata['Length'],
+                'Beam': float(metadata['Beam']),
+                'Draught': float(metadata['Draught']),
+                'Length': float(metadata['Length']),
                 'ETA': metadata['ETA'],
                 'Destination': metadata['Destination'],
                 'DestinationTidied': metadata['DestinationTidied'],
