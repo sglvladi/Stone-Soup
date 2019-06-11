@@ -1,6 +1,6 @@
 
 # -*- coding: utf-8 -*-
-from pymongo import MongoClient
+import pymongo
 from ..base import Property
 from ..tracker import Tracker
 from .base import Writer
@@ -29,13 +29,20 @@ class MongoWriter(Writer):
 
     def write(self, tracks, detections, host_name, host_port, db_name,
               collection_name, drop=False):
-        client = MongoClient(host_name, port=host_port)
+        client = pymongo.MongoClient(host_name, port=host_port)
         db = client[db_name]
         tracks_collection = db[collection_name[0]]
         points_collection = db[collection_name[1]]
-        if drop:
-            tracks_collection.drop()
-            points_collection.drop()
+
+        # Pre-process/configure collections
+        collections = [tracks_collection, points_collection]
+        for collection in collections:
+            if drop:
+                collection.drop()
+
+            # Add indexes for received time and geo-location fields
+            collection.create_index([('ReceivedTime', pymongo.DESCENDING)])
+            collection.create_index([('Location', pymongo.GEOSPHERE)])
 
         # Tracks
         # values_list = []
