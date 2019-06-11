@@ -41,6 +41,7 @@ class MongoWriter(Writer):
                 collection.drop()
 
             # Add indexes for received time and geo-location fields
+            # TODO: Move indexing (and possibly dropping collection above) to AisTrackingTest
             collection.create_index([('ReceivedTime', pymongo.DESCENDING)])
             collection.create_index([('Location', pymongo.GEOSPHERE)])
 
