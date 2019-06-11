@@ -229,7 +229,7 @@ for i, filename in enumerate(filenames):
                      host_name="138.253.118.175",
                      host_port=27017,
                      db_name="TA_IHS",
-                     collection_name=["SS_Tracks", "SS_Points"],
+                     collection_name=["Live_SS_Tracks", "Live_SS_Points"],
                      drop=False)
 
         # Plot the data
