@@ -7,6 +7,7 @@ from .base import Writer
 from utm import to_latlon
 import time as tm
 import numpy as np
+from copy import copy
 import csv
 
 from ..functions import mod_bearing
@@ -38,11 +39,15 @@ class MongoWriter(Writer):
             points_collection.drop()
 
         # Tracks
-        # values_list = []
+        track_documents = []
+        point_documents = []
         for track in tracks:
             metadata = track.metadata
             position = [track.state_vector[0, 0],
                         track.state_vector[2, 0]]
+            positions = [[state.state_vector[0, 0],
+                          state.state_vector[2, 0]]
+                         for state in track.states]
             speed = float(metadata['Speed'])
             heading = mod_bearing(-np.deg2rad(float(metadata['Heading'])) + np.pi/2)
 
@@ -52,7 +57,7 @@ class MongoWriter(Writer):
                     detection_history.append(state.hypothesis.measurement.metadata.get('ID'))
 
             # Prepare values to insert
-            values = {
+            doc = {
                 'ID': track.id,
                 'Latitude': position[1],
                 'Longitude': position[0],
@@ -61,8 +66,8 @@ class MongoWriter(Writer):
                 'DataType': 'fused',
                 'Speed': speed,
                 'Heading': heading,
-                'LRIMOShipNo': metadata['LRIMOShipNo'],
-                'MMSI': metadata.get('MMSI'),
+                'LRIMOShipNo': int(metadata['LRIMOShipNo']),
+                'MMSI': int(metadata.get('MMSI')),
                 'ShipName': metadata['ShipName'],
                 'ShipType': metadata['ShipType'],
                 'AdditionalInfo': metadata['AdditionalInfo'],
@@ -79,13 +84,17 @@ class MongoWriter(Writer):
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
-                    'coordinates': [position[1], position[0]]
+                    'coordinates': [float(position[0]), float(position[1])]
                 }
             }
-            # values_list.append(values)
-            # Insert values into Mongo
-            x = tracks_collection.insert_one(values).inserted_id
-            x = points_collection.insert_one(values).inserted_id
+            point_documents.append(copy(doc))
+
+            doc['LocationHistory'] = {
+                'type': "MultiPoint",
+                'coordinates': positions
+            }
+            track_documents.append(copy(doc))
+        tracks_collection.insert_many(track_documents)
 
         # Detections
         for detection in detections:
@@ -97,7 +106,7 @@ class MongoWriter(Writer):
                 -np.deg2rad(float(metadata['Heading'])) + np.pi / 2)
 
             # Prepare values to insert
-            values = {
+            doc = {
                 'ID': metadata["ID"],
                 'Latitude': float(position[1]),
                 'Longitude': float(position[0]),
@@ -106,8 +115,8 @@ class MongoWriter(Writer):
                 'DataType': 'self_reported',
                 'Speed': speed,
                 'Heading': heading,
-                'LRIMOShipNo': metadata['LRIMOShipNo'],
-                'MMSI': metadata.get('MMSI'),
+                'LRIMOShipNo': int(metadata['LRIMOShipNo']),
+                'MMSI': int(metadata.get('MMSI')),
                 'ShipName': metadata['ShipName'],
                 'ShipType': metadata['ShipType'],
                 'AdditionalInfo': metadata['AdditionalInfo'],
@@ -123,12 +132,13 @@ class MongoWriter(Writer):
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
-                    'coordinates': [float(position[1]), float(position[0])]
+                    'coordinates': [float(position[0]), float(position[1])]
                 }
             }
             # values_list.append(values)
             # Insert values into Mongo
-            x = points_collection.insert_one(values).inserted_id
+            point_documents.append(doc)
+        points_collection.insert_many(point_documents)
 
 
         # fields = ['ID', 'DataType', 'MMSI', 'LRIMOShipNo', 'Location',
