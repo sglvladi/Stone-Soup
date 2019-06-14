@@ -156,6 +156,14 @@ def recycle_tracks(tracks, detections):
 # ======
 writer = MongoWriter()
 
+# Initialise DB collections
+collections = ["Live_SS_Tracks", "Live_SS_Points"]
+writer.reset_collections(
+    host_name="138.253.118.175",
+    host_port=27017,
+    db_name="TA_IHS",
+    collection_names=["Live_SS_Tracks", "Live_SS_Points"],
+)
 
 ################################################################################
 # Main Tracking process                                                        #
@@ -229,7 +237,7 @@ for i, filename in enumerate(filenames):
                      host_name="138.253.118.175",
                      host_port=27017,
                      db_name="TA_IHS",
-                     collection_name=["Live_SS_Tracks", "Live_SS_Points"],
+                     collection_name=collections,
                      drop=False)
 
         # Plot the data

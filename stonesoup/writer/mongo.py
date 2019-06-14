@@ -28,6 +28,21 @@ class MongoWriter(Writer):
         #     writer = csv.DictWriter(f, fieldnames=fields)
         #     writer.writeheader()
 
+    @staticmethod
+    def reset_collections(host_name, host_port, db_name, collection_names):
+        """Drops named collection, and recreates indexes for each."""
+        # Get list of defined collections
+        client = pymongo.MongoClient(host_name, port=host_port)
+        db = client[db_name]
+        collections = [db[col_name] for col_name in collection_names]
+
+        for collection in collections:
+            collection.drop()
+
+            # Add indexes for received time and geo-location fields
+            collection.create_index([('ReceivedTime', pymongo.DESCENDING)])
+            collection.create_index([('Location', pymongo.GEOSPHERE)])
+
     def write(self, tracks, detections, host_name, host_port, db_name,
               collection_name, drop=False):
         client = pymongo.MongoClient(host_name, port=host_port)
@@ -40,11 +55,6 @@ class MongoWriter(Writer):
         for collection in collections:
             if drop:
                 collection.drop()
-
-            # Add indexes for received time and geo-location fields
-            # TODO: Move indexing (and possibly dropping collection above) to AisTrackingTest
-            collection.create_index([('ReceivedTime', pymongo.DESCENDING)])
-            collection.create_index([('Location', pymongo.GEOSPHERE)])
 
         # Tracks
         track_documents = []
@@ -66,7 +76,7 @@ class MongoWriter(Writer):
 
             # Prepare values to insert
             doc = {
-                'ID': track.id,
+                'ID': track.id,  # TODO: confirm required as well as TrackID
                 'TrackID': track.id,
                 'Latitude': float(position[1]),
                 'Longitude': float(position[0]),
