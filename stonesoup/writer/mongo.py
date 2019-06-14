@@ -88,7 +88,7 @@ class MongoWriter(Writer):
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
-                    'coordinates': [float(position[1]), float(position[0])]
+                    'coordinates': [float(position[0]), float(position[1])]
                 }
             }
             # values_list.append(values)
@@ -132,7 +132,7 @@ class MongoWriter(Writer):
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
-                    'coordinates': [float(position[1]), float(position[0])]
+                    'coordinates': [float(position[0]), float(position[1])]
                 }
             }
             # values_list.append(values)
