@@ -126,7 +126,7 @@ updater = UnscentedKalmanUpdater(measurement_model)
 # Hypothesiser & Data Associator
 # ==============================
 hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 4)
-hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'mmsi',
+hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
                                               match_missing=False)
 associator = NearestNeighbour(hypothesiser)
 
