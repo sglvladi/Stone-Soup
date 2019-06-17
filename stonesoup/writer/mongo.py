@@ -62,11 +62,11 @@ class MongoWriter(Writer):
         point_documents = []
         for track in tracks:
             metadata = track.metadata
-            position = [track.state_vector[0, 0],
-                        track.state_vector[2, 0]]
-            positions = [[state.state_vector[0, 0],
-                          state.state_vector[2, 0]]
+            positions = [{'Longitude': float(state.state_vector[0, 0]),
+                          'Latitude': float(state.state_vector[2, 0])}
                          for state in track.states]
+            latest_position = positions[-1]
+
             speed = float(metadata['Speed'])
             heading = mod_bearing(-np.deg2rad(float(metadata['Heading'])) + np.pi/2)
 
@@ -90,8 +90,8 @@ class MongoWriter(Writer):
             doc = {
                 'ID': track.id,  # TODO: confirm required as well as TrackID
                 'TrackID': track.id,
-                'Latitude': float(position[1]),
-                'Longitude': float(position[0]),
+                'Latitude': latest_position.get('Latitude'),
+                'Longitude': latest_position.get('Longitude'),
                 'ReceivedTime': received_epoch_in_ms,
                 'ReceivedTimeDate': received_date,
                 'DataType': 'fused',
@@ -117,7 +117,7 @@ class MongoWriter(Writer):
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
-                    'coordinates': [float(position[0]), float(position[1])]
+                    'coordinates': latest_position
                 }
             }
             point_documents.append(copy(doc))
@@ -132,8 +132,10 @@ class MongoWriter(Writer):
         # Detections
         for detection in detections:
             metadata = detection.metadata
-            position = [detection.state_vector[0, 0],
-                        detection.state_vector[1, 0]]
+            position = {
+                'Longitude': float(detection.state_vector[0, 0]),
+                'Latitude': float(detection.state_vector[1, 0]),
+            }
             speed = float(metadata['Speed'])
             heading = mod_bearing(
                 -np.deg2rad(float(metadata['Heading'])) + np.pi / 2)
@@ -152,8 +154,8 @@ class MongoWriter(Writer):
             # Prepare values to insert
             doc = {
                 'ID': metadata["ID"],
-                'Latitude': float(position[1]),
-                'Longitude': float(position[0]),
+                'Latitude': position.get('Latitude'),
+                'Longitude': position.get('Longitude'),
                 'ReceivedTime': received_epoch_in_ms,
                 'ReceivedTimeDate': received_date,
                 'DataType': 'self_reported',
@@ -178,7 +180,7 @@ class MongoWriter(Writer):
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
-                    'coordinates': [float(position[0]), float(position[1])]
+                    'coordinates': position
                 }
             }
             # values_list.append(values)
