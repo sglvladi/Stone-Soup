@@ -5,6 +5,7 @@ from ..base import Property
 from ..tracker import Tracker
 from .base import Writer
 from utm import to_latlon
+from datetime import datetime
 import time as tm
 import numpy as np
 from copy import copy
@@ -74,14 +75,25 @@ class MongoWriter(Writer):
                 if hasattr(state, 'hypothesis'):
                     detection_history.append(state.hypothesis.measurement.metadata.get('ID'))
 
+            # Standardise date/timestamps into both epoch, and date formats
+            received_date = datetime.fromtimestamp(
+                tm.mktime(track.timestamp.timetuple()))
+            received_epoch_in_ms = self.epoch_in_ms_from_date(received_date)
+
+            eta_date = self.date_from_time_str(metadata['ETA'])
+            eta_epoch_in_ms = self.epoch_in_ms_from_date(eta_date)
+
+            movement_date = self.date_from_time_str(metadata['MovementDateTime'])
+            movement_epoch_in_ms = self.epoch_in_ms_from_date(movement_date)
+
             # Prepare values to insert
             doc = {
                 'ID': track.id,  # TODO: confirm required as well as TrackID
                 'TrackID': track.id,
                 'Latitude': float(position[1]),
                 'Longitude': float(position[0]),
-                'ReceivedTime': int(tm.mktime(track.timestamp.timetuple()) *
-                                    1000),
+                'ReceivedTime': received_epoch_in_ms,
+                'ReceivedTimeDate': received_date,
                 'DataType': 'fused',
                 'Speed': speed,
                 'Heading': heading,
@@ -95,10 +107,12 @@ class MongoWriter(Writer):
                 'Beam': float(metadata['Beam']),
                 'Draught': float(metadata['Draught']),
                 'Length': float(metadata['Length']),
-                'ETA': metadata['ETA'],
+                'ETA': eta_epoch_in_ms,
+                'ETADate': eta_date,
                 'Destination': metadata['Destination'],
                 'DestinationTidied': metadata['DestinationTidied'],
-                'MovementDateTime': metadata['MovementDateTime'],
+                'MovementDateTime': movement_epoch_in_ms,
+                'MovementDateTimeDate': movement_date,
                 'MovementID': metadata['MovementID'],
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
@@ -124,13 +138,24 @@ class MongoWriter(Writer):
             heading = mod_bearing(
                 -np.deg2rad(float(metadata['Heading'])) + np.pi / 2)
 
+            # Standardise date/timestamps into both epoch, and date formats
+            received_date = datetime.fromtimestamp(
+                tm.mktime(detection.timestamp.timetuple()))
+            received_epoch_in_ms = self.epoch_in_ms_from_date(received_date)
+
+            eta_date = self.date_from_time_str(metadata['ETA'])
+            eta_epoch_in_ms = self.epoch_in_ms_from_date(eta_date)
+
+            movement_date = self.date_from_time_str(metadata['MovementDateTime'])
+            movement_epoch_in_ms = self.epoch_in_ms_from_date(movement_date)
+
             # Prepare values to insert
             doc = {
                 'ID': metadata["ID"],
                 'Latitude': float(position[1]),
                 'Longitude': float(position[0]),
-                'ReceivedTime': int(tm.mktime(detection.timestamp.timetuple()) *
-                                    1000),
+                'ReceivedTime': received_epoch_in_ms,
+                'ReceivedTimeDate': received_date,
                 'DataType': 'self_reported',
                 'Speed': speed,
                 'Heading': heading,
@@ -143,10 +168,12 @@ class MongoWriter(Writer):
                 'Beam': float(metadata['Beam']),
                 'Draught': float(metadata['Draught']),
                 'Length': float(metadata['Length']),
-                'ETA': metadata['ETA'],
+                'ETA': eta_epoch_in_ms,
+                'ETADate': eta_date,
                 'Destination': metadata['Destination'],
                 'DestinationTidied': metadata['DestinationTidied'],
-                'MovementDateTime': metadata['MovementDateTime'],
+                'MovementDateTime': movement_epoch_in_ms,
+                'MovementDateTimeDate': movement_date,
                 'MovementID': metadata['MovementID'],
                 'MoveStatus': metadata['MoveStatus'],
                 'Location': {
@@ -169,3 +196,26 @@ class MongoWriter(Writer):
         # with open('tracks_3.csv', 'a', newline='') as f:
         #     writer = csv.DictWriter(f, fieldnames=fields)
         #     writer.writerows(values_list)
+
+    @staticmethod
+    def date_from_time_str(time_str):
+        """Converts time string in format '2017-01-22 08:58:14.000' into a
+        datetime.date object, returning None if it fails.
+        """
+        try:
+            return datetime.strptime(time_str, '%Y-%m-%d %H:%M:%S.%f')
+
+        except ValueError:
+            return None
+
+    @staticmethod
+    def epoch_in_ms_from_date(date):
+        """Converts datetime.date into an EPOCH in ms, returning None if it
+        fails.
+        """
+        try:
+            return int(date.timestamp() * 1000)
+
+        except (AttributeError, OSError):
+            # Handle date values of '9999-12-31 23:59:59.000' or None
+            return None
