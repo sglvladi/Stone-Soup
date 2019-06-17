@@ -147,7 +147,7 @@ def recycle_tracks(tracks, detections):
     recycled_tracks = set()
     for detection in detections:
         for track in tracks:
-            if detection.metadata["mmsi"] == track.metadata["mmsi"]:
+            if detection.metadata["MMSI"] == track.metadata["MMSI"]:
                 recycled_tracks.add(track)
                 break
     return recycled_tracks
