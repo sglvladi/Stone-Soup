@@ -251,7 +251,9 @@ for i, filename in enumerate(filenames):
               + " - Tracks: " + str(len(tracks)))
 
 # Back-up data
+write_dir = 'data'
+os.makedirs(write_dir, exist_ok=True)
 data = {"tracks": tracks,
         "deleted_tracks": deleted_tracks}
-with open('data/{}_tracks.pickle'.format(filename), 'wb') as f:
+with open(os.path.join(write_dir, '{}_tracks.pickle'.format(filename)), 'wb') as f:
     pickle.dump(data, f)
