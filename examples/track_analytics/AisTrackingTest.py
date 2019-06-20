@@ -128,7 +128,7 @@ updater = UnscentedKalmanUpdater(measurement_model)
 hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 4)
 hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
                                               match_missing=False)
-associator = NearestNeighbour(hypothesiser)
+associator = GlobalNearestNeighbour(hypothesiser)
 
 # Track Initiator
 # ===============
@@ -194,8 +194,7 @@ for i, filename in enumerate(filenames):
     detector = TimeSyncFeeder(detector,
                               time_window=timedelta(minutes=1))
     detector = BoundingBoxReducer(detector,
-                                  # bounding_box=np.array([-6, -5, 48, 50]),
-                                  bounding_box=np.array([-6, 0, 48, 56]),
+                                  bounding_box=np.array([-13, 2.5, 48, 59]),
                                   mapping=[0, 1])
 
     # We process each scan sequentially
@@ -250,10 +249,10 @@ for i, filename in enumerate(filenames):
               + " - Measurements: " + str(len(detections))
               + " - Tracks: " + str(len(tracks)))
 
-# Back-up data
-write_dir = 'data'
-os.makedirs(write_dir, exist_ok=True)
-data = {"tracks": tracks,
-        "deleted_tracks": deleted_tracks}
-with open(os.path.join(write_dir, '{}_tracks.pickle'.format(filename)), 'wb') as f:
-    pickle.dump(data, f)
+    # Back-up data
+    write_dir = 'data'
+    os.makedirs(write_dir, exist_ok=True)
+    data = {"tracks": tracks,
+            "deleted_tracks": deleted_tracks}
+    with open(os.path.join(write_dir, '{}_tracks.pickle'.format(filename)), 'wb') as f:
+        pickle.dump(data, f)
