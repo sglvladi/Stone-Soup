@@ -17,3 +17,10 @@ htmlcov/
 
 # pytest
 .pytest_cache/
+
+# Virtual Environments
+venv/
+.venv/
+
+# Pycharm
+.idea/
