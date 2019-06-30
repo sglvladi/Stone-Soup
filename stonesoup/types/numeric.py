@@ -245,3 +245,25 @@ class Probability(Real):
         value_sum = np.sum(np.exp(log_values - max_log_value))
 
         return Probability(cls._log(value_sum) + max_log_value, log_value=True)
+
+class  Nuset(set):
+
+    @classmethod
+    def _wrap_methods(cls, names):
+        def wrap_method_closure(name):
+            def inner(self, *args):
+                result = getattr(super(cls, self), name)(*args)
+                if isinstance(result, set) and not hasattr(result, 'foo'):
+                    result = cls(result, foo=self.foo)
+                return result
+            inner.fn_name = name
+            setattr(cls, name, inner)
+        for name in names:
+            wrap_method_closure(name)
+
+Nuset._wrap_methods(['__ror__', 'difference_update', '__isub__',
+    'symmetric_difference', '__rsub__', '__and__', '__rand__', 'intersection',
+    'difference', '__iand__', 'union', '__ixor__',
+    'symmetric_difference_update', '__or__', 'copy', '__rxor__',
+    'intersection_update', '__xor__', '__ior__', '__sub__',
+])
