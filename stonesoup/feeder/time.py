@@ -76,3 +76,49 @@ class TimeSyncFeeder(DetectionFeeder, GroundTruthFeeder):
 
         # No more new states: yield remaining buffer
         yield prev_time + self.time_window, data_buffer
+
+
+class TimeWindowReducer(Feeder):
+    """Reduce the detections to only the once that fall under a specified
+    time window
+
+    Assumes that detections from :attr:`detector` are in time order. The
+    :class:`~.TimeBufferedFeeder` can be used in conjunction to ensure this is
+    the case.
+    """
+
+    start_time = Property(
+        datetime.datetime,
+        default=None,
+        doc="Start time of the window")
+
+    end_time = Property(
+        datetime.datetime,
+        default=None,
+        doc="End time of the window")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._detections = set()
+
+    @property
+    def detections(self):
+        return self._detections
+
+    def detections_gen(self):
+        detections_iter = iter(self.detector.detections_gen())
+
+        for time, detections in detections_iter:
+            start_condition = (self.start_time is None) \
+                              or (self.start_time is not None
+                                  and time >= self.start_time)
+            end_condition = (self.end_time is None) \
+                            or (self.end_time is not None
+                                and time <= self.end_time)
+
+            if start_condition and end_condition:
+                self._detections = detections
+                yield time, self.detections
+            else:
+                self._detections = set()
+                yield time, self.detections
