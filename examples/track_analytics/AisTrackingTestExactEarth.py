@@ -86,6 +86,8 @@ if __name__ == '__main__':
     LAT_MIN = LIMITS[TARGET]["LAT_MIN"]
     LAT_MAX = LIMITS[TARGET]["LAT_MAX"]
     END_TIME = None #datetime(2017, 8, 10, 0, 48,13)
+    LOAD = False
+    LOAD_OFFSET = 0
 
     ################################################################################
     # Plotting functions                                                           #
@@ -279,7 +281,8 @@ if __name__ == '__main__':
     ################################################################################
     from stonesoup.types.sets import TrackSet
 
-    filenames = ['exactEarth_historical_data_2017-08-10',
+    filenames = [
+                 'exactEarth_historical_data_2017-08-10',
                  'exactEarth_historical_data_2017-08-11',
                  'exactEarth_historical_data_2017-08-12',
                  'exactEarth_historical_data_2017-08-13',
@@ -317,7 +320,16 @@ if __name__ == '__main__':
 
     # We process the files sequentially
     for i, filename in enumerate(filenames):
-
+        if i < LOAD:
+            continue
+        if i > 0 and LOAD:
+            write_dir = 'output/exact_earth/'
+            with open(os.path.join(write_dir, '{}_tracks.pickle'.format(
+                    filenames[i - 1])), 'rb') as f:
+                data = pickle.load(f)
+                tracks = data["tracks"]
+                temp_deleted_tracks = data["temp_deleted_tracks"]
+                deleted_tracks = data["deleted_tracks"]
         # Detection reader
         # ================
         # (Needs to be re-instantiated for each file)
@@ -425,7 +437,7 @@ if __name__ == '__main__':
         write_dir = 'output/exact_earth/'
         os.makedirs(write_dir, exist_ok=True)
         data = {"tracks": tracks,
-                "temp_deleted_tracks": tracks,
+                "temp_deleted_tracks": temp_deleted_tracks,
                 "deleted_tracks": deleted_tracks}
         with open(os.path.join(write_dir,'{}_tracks.pickle'.format(
                 filename)), 'wb') as f:
