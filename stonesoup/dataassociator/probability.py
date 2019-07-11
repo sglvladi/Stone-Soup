@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 
+from stonesoup.measures import Mahalanobis
 from .base import DataAssociator
 from ..base import Property
 from ..hypothesiser import Hypothesiser
@@ -83,7 +84,7 @@ class JPDA(DataAssociator):
         Updater,
         doc="Used to generate components of Gaussian Mixture Model "
             "multi-target state.")
-    gate_ratio = Property(
+    gate_level = Property(
         float,
         doc="If probability of Detection/Track association is less than this "
             "many times less than probability of MissedDetection, treat "
@@ -116,7 +117,7 @@ class JPDA(DataAssociator):
 
         # enumerate the Joint Hypotheses of track/detection associations
         joint_hypotheses = \
-            self.enumerate_JPDA_hypotheses(tracks, hypotheses, self.gate_ratio)
+            self.enumerate_JPDA_hypotheses(tracks, hypotheses, self.gate_level)
 
         # Calculate MultiMeasurementHypothesis for each Track over all
         # available Detections with probabilities drawn from JointHypotheses
@@ -164,7 +165,7 @@ class JPDA(DataAssociator):
         return new_hypotheses
 
     @classmethod
-    def enumerate_JPDA_hypotheses(cls, tracks, multihypths, gate_ratio):
+    def enumerate_JPDA_hypotheses(cls, tracks, multihypths, gate_level):
 
         joint_hypotheses = list()
 
@@ -179,12 +180,14 @@ class JPDA(DataAssociator):
 
         for track in tracks:
             track_possible_assoc = list()
-            missed_probability = \
-                multihypths[track].get_missed_detection_probability()
-            missed_gate = missed_probability/gate_ratio
             for hypothesis in multihypths[track]:
                 # Always include missed detection (gate ratio < 1)
-                if not hypothesis or hypothesis.probability >= missed_gate:
+                if hypothesis:
+                    mahal = Mahalanobis()
+                    m_dist = mahal(hypothesis.measurement_prediction, hypothesis.measurement)
+                    if m_dist < gate_level:
+                        track_possible_assoc.append(hypothesis)
+                else:
                     track_possible_assoc.append(hypothesis)
             possible_assoc.append(track_possible_assoc)
 

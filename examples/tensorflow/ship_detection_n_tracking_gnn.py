@@ -1,9 +1,11 @@
+import json
 import os
 import operator
 import cv2
 import numpy as np
 from copy import copy
 import matplotlib
+import datetime
 from matplotlib import pyplot as plt
 import matplotlib.animation as manimation
 
@@ -27,10 +29,18 @@ from stonesoup.tracker.simple import MultiTargetTracker
 from utils import visualization_utils as vis_util
 from utils import label_map_util
 
-FFMpegWriter = manimation.writers['ffmpeg']
+import logging; logging.basicConfig(level=logging.DEBUG)
+
+from tcpsocket import TcpClient
+from pid import PtzPidController
+# manimation.verbose.set_level('debug')
+
+plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'
+# writer = anim.FFMpegWriter(fps=30, codec='hevc')
+# FFMpegWriter = manimation.writers['ffmpeg']
 metadata = dict(title='Movie Test', artist='Matplotlib',
                 comment='Movie support!')
-vid_writer = FFMpegWriter(fps=5, metadata=metadata)
+vid_writer = manimation.FFMpegWriter(fps=5)
 
 # MODELS
 ##########
@@ -42,7 +52,7 @@ transition_model = CombinedLinearGaussianTransitionModel(
      ConstantVelocity(0.005**2), ConstantVelocity(0.005**2)))
 measurement_model = LinearGaussian(
     ndim_state=8, mapping=[0, 2, 4, 6],
-    noise_covar=np.diag([0.006**2, 0.006**2, 0.006**2, 0.006**2]))
+    noise_covar=np.diag([0.01**2, 0.01**2, 0.05**2, 0.05**2]))
 
 # MAIN TRACKER COMPONENTS
 #########################
@@ -61,15 +71,15 @@ from stonesoup.hypothesiser.distance import DistanceHypothesiser
 from stonesoup.hypothesiser.probability import PDAHypothesiser
 from stonesoup.dataassociator.neighbour import (
     NearestNeighbour, GlobalNearestNeighbour)
-from stonesoup.dataassociator.probability import JPDA
-# hypothesiser = DistanceHypothesiser(
-#     predictor, updater, Mahalanobis(), 20)
-hypothesiser = PDAHypothesiser(predictor, updater,
-                               clutter_spatial_density=0.1,
-                               prob_detect=0.9,
-                               prob_gate=0.9995)
-associator = JPDA(hypothesiser, updater, 20)
-# associator = GlobalNearestNeighbour(hypothesiser)
+# from stonesoup.dataassociator.probability import JPDA
+hypothesiser = DistanceHypothesiser(
+    predictor, updater, Mahalanobis(), 20)
+# hypothesiser = PDAHypothesiser(predictor, updater,
+#                                clutter_spatial_density=0.1,
+#                                prob_detect=0.9,
+#                                prob_gate=0.9995)
+# associator = JPDA(hypothesiser, updater, 20)
+associator = GlobalNearestNeighbour(hypothesiser)
 
 state_vector = StateVector(np.zeros((8,1)))
 covar = CovarianceMatrix(np.diag(np.tile([0.1**2, 0.01**2],4)))
@@ -109,6 +119,10 @@ feeder = MetadataValueFilter(feeder,
                              metadata_field="class",
                              operator=operator.eq,
                              reference_value=1)
+
+client = TcpClient('127.0.0.1', 1563)
+pid_controller = PtzPidController()
+
 frameIndex = 0
 tracks = set()
 frame = ImageFrame([])
@@ -224,77 +238,131 @@ def draw_tracks(frame, tracks):
                                                   thickness=2)
     return frame
 
-for timestamp, detections in feeder.detections_gen():
+fig = plt.figure(figsize=(9, 6))
+i = 1
 
-    frame = videoReader.frame
-    frame_np = copy(frame.pixels)
-    tracks = affineCorrection(frame.pixels, frame_old.pixels, tracks)
-    #
-    frame_np = draw_detections(frame_np, detections)
-    #
-    # Perform data association
-    associations = associator.associate(
-        tracks, detections, timestamp)
+last_command = datetime.datetime.now()
+with vid_writer.saving(fig, "denbridge_5.mp4", 100):
+    for timestamp, detections in feeder.detections_gen():
 
-    # Update tracks based on association hypotheses
-    associated_detections = set()
-    for track, multihypothesis in associations.items():
+        frame = videoReader.frame
+        frame_np = copy(frame.pixels)
+        tracks = affineCorrection(frame.pixels, frame_old.pixels, tracks)
+        #
+        frame_np = draw_detections(frame_np, detections)
+        #
+        # Perform data association
+        associations = associator.associate(
+            tracks, detections, timestamp)
 
-        # calculate each Track's state as a Gaussian Mixture of
-        # its possible associations with each detection, then
-        # reduce the Mixture to a single Gaussian State
-        missed_hypothesis = next(hyp for hyp in multihypothesis if not hyp)
-        missed_detection_weight = missed_hypothesis.weight
-        posterior_states = [missed_hypothesis.prediction]
-        posterior_state_weights = [missed_detection_weight]
-        for hypothesis in multihypothesis:
+        # Update tracks based on association hypotheses
+        # Update tracks based on association hypotheses
+        associated_detections = set()
+        for track, hypothesis in associations.items():
             if hypothesis:
-                posterior_states.append(
-                    updater.update(hypothesis))
-                posterior_state_weights.append(
-                    hypothesis.probability)
-                if hypothesis.weight > missed_detection_weight:
-                    associated_detections.add(hypothesis.measurement)
+                state_post = updater.update(hypothesis)
+                track.append(state_post)
+                associated_detections.add(hypothesis.measurement)
+            else:
+                track.append(hypothesis.prediction)
 
-        means = np.array([state.state_vector for state
-                          in posterior_states])
-        means = np.reshape(means, np.shape(means)[:-1])
-        covars = np.array([state.covar for state
-                           in posterior_states])
-        covars = np.reshape(covars, (np.shape(covars)))
-        weights = np.array([weight for weight
-                            in posterior_state_weights])
-        weights = np.reshape(weights, np.shape(weights))
+        unassociated_detections = detections - associated_detections
+        # Delete invalid tracks
+        tracks -= deleter.delete_tracks(tracks)
 
-        post_mean, post_covar = gm_reduce_single(means,
-                                                 covars, weights)
+        # Initiate new tracks
+        tracks |= initiator.initiate(unassociated_detections)
 
-        track.append(GaussianStateUpdate(
-            np.array(post_mean), np.array(post_covar),
-            multihypothesis,
-            multihypothesis[0].measurement.timestamp))
+        if len(frame_np):
+            boxes = np.array(
+                [track.state.state_vector[[0, 2, 4, 6]].reshape((4)) for track in tracks
+                 if (len([state for state in track.states if isinstance(state, Update)]) > 10)])
+            areas = [track.state.state_vector[4][0] * track.state.state_vector[6][0] for track in tracks
+                     if (len([state for state in track.states if isinstance(state, Update)]) > 10)]
 
-    unassociated_detections = detections - associated_detections
-    # Delete invalid tracks
-    tracks -= deleter.delete_tracks(tracks)
+            if (len(boxes)):
+                # areas = [box[2][0]*box[3][0] for box in boxes]
+                ind = np.argmax(areas)
+                box = boxes[ind]
+                xmin, ymin, w, h = box
+                xmax = xmin + w
+                ymax = ymin + h
+                color = 'red'
+                feedback = {'dt': 0.1}
+                box = (ymin, xmin, ymax, xmax)
+                commands, _ = pid_controller.run(frame_np, box, feedback)
 
-    # Initiate new tracks
-    tracks |= initiator.initiate(unassociated_detections)
+                print(commands)
+                panSpeed, tiltSpeed = (commands["PanTilt"]["panSpeed"],
+                                       commands["PanTilt"]["tiltSpeed"])
+                zoomSpeed = commands["Zoom"]["zoomSpeed"]
 
-    print(timestamp)
+                # print("\nSending request...")
+                # response = client.send_request()
+                # print(response)
 
-    if frame:
-        frame_np = draw_tracks(frame_np, tracks)
-        plt.clf()
-        plt.imshow(frame_np)
-        plt.pause(0.001)
-        # cv2.imshow("", cv2.resize(frame_np, (800, 600)))
+                # Test sending command
+                command = {"type": "command",
+                           "panSpeed": panSpeed,
+                           "tiltSpeed": tiltSpeed}
+                if (datetime.datetime.now()-last_command> datetime.timedelta(seconds=0.5)):
+                    print("\nSending command: {}".format(json.dumps(command)))
+                    response = client.send_command(command)
+                    last_command = datetime.datetime.now()
 
-    frame_old = copy(frame)
+                # if (panSpeed + tiltSpeed == 0):
+                #     if (zoomSpeed == 0):
+                #         # Stop the camera
+                #         if (not converged):
+                #             # camera.move_http((panSpeed, tiltSpeed))
+                #             camera.continuous_move(panSpeed, tiltSpeed)
+                #         converged = True
+                #     else:
+                #         # Control the zoom
+                #         camera.zoom_http(zoomSpeed)
+                #         time.sleep(abs(zoomSpeed))
+                #         camera.zoom_http(0)
+                #         converged = False
+                # else:
+                #     # Control the pan-tilt
+                #     # camera.move_http((panSpeed, tiltSpeed))
+                #     camera.continuous_move(panSpeed, tiltSpeed)
+                #     converged = False
+                #
+                # if converged:
+                #     color = 'green'
+                # # else:
+                # for box in boxes:
+                #     xmin, ymin, w, h = box
+                #     xmax = xmin + w
+                #     ymax = ymin + h
+                #     vis_util.draw_bounding_box_on_image_array(frame_np,
+                #                                               ymin,
+                #                                               xmin,
+                #                                               ymax,
+                #                                               xmax,
+                #                                               color=color)
+            # Display output
 
-    # if cv2.waitKey(25) & 0xFF == ord('q'):
-    #     cv2.destroyAllWindows()
-    #     break
+        print(timestamp)
+
+
+        frame_old = copy(frame)
+
+        if frame:
+            frame_np = draw_tracks(frame_np, tracks)
+            plt.clf()
+            plt.imshow(frame_np)
+            plt.pause(0.001)
+            # cv2.imshow("", cv2.resize(frame_np, (800, 600)))
+            # vid_writer.grab_frame()
+
+        # if cv2.waitKey(25) & 0xFF == ord('q'):
+        #     cv2.destroyAllWindows()
+        #     break
+        # i+=1
+        # if i>100:
+        #     break
 
 
 a=0
