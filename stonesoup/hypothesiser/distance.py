@@ -56,28 +56,36 @@ class DistanceHypothesiser(Hypothesiser):
         hypotheses = list()
 
         # Common state & measurement prediction
-        prediction = self.predictor.predict(track, timestamp=timestamp, **kwargs)
-		measurement_prediction = self.updater.predict_measurement(prediction, **kwargs)
+        mmsis = [detection.metadata["MMSI"] for detection in detections]
+        if track.metadata["MMSI"] in mmsis:
+            prediction = self.predictor.predict(track, timestamp=timestamp, **kwargs)
+            measurement_prediction = self.updater.predict_measurement(prediction, **kwargs)
 
-        # Missed detection hypothesis with distance as 'missed_distance'
-        hypotheses.append(
-            SingleDistanceHypothesis(
-                prediction,
-                MissedDetection(timestamp=timestamp),
-                self.missed_distance
-                ))
+            # Missed detection hypothesis with distance as 'missed_distance'
+            hypotheses.append(
+                SingleDistanceHypothesis(
+                    prediction,
+                    MissedDetection(timestamp=timestamp),
+                    self.missed_distance
+                    ))
 
-        # True detection hypotheses
-        distances = {detection: self.measure(measurement_prediction, detection)
-                     for detection in detections}
-        hypotheses += [SingleDistanceHypothesis(
-                            prediction,
-                            detection,
-                            distances[detection],
-                            measurement_prediction) for detection in detections
-                            if self.include_all
-                               or distances[detection] < self.missed_distance]
-
+            # True detection hypotheses
+            distances = {detection: self.measure(measurement_prediction, detection)
+                         for detection in detections}
+            hypotheses += [SingleDistanceHypothesis(
+                                prediction,
+                                detection,
+                                distances[detection],
+                                measurement_prediction) for detection in detections
+                                if self.include_all
+                                   or distances[detection] < self.missed_distance]
+        else:
+            # Missed detection hypothesis with distance as 'missed_distance'
+            hypotheses.append(
+                SingleDistanceHypothesis(
+                    track.last_update.hypothesis.prediction,
+                    MissedDetection(timestamp=track.last_update.timestamp),
+                    self.missed_distance))
         # for detection in detections:
         #
         #     # Re-evaluate prediction
