@@ -47,6 +47,7 @@ class SinglePointInitiator(GaussianInitiator):
 
         tracks = set()
         for detection in detections:
+        	self.prior_state.timestamp = detection.timestamp
             measurement_prediction = updater.predict_measurement(
                 self.prior_state, detection.measurement_model)
             track_state = updater.update(SingleHypothesis(
@@ -130,10 +131,15 @@ class SimpleMeasurementInitiator(GaussianInitiator):
             prior_covar[mapped_dimensions, :] = 0
             C0 = inv_model_matrix @ model_covar @ inv_model_matrix.T
             C0 = C0 + prior_covar + np.diag(np.array([self.diag_load] * C0.shape[0]))
+
+			prediction = GaussianStatePrediction(prior_state_vector + state_vector,
+                								 C0,
+                 								 timestamp=detection.timestamp)
+                
             tracks.add(Track([GaussianStateUpdate(
                 prior_state_vector + state_vector,
                 C0,
-                SingleHypothesis(None, detection),
+                SingleHypothesis(prediction, detection),
                 timestamp=detection.timestamp)
             ]))
         return tracks
