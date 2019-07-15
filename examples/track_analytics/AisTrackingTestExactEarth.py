@@ -3,7 +3,7 @@
 ################################################################################
 # IMPORTS                                                                      #
 ################################################################################
-
+# 22:24
 # General imports
 import os
 import pickle
@@ -16,7 +16,7 @@ from copy import copy
 # Stone-Soup imports
 from stonesoup.models.transition.linear import (
     ConstantVelocity, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
-from stonesoup.initiator.simple import SinglePointInitiator
+from stonesoup.initiator.simple import SinglePointInitiator, LinearMeasurementInitiator
 from stonesoup.deleter.error import CovarianceBasedDeleter
 from stonesoup.deleter.time import UpdateTimeStepsDeleter, UpdateTimeDeleter
 from stonesoup.dataassociator.neighbour import (
@@ -31,6 +31,7 @@ from stonesoup.predictor.kalman import ( KalmanPredictor,
     UnscentedKalmanPredictor, ExtendedKalmanPredictor)
 from stonesoup.models.measurement.linear import LinearGaussian
 from stonesoup.types.array import StateVector, CovarianceMatrix
+from stonesoup.types.prediction import GaussianStatePrediction
 from stonesoup.types.update import Update
 from stonesoup.types.state import GaussianState
 from stonesoup.writer.mongo import MongoWriter
@@ -42,15 +43,21 @@ if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "UK"
+    TARGET = "FULL"
     LIMITS = {
+        "TEST": {
+            "LON_MIN": -62.,
+            "LON_MAX": -61.5,
+            "LAT_MIN": 11.8,
+            "LAT_MAX": 12.2
+        },
         "GLOBAL": {
             "LON_MIN": -180.,
             "LON_MAX": 180.,
             "LAT_MIN": -80.,
             "LAT_MAX": 80.
         },
-        "GLOBAL_REDUCED": {
+        "FULL": {
             "LON_MIN": -84.,
             "LON_MAX": 34.5,
             "LAT_MIN": 9.5,
@@ -87,7 +94,8 @@ if __name__ == '__main__':
     LAT_MAX = LIMITS[TARGET]["LAT_MAX"]
     END_TIME = None #datetime(2017, 8, 10, 0, 48,13)
     LOAD = False
-    LOAD_OFFSET = 0
+    BACKUP = False
+    LOAD_OFFSET = 3
 
     ################################################################################
     # Plotting functions                                                           #
@@ -103,12 +111,10 @@ if __name__ == '__main__':
     # mng = plt.get_current_fig_manager()
     # mng.resize(*mng.window.maxsize())
 
-
-
     def plot_map(timestamp):
         # Mercator projection map
         m = Basemap(llcrnrlon=LON_MIN, llcrnrlat=LAT_MIN, urcrnrlon=LON_MAX,
-                    urcrnrlat=LAT_MAX, projection='merc', resolution='i')
+                    urcrnrlat=LAT_MAX, projection='merc', resolution='c')
         m.drawcoastlines()
         m.drawcountries()
         m.drawmapboundary(fill_color='#99ffff')
@@ -158,11 +164,10 @@ if __name__ == '__main__':
         ax.add_artist(ellip)
         return ellip
 
-
     def plot_tracks(tracks, show_error=True):
         # Mercator projection map
         m = Basemap(llcrnrlon=LON_MIN, llcrnrlat=LAT_MIN, urcrnrlon=LON_MAX,
-                    urcrnrlat=LAT_MAX, projection='merc', resolution='i')
+                    urcrnrlat=LAT_MAX, projection='merc', resolution='c')
         for track in tracks:
             data = np.array([state.state_vector for state in track.states if
                              isinstance(state, Update)])
@@ -172,12 +177,12 @@ if __name__ == '__main__':
             x, y = m(lon, lat)
             m.plot(x, y, 'b-o', linewidth=1, markersize=1)
             m.plot(x[-1], y[-1], 'ro', markersize=1)
+            # plt.text(x[-1], y[-1], track.metadata["MMSI"], fontsize=12)
             # plt.plot(data[:, 0], data[:, 2], '-', label="AIS Tracks")
             # if show_error:
             #     plot_cov_ellipse(track.state.covar[[0, 2], :][:, [0, 2]],
             #                      track.state.mean[[0, 2], :], edgecolor='r',
             #                      facecolor='none')
-
 
     def plot_data(detections=None):
         if len(detections) > 0:
@@ -193,8 +198,8 @@ if __name__ == '__main__':
     # Transition & Measurement models
     # ===============================
     transition_model = CombinedLinearGaussianTransitionModel(
-                                (OrnsteinUhlenbeck(0.00001 ** 2, 1e-3),
-                                 OrnsteinUhlenbeck(0.00001 ** 2, 1e-3)))
+                        (OrnsteinUhlenbeck(0.00001 ** 2, 2e-2),
+                         OrnsteinUhlenbeck(0.00001 ** 2, 2e-2)))
     measurement_model = LinearGaussian(ndim_state=4, mapping=[0, 2],
                                        noise_covar=np.diag([0.001 ** 2,
                                                             0.001 ** 2]))
@@ -206,7 +211,7 @@ if __name__ == '__main__':
 
     # Hypothesiser & Data Associator
     # ==============================
-    hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 20)
+    hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 5)
     hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
                                                   match_missing=False)
     associator = GlobalNearestNeighbour(hypothesiser)
@@ -214,9 +219,11 @@ if __name__ == '__main__':
     # Track Initiator
     # ===============
     state_vector = StateVector([[0], [0], [0], [0]])
-    covar = CovarianceMatrix(np.diag([10 ** 2, 2 ** 2, 10 ** 2, 2 ** 2]))
-    prior_state = GaussianState(state_vector, covar)
-    initiator = SinglePointInitiator(prior_state, measurement_model)
+    covar = CovarianceMatrix(np.diag([0.0001 ** 2, 0.02 ** 2,
+                                      0.0001 ** 2, 0.02 ** 2]))
+    prior_state = GaussianStatePrediction(state_vector, covar)
+    # initiator = SinglePointInitiator(prior_state, measurement_model)
+    initiator = LinearMeasurementInitiator(prior_state, measurement_model)
 
     # Track Deleter
     # =============
@@ -233,34 +240,35 @@ if __name__ == '__main__':
         unmatched_detections = copy(detections)
 
         for track in temp_deleted_tracks:
-            if len(unmatched_detections)==0:
-                break
-            # if track in temp_del_tracks:
-            #     continue
+            # if len(unmatched_detections)==0:
+            #     break
             mmsi = track.metadata["MMSI"]
             for detection in unmatched_detections:
                 # If a temporary deleted track exists with the given MMSI
                 if detection.metadata["MMSI"] == mmsi:
                     temp_del_tracks.add(track) # Remove from temp deleted
-                    unmatched_detections.remove(detection)
+                    # unmatched_detections.remove(detection)
                     break
 
         # Delete permanently
         tracks |= temp_del_tracks
         temp_deleted_tracks = list(temp_deleted_tracks-temp_del_tracks)
 
-        timestamps = [time.mktime(track.state.timestamp.timetuple())
+        timestamps = [time.mktime(track.last_update.timestamp.timetuple())
                       for track in temp_deleted_tracks]
-                      # for state in reversed(track.states)
-                      # if isinstance(state, Update)]
-        ts = time.mktime((timestamp - timedelta(hours=2)).timetuple())
+        ts = time.mktime((timestamp - timedelta(hours=10)).timetuple())
         t_inds = np.argwhere(np.array(timestamps) > ts).flatten()
-        #del_tracks = set(np.delete(temp_deleted_tracks,t_inds))
         # del_tracks = rec_deleter.delete_tracks(temp_deleted_tracks, timestamp=timestamp)
         temp_deleted_tracks = set([temp_deleted_tracks[t_ind]
                                    for t_ind in t_inds])
         #deleted_tracks |= del_tracks
 
+        # trackw = [track for track in tracks
+        #           if track.metadata["MMSI"] == "775000000"
+        #           and len([state for state in track.states
+        #                    if isinstance(state,Update)])>1]
+        # if len(trackw)>0:
+        #     s = 2
         return tracks, temp_deleted_tracks, deleted_tracks
 
     # Writer
@@ -320,7 +328,7 @@ if __name__ == '__main__':
 
     # We process the files sequentially
     for i, filename in enumerate(filenames):
-        if i < LOAD:
+        if LOAD and i < LOAD_OFFSET:
             continue
         if i > 0 and LOAD:
             write_dir = 'output/exact_earth/'
@@ -329,7 +337,8 @@ if __name__ == '__main__':
                 data = pickle.load(f)
                 tracks = data["tracks"]
                 temp_deleted_tracks = data["temp_deleted_tracks"]
-                deleted_tracks = data["deleted_tracks"]
+                deleted_tracks = TrackSet()
+                # deleted_tracks = data["deleted_tracks"]
         # Detection reader
         # ================
         # (Needs to be re-instantiated for each file)
@@ -381,11 +390,10 @@ if __name__ == '__main__':
                     track.append(hypothesis.prediction)
 
             # Delete invalid tracks
-            del_tracks = deleter.delete_tracks(tracks)
-            # mmsis =[track.metadata["MMSI"]for track in temp_deleted_tracks]
-            # for del_track in del_tracks:
-            #     temp_deleted_tracks -= set([track for track in temp_deleted_tracks
-            #                                 if del_track.metadata["MMSI"] == track.metadata["MMSI"]])
+            del_tracks = deleter.delete_tracks(tracks, timestamp = scan_time)
+            mmsis =[track.metadata["MMSI"]for track in del_tracks]
+            temp_deleted_tracks -= set([track for track in temp_deleted_tracks
+                                        if track.metadata["MMSI"] in mmsis])
             temp_deleted_tracks |= del_tracks
             tracks -= del_tracks
 
@@ -405,7 +413,8 @@ if __name__ == '__main__':
             print("Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y')
                   + " - Measurements: " + str(len(detections))
                   + " - Main Tracks: " + str(len(tracks))
-                  + " - Tentative Tracks: " + str(len(temp_deleted_tracks)))
+                  + " - Tentative Tracks: " + str(len(temp_deleted_tracks))
+                  + " - Total Tracks: " + str(len(tracks)+len(temp_deleted_tracks)))
 
             # Only plot if 'f' or 'p' button is pressed
             if msvcrt.kbhit():
@@ -426,19 +435,13 @@ if __name__ == '__main__':
             if END_TIME is not None and scan_time>=END_TIME:
                 break
 
-        # plt.clf()
-        # plot_map(scan_time)
-        # plot_data(detections)
-        # plot_tracks(tracks, False)
-        # plot_tracks(temp_deleted_tracks, False)
-        # plt.show()
-        #
         # Back-up data
-        write_dir = 'output/exact_earth/'
-        os.makedirs(write_dir, exist_ok=True)
-        data = {"tracks": tracks,
-                "temp_deleted_tracks": temp_deleted_tracks,
-                "deleted_tracks": deleted_tracks}
-        with open(os.path.join(write_dir,'{}_tracks.pickle'.format(
-                filename)), 'wb') as f:
-            pickle.dump(data, f)
+        if BACKUP:
+            write_dir = 'output/exact_earth/'
+            os.makedirs(write_dir, exist_ok=True)
+            data = {"tracks": tracks,
+                    "temp_deleted_tracks": temp_deleted_tracks,
+                    "deleted_tracks": deleted_tracks}
+            with open(os.path.join(write_dir,'{}_tracks.pickle'.format(
+                    filename)), 'wb') as f:
+                pickle.dump(data, f)
