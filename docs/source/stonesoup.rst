@@ -22,6 +22,7 @@ Enabling Components
     stonesoup.writer
     stonesoup.platform
     stonesoup.sensor
+    stonesoup.wrapper
 
 Tracker Components
 ^^^^^^^^^^^^^^^^^^
