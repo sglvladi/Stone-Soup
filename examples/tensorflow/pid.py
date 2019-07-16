@@ -274,6 +274,7 @@ class PtzPidController:
             vel = 0
 
         command = {
+            "zoomRelative": vel*dt,
             "zoomSpeed": vel
         }
         errors = {
