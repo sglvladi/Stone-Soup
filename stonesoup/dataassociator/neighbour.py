@@ -1,5 +1,9 @@
 # -*- coding: utf-8 -*-
 
+import numpy as np
+import concurrent.futures
+from scipy.optimize import linear_sum_assignment
+
 from .base import DataAssociator
 from ..base import Property
 from ..hypothesiser import Hypothesiser
@@ -96,13 +100,51 @@ class GlobalNearestNeighbour(DataAssociator):
             Key value pair of tracks with associated detection
         """
 
+        # Assign a hypothesis index to each detection
+        for ind, detection in enumerate(detections):
+            detection.metadata["hyp_ind"] = ind
+
         # Generate a set of hypotheses for each track on each detection
+        track_list = list(tracks)
         hypotheses = {
             track: self.hypothesiser.hypothesise(track, detections, time)
-            for track in tracks}
+            for track in track_list}
 
-        # Link hypotheses into a set of joint_hypotheses and evaluate
-        joint_hypotheses = self.enumerate_joint_hypotheses(hypotheses)
-        associations = max(joint_hypotheses)
+        # The cost matrix has a size (num_tracks, num_detections + num_tracks)
+        # where, each row contains the association costs between a given track
+        # and all detections, including the missed detection. The first
+        # num_detections columns contain costs of association to detections,
+        # while the remaining num_tracks columns are used to store the missed
+        # detection cost for each track.
+        num_tracks, num_detections = (len(track_list), len(detections))
+        pseudo_inf = np.finfo(float).max  # Pseudo Inf value needed for
+                                            # scipy.linear_sum_assignment
+        cost_matrix = np.full((num_tracks, num_detections + num_tracks),
+                              pseudo_inf)
+        # Store column index of missed hypothesis cost for each track
+        missed_hyp_indices = [i for i in range(num_detections,
+                                               num_detections + num_tracks)]
+        # Construct cost matrix
+        for track_ind, track in enumerate(track_list):
+            missed_hyp_ind = missed_hyp_indices[track_ind]
+            for hypothesis in hypotheses[track]:
+                hyp_ind = missed_hyp_ind if not hypothesis else \
+                    hypothesis.measurement.metadata["hyp_ind"]
+                cost_matrix[track_ind, hyp_ind] = hypothesis.distance
+
+        # Solve the linear sum assignment problem.
+        track_inds, hyp_inds = linear_sum_assignment(cost_matrix)
+
+        # Get joint hypothesis
+        joint_hypothesis = dict()
+        for i, track_ind in enumerate(track_inds):
+            track = track_list[track_ind]
+            hyp_ind = hyp_inds[i]
+            hypothesis = next(
+                hyp for hyp in hypotheses[track]
+                if (not hyp and hyp_ind == missed_hyp_indices[track_ind])
+                or (hyp and hyp_ind == hyp.measurement.metadata["hyp_ind"]))
+            joint_hypothesis[track] = hypothesis
+        associations = JointHypothesis(joint_hypothesis)
 
         return associations
