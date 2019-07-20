@@ -29,12 +29,12 @@ from stonesoup.predictor.kalman import (KalmanPredictor,
     UnscentedKalmanPredictor, ExtendedKalmanPredictor)
 from stonesoup.updater.kalman import (KalmanUpdater,
     UnscentedKalmanUpdater, ExtendedKalmanUpdater)
+from stonesoup.hypothesiser.probability import PDAHypothesiser
 from stonesoup.hypothesiser.distance import DistanceHypothesiser
 from stonesoup.dataassociator.neighbour import (
     NearestNeighbour, GlobalNearestNeighbour)
-from stonesoup.wrapper.matlab import MatlabWrapper
 
-
+from horizon_detection import find_horizon_lines
 from tcpsocket import TcpClient
 from pid import PtzPidController
 from utils import visualization_utils as vis_util
@@ -44,14 +44,15 @@ from utils import label_map_util
 ##############################################################################
 # Define the video stream
 MODEL_NAME = 'open_dataset_plus_faster_rcnn_coco_v876754'
-PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/scripts/camera_control/models/' +  MODEL_NAME + '/frozen_inference_graph.pb'
+PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/scripts/camera_control/models/' + \
+               MODEL_NAME + '/frozen_inference_graph.pb'
 # PATH_TO_CKPT = '/home/denbridge/Documents/Tensorflow/trained-models
 # PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/trained-models' \
 #                '/output_inference_graph_v5/frozen_inference_graph.pb'
 # List of the strings that is used to add correct label for each box.
 PATH_TO_LABELS = os.path.join('D:/OneDrive/TensorFlow/scripts/camera_control/data', 'label_map.pbtxt')
 VIDEO_PATH = "D:/OneDrive/TensorFlow/datasets/video-samples/denbridge" \
-             "/video12_Trim.mp4"
+             "/video1.avi"
 
 # MODELS
 ##############################################################################
@@ -70,7 +71,8 @@ predictor = UnscentedKalmanPredictor(transition_model)
 updater = UnscentedKalmanUpdater(measurement_model)
 
 # Data Association
-hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 20)
+#hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 20)
+hypothesiser = PDAHypothesiser(predictor, updater, 0.01)
 associator = GlobalNearestNeighbour(hypothesiser)
 
 # Track Management
@@ -88,11 +90,11 @@ videoReader = VideoClipReader(VIDEO_PATH)
 #                                       input_args=[[],{'threads':1, 'fflags':'nobuffer', 'vsync':0}],
 #                                       output_args=[[],{'format':'rawvideo', 'pix_fmt':'rgb24'}])
 detector = TensorflowObjectDetectorThreaded(videoReader, PATH_TO_CKPT)
-score_threshold = 0.4
+score_threshold = 0.8
 feeder = MetadataValueFilter(detector,
                              metadata_field="score",
                              operator=operator.ge,
-                             reference_value=0.4)
+                             reference_value=score_threshold)
 feeder = MetadataValueFilter(feeder,
                              metadata_field="class",
                              operator=operator.eq,
@@ -102,10 +104,6 @@ feeder = MetadataValueFilter(feeder,
 ##############################################################################
 client = TcpClient('127.0.0.1', 1563)
 pid_controller = PtzPidController()
-# engine = MatlabWrapper.connect_engine('MATLAB_1784')
-# matlab_wrapper = MatlabWrapper(r"D:\Dropbox\University of "
-#                                "Liverpool\PhD\Workspace\MATLAB\HorizonDetection",
-#                                matlab_engine=engine)
 
 # Video writing
 # plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'
@@ -128,70 +126,11 @@ category_index = label_map_util.create_category_index(categories)
 from skimage.transform import (hough_line, hough_line_peaks,
                                probabilistic_hough_line)
 from skimage.feature import canny
+from skimage.util import img_as_float, img_as_ubyte
+from skimage.color import rgb2gray
 from skimage import data
-def find_horizon(frame, roi, method):
-    # Line finding using the Probabilistic Hough Transform
-    image = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-    edges = canny(image, 2, 1, 25)
-    lines = probabilistic_hough_line(edges, threshold=10, line_length=5,
-                                     line_gap=3)
-
-    # Generating figure 2
-    fig, axes = plt.subplots(1, 3, figsize=(15, 5), sharex=True, sharey=True)
-    ax = axes.ravel()
-
-    ax[0].imshow(image)
-    ax[0].set_title('Input image')
-
-    ax[1].imshow(edges)
-    ax[1].set_title('Canny edges')
-
-    ax[2].imshow(edges * 0)
-    for line in lines:
-        p0, p1 = line
-        ax[2].plot((p0[0], p1[0]), (p0[1], p1[1]))
-    ax[2].set_xlim((0, image.shape[1]))
-    ax[2].set_ylim((image.shape[0], 0))
-    ax[2].set_title('Probabilistic Hough')
-
-    for a in ax:
-        a.set_axis_off()
-
-    plt.tight_layout()
-    plt.show()
-    edges = cv2.Canny(frame, 50, 200)
-    # minLineLength = 500
-    # maxLineGap = 10
-    # # lines = cv2.HoughLines(edges, 1, np.pi / 180, 200)
-    # # for rho, theta in lines[0]:
-    # #     a = np.cos(theta)
-    # #     b = np.sin(theta)
-    # #     x0 = a * rho
-    # #     y0 = b * rho
-    # #     x1 = int(x0 + 500 * (-b))
-    # #     y1 = int(y0 + 500 * (a))
-    # #     x2 = int(x0 - 500 * (-b))
-    # #     y2 = int(y0 - 500 * (a))
-    # #
-    # #     cv2.line(frame, (x1, y1), (x2, y2), (0, 0, 255), 2)
-    # #     cv2.imshow('', frame)
-    # #     if cv2.waitKey(25) & 0xFF == ord('q'):
-    # #         cv2.destroyAllWindows()
-    # #     a = 2
-    # lines = cv2.HoughLinesP(edges, 1, np.pi / 180, 200, minLineLength,
-    #                         maxLineGap)
-    # for x1, y1, x2, y2 in lines[0]:
-    #     cv2.line(frame, (x1, y1), (x2, y2), (0, 255, 0), 2)
-    #     cv2.imshow('', frame)
-    #     if cv2.waitKey(25) & 0xFF == ord('q'):
-    #         cv2.destroyAllWindows()
-    #     a = 2
-    #
-    # # frame = matlab_wrapper.matlab_uint32_array(frame[..., np.newaxis])
-    # # roi = matlab_wrapper.matlab_array(roi)
-    # # thetaMax, rMax, peakFrac, edgeMatrix, ht, theta, r = \
-    # #     matlab_wrapper.matlab_engine.findHorizon(frame, roi, method, nargout=7)
-    # # return thetaMax, rMax, peakFrac
+import matplotlib
+matplotlib.use( 'tkagg' )
 
 def affineCorrection(frame, frame_old, tracks):
     if (len(frame_old)):
@@ -331,7 +270,7 @@ def gen_clusters(v_matrix):
                         for v_ind in v_col_inds ]):
                     v_matched_cluster_ind[cluster_ind] = 1
 
-            num_matched_clusters = sum(v_matched_cluster_ind)
+            num_matched_clusters = int(sum(v_matched_cluster_ind))
 
             # If only matched with a single cluster, join.
             if num_matched_clusters == 1:
@@ -346,7 +285,7 @@ def gen_clusters(v_matrix):
                 matched_cluster_inds = np.argwhere(v_matched_cluster_ind > 0)[0]
                 # Start from last cluster, joining each one with the previous
                 # and removing the former.
-                for matched_cluster_ind in range(num_matched_clusters - 2, -1, 0):
+                for matched_cluster_ind in range(num_matched_clusters - 2, 0, -1):
                     clusters[matched_cluster_inds[
                         matched_cluster_ind]]["row_inds"] |= clusters[
                         matched_cluster_inds[matched_cluster_ind + 1]]["row_inds"]
@@ -356,10 +295,8 @@ def gen_clusters(v_matrix):
                     clusters[matched_cluster_inds[matched_cluster_ind + 1]] = []
 
                 # Finally, join with associated track.
-                clusters[matched_cluster_inds[
-                    matched_cluster_ind]]["row_inds"] |= set([row_ind])
-                clusters[matched_cluster_inds[
-                    matched_cluster_ind]]["col_inds"] |= v_col_inds
+                clusters[matched_cluster_inds[0]]["row_inds"] |= set([row_ind])
+                clusters[matched_cluster_inds[0]]["col_inds"] |= v_col_inds
         else:
             new_cluster = {"row_inds": set([row_ind]),
                           "col_inds": set([])}
@@ -506,7 +443,7 @@ def merge_tracks(tracks):
 
 def draw_detections(frame, detections):
     if len(detections):
-        boxes = np.array([detection.metadata["tf_box"]
+        boxes = np.array([detection.metadata["raw_box"]
                           for detection in detections])
         classes = np.array([detection.metadata["class"]
                             for detection in detections])
@@ -548,8 +485,10 @@ def draw_tracks(frame, tracks, converged):
                                                   xmax,
                                                   color=color,
                                                   thickness=2)
-        cv2.putText(frame, ids[i], (0, 0), cv2.FONT_HERSHEY_SIMPLEX, 1,
-                    (255, 255, 255), 3, cv2.LINE_AA)
+        # frame_t = cv2.putText(frame, ids[i], (0, 0),
+        #                     cv2.FONT_HERSHEY_SIMPLEX, 1,
+        #             (255, 255, 255), 3, cv2.LINE_AA)
+        # frame = copy(frame_t)
     return frame
 
 def process_pid(frame_np, tracks, feedback=None):
@@ -576,7 +515,7 @@ def process_pid(frame_np, tracks, feedback=None):
             # Run pid controller
             feedback = {'dt': 0.1}
             commands, _ = pid_controller.run(frame_np, box, feedback)
-            print(commands)
+            # print(commands)
 
             # Extract and serialise commands
             panSpeed, tiltSpeed = (commands["PanTilt"]["panSpeed"],
@@ -605,6 +544,17 @@ def process_pid(frame_np, tracks, feedback=None):
 
     return converged
 
+def detect_horizon(frame):
+    nv, nu, _ = frame.shape
+    frame_rgb = frame[..., ::-1]
+    roi = [[50, 400], [20, nu - 20]]
+    mask = np.zeros((nv, nu), dtype=bool)
+    mask[roi[0][0]:roi[0][1], roi[1][0]:roi[1][1]] = 1
+    theta = 5 * np.pi / 8 - np.arange(180) / 180.0 * np.pi / 4
+    method = 'standard'
+
+    lines = find_horizon_lines(frame_rgb, theta, method, mask=mask)
+    return lines[0]
 
 # MAIN
 ##############################################################################
@@ -622,7 +572,19 @@ for timestamp, detections in feeder.detections_gen():
 
     # Read frame
     frame = videoReader.frame
-    frame_np = copy(frame.pixels)
+    image = copy(frame.pixels)
+    num_rows, num_cols, _ = image.shape
+
+    # Detect the horizon in the image and disregard any detections above it
+    if (frameIndex+20)%20 == 0:
+        horizon = detect_horizon(image)
+    # valid_detections = set([])
+    # for detection in detections:
+    #     y_max = detection.state_vector[1,0] + detection.state_vector[3,0]
+    #     hor_max = max([horizon[0][1], horizon[1][1]])
+    #     if (y_max*num_rows>hor_max):
+    #         valid_detections.add(detection)
+    # detections = copy(valid_detections)
 
     # Correct track positions
     tracks = affineCorrection(frame.pixels, frame_old.pixels, tracks)
@@ -652,23 +614,23 @@ for timestamp, detections in feeder.detections_gen():
     converged = False
     if datetime.now() - last_command_time > timedelta(
             seconds=0.5):
-        converged = process_pid(frame_np, tracks, None)
+        converged = process_pid(image, tracks, None)
+        last_command_time = datetime.now()
 
+    num_c_tracks = len([track for track in tracks
+                        if (len([state for state in track.states if
+                                 isinstance(state, Update)]) > 10)])
+    print("Time: {} - Tracks: {} - Detections: {}".format(timestamp,
+                                                          num_c_tracks,
+                                                          len(detections)))
     frame_old = copy(frame)
-
+    frameIndex += 1
     # Display output
     if frame:
-        frame_gray = cv2.cvtColor(frame_np, cv2.COLOR_BGR2GRAY)
-        nv, nu = frame_gray.shape
-        frame_np = draw_detections(frame_np, detections)
-        frame_np = draw_tracks(frame_np, tracks, converged)
-        roi = np.array([nv/2 - 90, 5, nv/2+90, nu-5])
-        method = 'canny'
-        find_horizon(frame_np, roi, method)
-        # plt.clf()
-        # plt.imshow(frame_np)
-        # plt.pause(0.001)
-        cv2.imshow("", frame_np)
+        image = draw_detections(image, detections)
+        image = draw_tracks(image, tracks, converged)
+        f = cv2.line(image, horizon[0], horizon[1], (0, 0, 255), 2, cv2.LINE_4)
+        cv2.imshow("", f)
         # vid_writer.grab_frame()
 
     if cv2.waitKey(25) & 0xFF == ord('q'):
