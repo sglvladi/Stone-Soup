@@ -39,6 +39,11 @@ class SingleHypothesis(Hypothesis):
         MeasurementPrediction,
         default=None,
         doc="Optional track prediction in measurement space")
+    metadata = Property(
+        dict,
+        default=None,
+        doc="Container for storing hypothesis metadata"
+    )
 
     def __bool__(self):
         return (not isinstance(self.measurement, MissedDetection)) and \
