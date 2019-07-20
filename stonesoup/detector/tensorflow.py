@@ -76,7 +76,7 @@ class TensorflowObjectDetector(FileReader, Detector):
                     self._detections = set()
                     for i, box in enumerate(boxes):
                         metadata = {
-                            "tf_box": boxes[i],
+                            "raw_box": boxes[i],
                             "class": classes[i],
                             "score": scores[i]
                         }
@@ -158,7 +158,7 @@ class TensorflowObjectDetectorThreaded(TensorflowObjectDetector):
                     detections = set()
                     for i, box in enumerate(boxes):
                         metadata = {
-                            "tf_box": boxes[i],
+                            "raw_box": boxes[i],
                             "class": classes[i],
                             "score": scores[i]
                         }

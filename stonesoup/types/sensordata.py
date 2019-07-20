@@ -21,5 +21,5 @@ class ImageFrame(SensorData):
                          default=None)
 
     def __bool__(self):
-        return len(self.pixels)>0
+        return len(self.pixels) > 0
 
