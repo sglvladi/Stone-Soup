@@ -181,14 +181,161 @@ class JPDA(DataAssociator):
         for track in tracks:
             track_possible_assoc = list()
             for hypothesis in multihypths[track]:
-                # Always include missed detection (gate ratio < 1)
-                if hypothesis:
-                    mahal = Mahalanobis()
-                    m_dist = mahal(hypothesis.measurement_prediction, hypothesis.measurement)
-                    if m_dist < gate_level:
-                        track_possible_assoc.append(hypothesis)
-                else:
-                    track_possible_assoc.append(hypothesis)
+                track_possible_assoc.append(hypothesis)
+            possible_assoc.append(track_possible_assoc)
+
+        # enumerate all valid JPDA joint hypotheses
+        enum_JPDA_hypotheses = (
+            joint_hypothesis
+            for joint_hypothesis in itertools.product(*possible_assoc)
+            if cls.isvalid(joint_hypothesis))
+
+        # turn the valid JPDA joint hypotheses into 'JointHypothesis'
+        for joint_hypothesis in enum_JPDA_hypotheses:
+            local_hypotheses = {}
+
+            for track, hypothesis in zip(tracks, joint_hypothesis):
+                local_hypotheses[track] = \
+                    multihypths[track][hypothesis.measurement]
+
+            joint_hypotheses.append(
+                ProbabilityJointHypothesis(local_hypotheses))
+
+        # normalize ProbabilityJointHypotheses relative to each other
+        sum_probabilities = Probability.sum(hypothesis.probability
+                                            for hypothesis in joint_hypotheses)
+        for hypothesis in joint_hypotheses:
+            hypothesis.probability /= sum_probabilities
+
+        return joint_hypotheses
+
+    @staticmethod
+    def isvalid(joint_hypothesis):
+
+        # 'joint_hypothesis' represents a valid joint hypothesis if
+        # no measurement is repeated (ignoring missed detections)
+
+        measurements = set()
+        for hypothesis in joint_hypothesis:
+            measurement = hypothesis.measurement
+            if not measurement:
+                pass
+            elif measurement in measurements:
+                return False
+            else:
+                measurements.add(measurement)
+
+        return True
+
+
+class JIPDA(JPDA):
+    r"""Joint Integrated Probabilistic Data Association (JIPDA) """
+
+
+    def associate(self, tracks, detections, time):
+        """Associate detections with predicted states.
+
+        Parameters
+        ----------
+        tracks : list of :class:`Track`
+            Current tracked objects
+        detections : list of :class:`Detection`
+            Retrieved measurements
+        time : datetime
+            Detection time to predict to
+
+        Returns
+        -------
+        dict
+            Key value pair of tracks with associated detection
+        """
+
+        # Calculate MultipleHypothesis for each Track over all
+        # available Detections
+        hypotheses = {
+            track: self.hypothesiser.hypothesise(track, detections, time)
+            for track in tracks}
+
+        # enumerate the Joint Hypotheses of track/detection associations
+        joint_hypotheses = \
+            self.enumerate_JPDA_hypotheses(tracks, hypotheses, self.gate_level)
+
+        # Calculate MultiMeasurementHypothesis for each Track over all
+        # available Detections with probabilities drawn from JointHypotheses
+        new_hypotheses = dict()
+
+        for track in tracks:
+
+            single_measurement_hypotheses = list()
+
+            # record the MissedDetection hypothesis for this track
+            prob_misdetect = Probability.sum(
+                joint_hypothesis.probability
+                for joint_hypothesis in joint_hypotheses
+                if not joint_hypothesis.hypotheses[track].measurement)
+            w = hypotheses[track][0].metadata["w"]
+            single_measurement_hypotheses.append(
+                SingleProbabilityHypothesis(
+                    hypotheses[track][0].prediction,
+                    MissedDetection(timestamp=time),
+                    measurement_prediction=hypotheses[track][0]
+                    .measurement_prediction,
+                    probability=prob_misdetect))
+
+            # record hypothesis for any given Detection being associated with
+            # this track
+            for detection in detections:
+                pro_detect_assoc = Probability.sum(
+                    joint_hypothesis.probability
+                    for joint_hypothesis in joint_hypotheses
+                    if joint_hypothesis.
+                    hypotheses[track].measurement is detection)
+
+                single_measurement_hypotheses.append(
+                    SingleProbabilityHypothesis(
+                        hypotheses[track][0].prediction,
+                        detection,
+                        measurement_prediction=hypotheses[track][0].
+                        measurement_prediction,
+                        probability=pro_detect_assoc))
+
+            sum_weights = Probability.sum(hypothesis.probability
+                                          for hypothesis in
+                                          single_measurement_hypotheses)
+
+            for hypothesis in single_measurement_hypotheses:
+                hypothesis.probability = hypothesis.probability/sum_weights
+            single_measurement_hypotheses[0].probability = \
+                single_measurement_hypotheses[0].probability/(1+w)
+
+            track.score = Probability.sum(hypothesis.probability
+                                          for hypothesis in
+                                          single_measurement_hypotheses)
+
+            result = MultipleHypothesis(single_measurement_hypotheses, True, 1)
+
+            new_hypotheses[track] = result
+
+        return new_hypotheses
+
+    @classmethod
+    def enumerate_JPDA_hypotheses(cls, tracks, multihypths, gate_level):
+
+        joint_hypotheses = list()
+
+        if not tracks:
+            return joint_hypotheses
+
+        # perform a simple level of gating - all track/detection pairs for
+        # which the probability of association is a certain multiple less
+        # than the probability of missed detection - detection is outside the
+        # gating region, association is impossible
+        possible_assoc = list()
+
+        for track in tracks:
+            track_possible_assoc = list()
+            for hypothesis in multihypths[track]:
+                track_possible_assoc.append(hypothesis)
             possible_assoc.append(track_possible_assoc)
 
         # enumerate all valid JPDA joint hypotheses
