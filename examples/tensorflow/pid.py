@@ -164,7 +164,7 @@ class PtzPidController:
 
         return np.array([err_w, err_h])
 
-    def pid_pt(self, image, box, feedback=None, tolerance=0.2):
+    def pid_pt(self, image, box, feedback=None, tolerance=0.05):
         """Run Pan-Tilt PID controller
 
         Parameters
@@ -192,8 +192,8 @@ class PtzPidController:
                 * pid: Total error calculated the pid
         """
         # PID parameters
-        Kp = 0.005
-        Kd = 0.01
+        Kp = 0.01
+        Kd = 0.002
 
         if(feedback is not None and 'dt' in feedback):
             dt = feedback['dt']
@@ -209,7 +209,7 @@ class PtzPidController:
         der_xy = np.array([0, 0])
         if(len(self.error) > 1):
             der_xy = (self.error[-1]-self.error[-2])/dt
-        vel_xy = Kp*prop_xy + Kd*der_xy
+        vel_xy = round((Kp*prop_xy + Kd*der_xy)*255)/255.0
 
         # Saturate
         if abs(err_xy[0]) < tolerance:
@@ -219,7 +219,7 @@ class PtzPidController:
 
         command = {
             "panSpeed": vel_xy[0],
-            "tiltSpeed": 0 #vel_xy[1]
+            "tiltSpeed": vel_xy[1]
         }
         errors = {
             "prop": prop_xy,
@@ -249,8 +249,8 @@ class PtzPidController:
 
     def pid_z(self, image, box, feedback=None, tolerance=0.1):
         # PID parameters
-        Kp = 0.2
-        Kd = 0.01
+        Kp = 100
+        Kd = 10
 
         if(feedback is not None and 'dt' in feedback):
             dt = feedback['dt']
@@ -275,7 +275,8 @@ class PtzPidController:
 
         command = {
             "zoomRelative": vel*dt,
-            "zoomSpeed": vel
+            "zoomSpeed": vel,
+            "zoom": feedback["zoom"] + vel*dt
         }
         errors = {
             "prop": prop,
@@ -302,7 +303,7 @@ class PtzPidController:
 
         return command, errors
 
-    def run(self, image, box, feedback=None, tolerances=(0.2, 0.1)):
+    def run(self, image, box, feedback=None, tolerances=(0.2, 0.3)):
         pt_commands, pt_errors = self.pid_pt(
             image, box, feedback, tolerances[0])
         z_command, z_errors = self.pid_z(image, box, feedback, tolerances[1])

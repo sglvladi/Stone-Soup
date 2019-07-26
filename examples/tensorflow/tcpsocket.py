@@ -27,7 +27,7 @@ class TcpClient:
         request = {"type": "request"}
         request_str = json.dumps(request)
         response = self.send(request_str)
-        return response
+        return json.loads(response)
 
     def send_command(self, command):
         command_str = json.dumps(command)

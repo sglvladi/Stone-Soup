@@ -7,7 +7,7 @@ from copy import copy
 from datetime import datetime, timedelta
 from matplotlib import pyplot as plt
 import matplotlib.animation as manimation
-import logging; logging.basicConfig(level=logging.DEBUG)
+#import logging; logging.basicConfig(level=logging.DEBUG)
 
 from stonesoup.functions import gm_reduce_single
 from stonesoup.types.sensordata import ImageFrame
@@ -44,17 +44,25 @@ from utils import label_map_util
 # PATHS
 ##############################################################################
 # Define the video stream
-MODEL_NAME = 'open_dataset_plus_faster_rcnn_coco_v876754'
-PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/scripts/camera_control/models/' + \
-               MODEL_NAME + '/frozen_inference_graph.pb'
-# PATH_TO_CKPT = '/home/denbridge/Documents/Tensorflow/trained-models
-# PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/trained-models' \
-#                '/output_inference_graph_v5/frozen_inference_graph.pb'
-# List of the strings that is used to add correct label for each box.
-PATH_TO_LABELS = os.path.join('D:/OneDrive/TensorFlow/scripts/camera_control/data', 'label_map.pbtxt')
+# MODEL_NAME = 'open_dataset_plus_faster_rcnn_coco_v876754'
+# PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/scripts/camera_control/models/' + \
+#                MODEL_NAME + '/frozen_inference_graph.pb'
+# # PATH_TO_CKPT = '/home/denbridge/Documents/Tensorflow/trained-models
+# # PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/trained-models' \
+# #                '/output_inference_graph_v5/frozen_inference_graph.pb'
+# # List of the strings that is used to add correct label for each box.
+# PATH_TO_LABELS = os.path.join('D:/OneDrive/TensorFlow/scripts/camera_control/data', 'label_map.pbtxt')
 # VIDEO_PATH = "D:/OneDrive/TensorFlow/datasets/video-samples/denbridge" \
 #              "/video1.avi"
-VIDEO_PATH = "D:/OneDrive/TensorFlow/datasets/video-samples/sample-9.mp4"
+# Define the video stream
+MODEL_NAME = 'ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03'
+# PATH_TO_CKPT = 'D:/OneDrive/TensorFlow/scripts/camera_control/models/' + MODEL_NAME + '/frozen_inference_graph.pb'
+PATH_TO_CKPT = '/home/denbridge/Documents/Tensorflow/trained-models/output_inference_graph_v5/frozen_inference_graph.pb'
+#PATH_TO_CKPT = '/home/denbridge/Documents/Tensorflow/trained-models/open_dataset_plus_faster_rcnn_coco_v876754/frozen_inference_graph.pb'
+# List of the strings that is used to add correct label for each box.
+PATH_TO_LABELS = os.path.join('/home/denbridge/Documents/Tensorflow/trained-models/output_inference_graph_v5', 'label_map.pbtxt')
+VIDEO_PATH = "/home/denbridge/Documents/Tensorflow/datasets" \
+             "/video7_Trim.mp4"
 
 # MODELS
 ##############################################################################
@@ -86,10 +94,10 @@ deleter = CovarianceBasedDeleter(0.1**2)
 
 # DETECTION
 ##############################################################################
-videoReader = VideoClipReader(VIDEO_PATH)
-# videoReader = FFmpegVideoStreamReader('rtsp://admin:admin@10.36.0.158:554/videoinput_1:0/h264_1/media.stm',
-#                                       input_args=[[],{'threads':1, 'fflags':'nobuffer', 'vsync':0}],
-#                                       output_args=[[],{'format':'rawvideo', 'pix_fmt':'rgb24'}])
+# videoReader = VideoClipReader(VIDEO_PATH)
+videoReader = FFmpegVideoStreamReader('rtsp://admin:admin@10.36.0.160:554/videoinput_1:0/h264_1/media.stm',
+                                      input_args=[[],{'threads':1, 'fflags':'nobuffer', 'vsync':0}],
+                                      output_args=[[],{'format':'rawvideo', 'pix_fmt':'rgb24'}])
 detector = TensorflowObjectDetectorThreaded(videoReader, PATH_TO_CKPT)
 score_threshold = 0.8
 feeder = MetadataValueFilter(detector,
@@ -107,12 +115,12 @@ client = TcpClient('127.0.0.1', 1563)
 pid_controller = PtzPidController()
 
 # Video writing
-# plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'
-# writer = anim.FFMpegWriter(fps=30, codec='hevc')
-# FFMpegWriter = manimation.writers['ffmpeg']
-# metadata = dict(title='Movie Test', artist='Matplotlib',
-#                 comment='Movie support!')
-# vid_writer = manimation.FFMpegWriter(fps=5)
+plt.rcParams['animation.ffmpeg_path'] = '/usr/bin/ffmpeg'
+#writer = anim.FFMpegWriter(fps=30, codec='hevc')
+FFMpegWriter = manimation.writers['ffmpeg']
+metadata = dict(title='Movie Test', artist='Matplotlib',
+                comment='Movie support!')
+vid_writer = manimation.FFMpegWriter(fps=5)
 
 # Load label map
 NUM_CLASSES = 90
@@ -486,8 +494,14 @@ def draw_tracks(frame, tracks, converged):
         # frame = copy(frame_t)
     return frame
 
-def process_pid(frame_np, tracks, feedback=None):
+last_command = {"type": "command",
+                "panSpeed": 0,
+                "tiltSpeed": 0,
+                "zoom": 0}
+def process_pid(frame_np, tracks, last_command, feedback=None):
     converged = False
+
+    feedback = client.send_request()
     if len(frame_np):
         boxes = np.array(
             [track.state.state_vector[[0, 2, 4, 6]].reshape((4)) for track in
@@ -508,7 +522,8 @@ def process_pid(frame_np, tracks, feedback=None):
             box = (ymin, xmin, ymax, xmax)
 
             # Run pid controller
-            feedback = {'dt': 0.1}
+            feedback['dt'] = 0.1
+            #feedback = {'dt': 0.1}
             commands, _ = pid_controller.run(frame_np, box, feedback)
             # print(commands)
 
@@ -517,6 +532,7 @@ def process_pid(frame_np, tracks, feedback=None):
                                    commands["PanTilt"]["tiltSpeed"])
             zoomRelative = commands["Zoom"]["zoomRelative"]
             zoomSpeed = commands["Zoom"]["zoomSpeed"]
+            zoom = commands["Zoom"]["zoom"]
 
             # Pre-process commands to check convergence
             # This ensures that Pan-Tilt are allowed to converge first
@@ -527,15 +543,19 @@ def process_pid(frame_np, tracks, feedback=None):
                     converged = True
             else:
                 # Control ONLY the pan-tilt
-                zoomRelative = 0
+                zoomSpeed= 0
 
             # Send command to CCTV server
             command = {"type": "command",
                        "panSpeed": panSpeed,
                        "tiltSpeed": tiltSpeed,
-                       "zoom": zoomRelative}
+                       "zoom": zoom,
+                       "zoomSpeed": zoomSpeed}#zoomRelative}
+            print("\nFeedback: {}".format(json.dumps(feedback)))
             print("\nSending command: {}".format(json.dumps(command)))
-            response = client.send_command(command)
+            if not last_command == command:
+                response = client.send_command(command)
+                last_command = command
 
     return converged
 
@@ -562,112 +582,115 @@ def delete_tracks(tracks):
 
 # MAIN
 ##############################################################################
-# fig = plt.figure(figsize=(9, 6))
-# with vid_writer.saving(fig, "denbridge_5.mp4", 100):
-frameIndex = 0
-tracks = set()
-frame = ImageFrame([])
-frame_old = ImageFrame([])
-last_command_time = datetime.now()
-for timestamp, detections in feeder.detections_gen():
+fig = plt.figure(figsize=(9, 6))
+with vid_writer.saving(fig, "denbridge_test_zoom2.mp4", 100):
+    frameIndex = 0
+    tracks = set()
+    frame = ImageFrame([])
+    frame_old = ImageFrame([])
+    last_command_time = datetime.now()
+    for timestamp, detections in feeder.detections_gen():
 
-    # Merge detections that overlap
-    detections = merge_detections(detections, 0.5)
+        # Merge detections that overlap
+        detections = merge_detections(detections, 0.5)
 
-    # Read frame
-    frame = videoReader.frame
-    image = copy(frame.pixels)
-    num_rows, num_cols, _ = image.shape
+        # Read frame
+        frame = videoReader.frame
+        image = copy(frame.pixels)
+        num_rows, num_cols, _ = image.shape
 
-    # Detect the horizon in the image and disregard any detections above it
-    if (frameIndex + 20) % 20 == 0:
-        horizon = detect_horizon(image)
-    # valid_detections = set([])
-    # for detection in detections:
-    #     y_max = detection.state_vector[1,0] + detection.state_vector[3,0]
-    #     hor_max = max([horizon[0][1], horizon[1][1]])
-    #     if (y_max*num_rows>hor_max):
-    #         valid_detections.add(detection)
-    # detections = copy(valid_detections)
+        # Detect the horizon in the image and disregard any detections above it
+        # if (frameIndex + 20) % 20 == 0:
+        #     horizon = detect_horizon(image)
+        # valid_detections = set([])
+        # for detection in detections:
+        #     y_max = detection.state_vector[1,0] + detection.state_vector[3,0]
+        #     hor_max = max([horizon[0][1], horizon[1][1]])
+        #     if (y_max*num_rows>hor_max):
+        #         valid_detections.add(detection)
+        # detections = copy(valid_detections)
 
-    # Correct track positions
-    tracks = affineCorrection(frame.pixels, frame_old.pixels, tracks)
+        # Correct track positions
+        tracks = affineCorrection(frame.pixels, frame_old.pixels, tracks)
 
-    # Perform data association
-    associations = associator.associate(
-        tracks, detections, timestamp)
+        # Perform data association
+        associations = associator.associate(
+            tracks, detections, timestamp)
 
-    # Update tracks based on association hypotheses
-    associated_detections = set()
-    for track, multihypothesis in associations.items():
+        # Update tracks based on association hypotheses
+        associated_detections = set()
+        for track, multihypothesis in associations.items():
 
-        # calculate each Track's state as a Gaussian Mixture of
-        # its possible associations with each detection, then
-        # reduce the Mixture to a single Gaussian State
-        missed_hypothesis = next(hyp for hyp in multihypothesis if not hyp)
-        missed_detection_weight = missed_hypothesis.weight
-        posterior_states = [missed_hypothesis.prediction]
-        posterior_state_weights = [missed_detection_weight]
-        for hypothesis in multihypothesis:
-            if hypothesis:
-                posterior_states.append(
-                    updater.update(hypothesis))
-                posterior_state_weights.append(
-                    hypothesis.probability)
-                if hypothesis.weight > missed_detection_weight:
-                    associated_detections.add(hypothesis.measurement)
+            # calculate each Track's state as a Gaussian Mixture of
+            # its possible associations with each detection, then
+            # reduce the Mixture to a single Gaussian State
+            missed_hypothesis = next(hyp for hyp in multihypothesis if not hyp)
+            missed_detection_weight = missed_hypothesis.weight
+            posterior_states = [missed_hypothesis.prediction]
+            posterior_state_weights = [missed_detection_weight]
+            for hypothesis in multihypothesis:
+                if hypothesis:
+                    posterior_states.append(
+                        updater.update(hypothesis))
+                    posterior_state_weights.append(
+                        hypothesis.probability)
+                    if hypothesis.weight > missed_detection_weight:
+                        associated_detections.add(hypothesis.measurement)
 
-        means = np.array([state.state_vector for state
-                          in posterior_states])
-        means = np.reshape(means, np.shape(means)[:-1])
-        covars = np.array([state.covar for state
-                           in posterior_states])
-        covars = np.reshape(covars, (np.shape(covars)))
-        weights = np.array([weight for weight
-                            in posterior_state_weights])
-        weights = np.reshape(weights, np.shape(weights))
+            means = np.array([state.state_vector for state
+                              in posterior_states])
+            means = np.reshape(means, np.shape(means)[:-1])
+            covars = np.array([state.covar for state
+                               in posterior_states])
+            covars = np.reshape(covars, (np.shape(covars)))
+            weights = np.array([weight for weight
+                                in posterior_state_weights])
+            weights = np.reshape(weights, np.shape(weights))
 
-        post_mean, post_covar = gm_reduce_single(means,
-                                                 covars, weights)
+            post_mean, post_covar = gm_reduce_single(means,
+                                                     covars, weights)
 
-        track.append(GaussianStateUpdate(
-            np.array(post_mean), np.array(post_covar),
-            multihypothesis,
-            multihypothesis[0].measurement_prediction.timestamp))
+            track.append(GaussianStateUpdate(
+                np.array(post_mean), np.array(post_covar),
+                multihypothesis,
+                multihypothesis[0].measurement_prediction.timestamp))
 
-    unassociated_detections = detections - associated_detections
-    # Delete invalid tracks
-    tracks -= delete_tracks(tracks)
-    # tracks -= deleter.delete_tracks(tracks)
+        unassociated_detections = detections - associated_detections
+        # Delete invalid tracks
+        tracks -= delete_tracks(tracks)
+        # tracks -= deleter.delete_tracks(tracks)
 
-    # Initiate new tracks
-    tracks |= initiator.initiate(unassociated_detections)
+        # Initiate new tracks
+        tracks |= initiator.initiate(unassociated_detections)
 
-    # Process PID controller
-    converged = False
-    if datetime.now() - last_command_time > timedelta(
-            seconds=0.5):
-        converged = process_pid(image, tracks, None)
-        last_command_time = datetime.now()
+        # Process PID controller
+        converged = False
+        if datetime.now() - last_command_time > timedelta(
+                seconds=0.5):
+            converged = process_pid(image, tracks, last_command, None)
+            last_command_time = datetime.now()
 
-    num_c_tracks = len([track for track in tracks
-                        if (len([state for state in track.states if
-                                 isinstance(state, Update)]) > 10)])
-    print("Time: {} - Tracks: {} - Detections: {}".format(timestamp,
-                                                          num_c_tracks,
-                                                          len(detections)))
-    for track in tracks:
-        print(track.score)
-    frame_old = copy(frame)
-    frameIndex += 1
-    # Display output
-    if frame:
-        image = draw_detections(image, detections)
-        image = draw_tracks(image, tracks, converged)
-        f = cv2.line(image, horizon[0], horizon[1], (0, 0, 255), 2, cv2.LINE_4)
-        cv2.imshow("", f)
-        # vid_writer.grab_frame()
+        num_c_tracks = len([track for track in tracks
+                            if (len([state for state in track.states if
+                                     isinstance(state, Update)]) > 10)])
+        print("Time: {} - Tracks: {} - Detections: {}".format(timestamp,
+                                                              num_c_tracks,
+                                                              len(detections)))
+        for track in tracks:
+            print(track.score)
+        frame_old = copy(frame)
+        frameIndex += 1
+        # Display output
+        if frame:
+            image = draw_detections(image, detections)
+            image = draw_tracks(image, tracks, converged)
+            plt.clf()
+            plt.imshow(image)
+            # plt.pause(0.0001)
+            # f = cv2.line(image, horizon[0], horizon[1], (0, 0, 255), 2, cv2.LINE_4)
+            cv2.imshow("", image)
+            vid_writer.grab_frame()
 
-    if cv2.waitKey(25) & 0xFF == ord('q'):
-        cv2.destroyAllWindows()
-        break
+        if cv2.waitKey(25) & 0xFF == ord('q'):
+            cv2.destroyAllWindows()
+            break
