@@ -227,22 +227,64 @@ class MongoWriter(Writer):
 class MongoWriter_EE(MongoWriter):
 
     def __init__(self):
-        fields1 = ['ID', 'TrackID', 'Latitude', 'Longitude', 'ReceivedTime',
-                  'ReceivedTimeDate', 'DataType', 'Speed', 'Heading',
-                  'LRIMOShipNo', 'MMSI', 'ShipName', 'ShipType',
-                  'AdditionalInfo', 'DetectionHistory', 'CallSign',
-                  'Draught', 'Destination', 'Location']#, 'LocationHistory']
-        with open('ss_tracks_live_ee.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fields1)
+        self.main_fields = ['ID', 'TrackID', 'Latitude', 'Longitude',
+                            'ReceivedTime', 'ReceivedTimeDate', 'DataType',
+                            'Speed', 'Heading', 'LRIMOShipNo', 'MMSI',
+                            'ShipName', 'ShipType', 'AdditionalInfo',
+                            'DetectionHistory', 'CallSign', 'Draught',
+                            'Destination', 'Location']
+        self.new_fields = ['Message_ID', 'Repeat_indicator', 'Time',
+                           'Millisecond', 'Region', 'Country', 'Base_station',
+                           'Online_data', 'Group_code', 'Sequence_ID',
+                           'Channel', 'Data_length', 'Call_sign', 'IMO',
+                           'Dimension_to_Bow', 'Dimension_to_stern',
+                           'Dimension_to_port', 'Dimension_to_starboard',
+                           'AIS_version', 'Navigational_status', 'ROT',
+                           'Accuracy', 'RawLongitude', 'RawLatitude', 'COG',
+                           'Regional', 'Maneuver', 'RAIM_flag',
+                           'Communication_flag', 'Communication_state',
+                           'UTC_year', 'UTC_month', 'UTC_day', 'UTC_hour',
+                           'UTC_minute', 'UTC_second', 'Fixing_device',
+                           'Transmission_control', 'ETA_month', 'ETA_day',
+                           'ETA_hour', 'ETA_minute', 'Sequence',
+                           'Destination_ID', 'Retransmit_flag', 'Country_code',
+                           'Functional_ID', 'Data', 'Destination_ID_1',
+                           'Sequence_1', 'Destination_ID_2', 'Sequence_2',
+                           'Destination_ID_3', 'Sequence_3',
+                           'Destination_ID_4', 'Sequence_4', 'Altitude',
+                           'Altitude_sensor', 'Data_terminal', 'Mode',
+                           'Safety_text', 'Non-standard_bits',
+                           'Name_extension', 'Name_extension_padding',
+                           'Message_ID_1_1', 'Offset_1_1', 'Message_ID_1_2',
+                           'Offset_1_2', 'Message_ID_2_1', 'Offset_2_1',
+                           'Destination_ID_A', 'Offset_A', 'Increment_A',
+                           'Destination_ID_B', 'offsetB', 'incrementB',
+                           'data_msg_type', 'station_ID', 'Z_count',
+                           'num_data_words', 'health', 'unit_flag',
+                           'display', 'DSC', 'band', 'msg22', 'offset1',
+                           'num_slots1', 'timeout1', 'Increment_1', 'Offset_2',
+                           'Number_slots_2', 'Timeout_2', 'Increment_2',
+                           'Offset_3', 'Number_slots_3', 'Timeout_3',
+                           'Increment_3', 'Offset_4', 'Number_slots_4',
+                           'Timeout_4', 'Increment_4', 'ATON_type',
+                           'ATON_name', 'off_position', 'ATON_status',
+                           'Virtual_ATON', 'Channel_A', 'Channel_B',
+                           'Tx_Rx_mode', 'Power', 'Message_indicator',
+                           'Channel_A_bandwidth', 'Channel_B_bandwidth',
+                           'Transzone_size', 'Longitude_1', 'Latitude_1',
+                           'Longitude_2', 'Latitude_2', 'Station_Type',
+                           'Report_Interval', 'Quiet_Time', 'Part_Number',
+                           'Vendor_ID', 'Mother_ship_MMSI',
+                           'Destination_indicator', 'Binary_flag',
+                           'GNSS_status', 'spare', 'spare2', 'spare3',
+                           'spare4', 'InvalidLonLat', 'ZeroZeroLonLat',
+                           'ModifiedLonLat', 'type']
+        self.fields = self.main_fields + self.new_fields
+        with open('ss_tracks_live_ee2.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.fields)
             writer.writeheader()
-        fields2 = ['ID', 'TrackID', 'Latitude', 'Longitude',
-                   'ReceivedTime',
-                   'ReceivedTimeDate', 'DataType', 'Speed', 'Heading',
-                   'LRIMOShipNo', 'MMSI', 'ShipName', 'ShipType',
-                   'AdditionalInfo', 'DetectionHistory', 'CallSign',
-                   'Draught', 'Destination', 'Location']
-        with open('ss_points_live_ee.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fields2)
+        with open('ss_points_live_ee2.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.fields)
             writer.writeheader()
 
     def write(self, tracks, detections, host_name, host_port, db_name,
@@ -296,7 +338,13 @@ class MongoWriter_EE(MongoWriter):
             # movement_date = self.date_from_time_str(metadata[
             # 'MovementDateTime'])
             # movement_epoch_in_ms = self.epoch_in_ms_from_date(movement_date)
-
+            # used_fields = ['ID', 'TrackID', 'Latitude', 'Longitude', 'ReceivedTime',
+            #                'ReceivedTimeDate', 'DataType', 'SOG', 'Heading',
+            #                'LRIMOShipNo', 'MMSI', 'ShipName', 'ShipType',
+            #                'AdditionalInfo', 'DetectionHistory', 'CallSign',
+            #                'Draught', 'Destination', 'Location']
+            # new_fields = [field for field in track.metadata
+            #               if field not in used_fields]
             # Prepare values to insert
             doc = {
                 'ID': track.id,  # TODO: confirm required as well as TrackID
@@ -315,39 +363,24 @@ class MongoWriter_EE(MongoWriter):
                 'AdditionalInfo': '',
                 'DetectionHistory': detection_history,
                 'CallSign': metadata['Call_sign'],
-                #'Beam': float(metadata['Beam']),
                 'Draught': float(metadata['Draught']) if metadata['Draught']
                                                         else -1,
-                #'Length': float(metadata['Length']),
-                # 'ETA': eta_epoch_in_ms,
-                # 'ETADate': eta_date,
                 'Destination': metadata['Destination'],
-                #'DestinationTidied': metadata['DestinationTidied'],
-                # 'MovementDateTime': movement_epoch_in_ms,
-                # 'MovementDateTimeDate': movement_date,
-                #'MovementID': metadata['MovementID'],
-                #'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
                     'coordinates': latest_position
                 }
             }
+            for field in self.new_fields:
+                dicts = {field: track.metadata.get(field)}
+                doc.update(dicts)
             point_documents.append(copy(doc))
-
-            # doc['LocationHistory'] = {
-            #     'type': "MultiPoint",
-            #     'coordinates': positions
-            # }
             track_documents.append(copy(doc))
         # tracks_collection.insert_many(track_documents)
-        fields = ['ID', 'TrackID', 'Latitude', 'Longitude', 'ReceivedTime',
-                  'ReceivedTimeDate', 'DataType', 'Speed', 'Heading',
-                  'LRIMOShipNo', 'MMSI', 'ShipName', 'ShipType',
-                  'AdditionalInfo', 'DetectionHistory', 'CallSign',
-                  'Draught', 'Destination', 'Location']#, 'LocationHistory']
-        with open('ss_tracks_live_ee.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fields)
+        with open('ss_tracks_live_ee2.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.fields)
             writer.writerows(track_documents)
+
         # Detections
         for detection in detections:
             metadata = detection.metadata
@@ -390,32 +423,21 @@ class MongoWriter_EE(MongoWriter):
                 'ShipType': metadata['ShipType'],
                 'AdditionalInfo': '',
                 'CallSign': metadata['Call_sign'],
-                #'Beam': float(metadata['Beam']),
                 'Draught': float(metadata['Draught'])
                             if metadata['Draught'] else -1,
-                #'Length': float(metadata['Length']),
-                #'ETA': eta_epoch_in_ms,
-                #'ETADate': eta_date,
                 'Destination': metadata['Destination'],
-                #'DestinationTidied': metadata['DestinationTidied'],
-                #'MovementDateTime': movement_epoch_in_ms,
-                #'MovementDateTimeDate': movement_date,
-                #'MovementID': metadata['MovementID'],
-                #'MoveStatus': metadata['MoveStatus'],
                 'Location': {
                     'type': "Point",
                     'coordinates': position
                 }
             }
+            for field in self.new_fields:
+                dicts = {field: detection.metadata.get(field)}
+                doc.update(dicts)
             # values_list.append(values)
             # Insert values into Mongo
             point_documents.append(doc)
         # points_collection.insert_many(point_documents)
-        fields = ['ID', 'TrackID', 'Latitude', 'Longitude', 'ReceivedTime',
-                  'ReceivedTimeDate', 'DataType', 'Speed', 'Heading',
-                  'LRIMOShipNo', 'MMSI', 'ShipName', 'ShipType',
-                  'AdditionalInfo', 'DetectionHistory', 'CallSign',
-                  'Draught', 'Destination', 'Location']
-        with open('ss_points_live_ee.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=fields)
+        with open('ss_points_live_ee2.csv', 'a', newline='') as f:
+            writer = csv.DictWriter(f, fieldnames=self.fields)
             writer.writerows(point_documents)
