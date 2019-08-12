@@ -7,6 +7,7 @@ of video data/streams.
 
 from abc import abstractmethod
 from copy import copy
+import cv2
 import datetime
 import numpy as np
 import ffmpeg
@@ -63,6 +64,7 @@ class VideoClipReader(FileReader, FrameReader):
     def frame_gen(self):
         start_time = datetime.datetime.now()
         for timestamp_sec, frame in self.clip.iter_frames(with_times=True):
+            #frame = cv2.resize(frame, (700,500))
             timestamp = start_time + datetime.timedelta(seconds=timestamp_sec)
             self._frame = ImageFrame(frame, timestamp)
             yield timestamp, self.frame

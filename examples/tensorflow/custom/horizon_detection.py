@@ -64,3 +64,14 @@ def find_horizon_lines(image_rgb, theta=None, method='standard', mask=None,
 
     return lines
 
+def detect_horizon(frame):
+    nv, nu, _ = frame.shape
+    frame_rgb = frame[..., ::-1]
+    roi = [[50, 400], [20, nu - 20]]
+    mask = np.zeros((nv, nu), dtype=bool)
+    mask[roi[0][0]:roi[0][1], roi[1][0]:roi[1][1]] = 1
+    theta = 5 * np.pi / 8 - np.arange(180) / 180.0 * np.pi / 4
+    method = 'standard'
+
+    lines = find_horizon_lines(frame_rgb, theta, method, mask=mask)
+    return lines[0]

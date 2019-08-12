@@ -209,7 +209,7 @@ class PtzPidController:
         der_xy = np.array([0, 0])
         if(len(self.error) > 1):
             der_xy = (self.error[-1]-self.error[-2])/dt
-        vel_xy = round((Kp*prop_xy + Kd*der_xy)*255)/255.0
+        vel_xy = np.round((Kp*prop_xy + Kd*der_xy)*255)/255.0
 
         # Saturate
         if abs(err_xy[0]) < tolerance:
@@ -226,24 +226,6 @@ class PtzPidController:
             "der": der_xy,
             "pid": vel_xy
         }
-
-        # if (all([v == 0 for v in vel_xy])):
-        #     if(not self.sat_pt):
-        #         self.sat_pt = True
-        #         # Control the camera
-        #         camera.move_http(vel_xy)
-        #         # camera.move_(vel_xy)
-        # else:
-        #     # Control the camera
-        #     camera.move_http(vel_xy)
-        #     # camera.move_(vel_xy/2)
-        #     self.sat_pt = False
-        # else:
-        #     if(not self.sat_pt):
-        #         self.sat_pt = True
-        #         # Control the camera
-        #         camera.move_http((0, 0))
-        #         # camera.move_((0, 0))
 
         return command, errors
 
@@ -320,6 +302,218 @@ class PtzPidController:
 
         return command, errors
 
+class PtzPidController2:
+
+    error_pan  = []
+    error_tilt = []
+    error_zoom = []
+    i_terms = [0,0,0]
+    sat_pt = False
+    sat_z = False
+
+    def __init__(self, gains):
+        self.gains = gains
+
+    def get_x_error(self, image, box):
+        width = image.shape[1]
+        center_x = (box[1] + box[3])*width/2
+        err_x = 1 - 2*center_x/width
+        return -err_x
+
+    def get_y_error(self, image, box):
+        height = image.shape[0]
+        center_y = (box[0] + box[2]) * height / 2
+        err_y = 1 - 2 * center_y / height
+        return err_y
+
+    def get_wh_error(self, image, box, percent=0.7):
+        err_w = percent - (box[3] - box[1])
+        err_h = percent - (box[2] - box[0])
+        return np.array([err_w, err_h])
+
+    def pid_pan(self, image, box, feedback=None, tolerance=0.05):
+        """Run Pan-Tilt PID controller
+
+        Parameters
+        ----------
+        image : ndarray of shape (h,w,3)
+            The frame on which the box is laid out.
+        box : ndarray of shape (1,4)
+            The box coordinates given as [ymin, xmin, ymax, xmax]
+        feedback : dict, optional
+            Feedback received from the camera, by default None
+        tolerance : float, optional
+            Tolerance in Pan-Tilt expressed as fraction of the \
+            image size, by default 0.2
+
+        Returns
+        -------
+        dict
+            A dict object containing control commands to the camera, e.g.
+                * panSpeed
+        dict
+            A dict object containg the errors calculated by the pid:
+                * prop: Proportional error
+                * der: Derivative error
+                * pid: Total error calculated the pid
+        """
+        # PID parameters
+        Kp, Kd, Ki = self.gains[0]
+
+        if(feedback is not None and 'dt' in feedback):
+            dt = feedback['dt']
+        else:
+            dt = 1
+
+        # Compute error
+        err = self.get_x_error(image, box)
+        self.error_pan.append(err)
+        self.i_terms[0] += err*dt
+
+        # Generate PID control
+        prop = err
+        der = 0
+        intg = self.i_terms[0]
+        if(len(self.error_pan) > 1):
+            der = (self.error_pan[-1]-self.error_pan[-2])/dt
+        vel = np.round((Kp*prop + Ki*intg + Kd*der)*255)/255.0
+
+        # Saturate
+        if abs(err) < tolerance:
+            vel = 0
+
+        command = {
+            "panSpeed": vel
+        }
+        errors = {
+            "prop": prop,
+            "der": der,
+            "pid": vel
+        }
+
+        return command, errors
+
+    def pid_tilt(self, image, box, feedback=None, tolerance=0.05):
+        """Run Pan-Tilt PID controller
+
+        Parameters
+        ----------
+        image : ndarray of shape (h,w,3)
+            The frame on which the box is laid out.
+        box : ndarray of shape (1,4)
+            The box coordinates given as [ymin, xmin, ymax, xmax]
+        feedback : dict, optional
+            Feedback received from the camera, by default None
+        tolerance : float, optional
+            Tolerance in Pan-Tilt expressed as fraction of the \
+            image size, by default 0.2
+
+        Returns
+        -------
+        dict
+            A dict object containing control commands to the camera, e.g.
+                * panSpeed
+        dict
+            A dict object containg the errors calculated by the pid:
+                * prop: Proportional error
+                * der: Derivative error
+                * pid: Total error calculated the pid
+        """
+        # PID parameters
+        Kp, Kd, Ki = self.gains[1]
+
+        if(feedback is not None and 'dt' in feedback):
+            dt = feedback['dt']
+        else:
+            dt = 1
+
+        # Compute error
+        err = self.get_y_error(image, box)
+        self.error_tilt.append(err)
+        self.i_terms[1] += err*dt
+
+        # Generate PID control
+        prop = err
+        der = 0
+        intg = self.i_terms[0]
+        if(len(self.error_tilt) > 1):
+            der = (self.error_tilt[-1]-self.error_tilt[-2])/dt
+        vel = np.round((Kp*prop + Ki*intg + Kd*der)*255)/255.0
+
+        # Saturate
+        if abs(err) < tolerance:
+            vel = 0
+
+        command = {
+            "tiltSpeed": vel
+        }
+        errors = {
+            "prop": prop,
+            "der": der,
+            "pid": vel
+        }
+
+        return command, errors
+
+    def pid_zoom(self, image, box, feedback=None, tolerance=0.1):
+        # PID parameters
+        Kp, Kd, Ki = self.gains[2]
+
+        if(feedback is not None and 'dt' in feedback):
+            dt = feedback['dt']
+        else:
+            dt = 1
+
+        # Compute error
+        err_wh = self.get_wh_error(image, box)
+        err = min(err_wh)
+        self.error_zoom.append(err)
+        self.i_terms[2] += err*dt
+
+        # Generate PID control
+        prop = err
+        der = 0
+        intg = self.i_terms[2]
+        if(len(self.error_zoom) > 1):
+            der = (self.error_zoom[-1]-self.error_zoom[-2])/dt
+        vel = Kp*prop + Ki*intg + Kd*der
+
+        # print("ZoomSpeed: {}".format(vel))
+        if(abs(err) < tolerance):
+            vel = 0
+
+        command = {
+            "zoomRelative": vel*dt,
+            "zoomSpeed": vel,
+            "zoom": feedback["zoom"] + vel*dt
+        }
+        errors = {
+            "prop": prop,
+            "der": der,
+            "pid": vel
+        }
+        return command, errors
+
+    def run(self, image, box, feedback=None, tolerances=(0.2, 0.2, 0.3)):
+        p_commands, p_errors = self.pid_pan(
+            image, box, feedback, tolerances[0])
+        t_commands, t_errors = self.pid_tilt(
+            image, box, feedback, tolerances[1])
+        z_command, z_errors = self.pid_zoom(
+            image, box, feedback, tolerances[2])
+
+        command = {
+            "Pan": p_commands,
+            "Tilt": t_commands,
+            "Zoom": z_command
+        }
+        errors = {
+            "Pan": p_errors,
+            "Tilt": t_errors,
+            "Zoom": z_errors
+        }
+
+        return command, errors
 
 if __name__ == "__main__":
     flir_pid = FlirPidController()

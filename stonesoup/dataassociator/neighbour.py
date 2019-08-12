@@ -6,6 +6,7 @@ from scipy.optimize import linear_sum_assignment
 
 from .base import DataAssociator
 from ..base import Property
+from ..types.hypothesis import JointHypothesis
 from ..hypothesiser import Hypothesiser
 
 
@@ -130,7 +131,9 @@ class GlobalNearestNeighbour(DataAssociator):
             for hypothesis in hypotheses[track]:
                 hyp_ind = missed_hyp_ind if not hypothesis else \
                     hypothesis.measurement.metadata["hyp_ind"]
-                cost_matrix[track_ind, hyp_ind] = hypothesis.distance
+                cost = min((pseudo_inf, -np.log(hypothesis.weight)))
+                cost = max((-pseudo_inf, cost))
+                cost_matrix[track_ind, hyp_ind] = cost
 
         # Solve the linear sum assignment problem.
         track_inds, hyp_inds = linear_sum_assignment(cost_matrix)
