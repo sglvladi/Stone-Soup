@@ -11,6 +11,7 @@ from .array import StateVector, CovarianceMatrix, PrecisionMatrix
 from .base import Type
 from .particle import Particles
 from .numeric import Probability
+from ..functions import gm_reduce_single
 
 
 class State(Type):
@@ -293,6 +294,49 @@ class TaggedWeightedGaussianState(WeightedGaussianState):
         super().__init__(*args, **kwargs)
         if self.tag is None:
             self.tag = str(uuid.uuid4())
+
+
+class GaussianMixtureState(Type):
+    """Gaussian Mixture state"""
+    components = Property([WeightedGaussianState],
+                          doc='Gaussian Mixture components')
+    @property
+    def ndim(self):
+        return self.components[0].ndim
+
+    @property
+    def timestamp(self):
+        return self.components[0].timestamp
+
+    @property
+    def means(self):
+        means = [component.mean for component in self.components]
+        return np.concatenate((means),1)
+
+    @property
+    def covars(self):
+        covars= [component.covar for component in self.components]
+        return np.array(covars)
+
+    @property
+    def weights(self):
+        return np.array([[component.weight] for component in self.components])
+
+    @property
+    def mean(self):
+        means = self.means
+        weights = self.weights
+        return means@weights
+
+    @property
+    def covar(self):
+        _, covar = gm_reduce_single(self.means.T, self.covars,
+                                    self.weights.ravel())
+        return covar
+
+    @property
+    def state_vector(self):
+        return self.mean
 
 
 class ParticleState(Type):
