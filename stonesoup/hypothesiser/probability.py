@@ -1,7 +1,8 @@
-from scipy.stats import multivariate_normal as mn
+from scipy.stats import (multivariate_normal as mn, chi2)
 
 from .base import Hypothesiser
 from ..base import Property
+from ..measures import Mahalanobis
 from ..types.detection import MissedDetection
 from ..types.hypothesis import SingleProbabilityHypothesis
 from ..types.multihypothesis import MultipleHypothesis
@@ -139,6 +140,14 @@ class PDAHypothesiser(Hypothesiser):
             # Compute measurement prediction and probability measure
             measurement_prediction = self.updater.get_measurement_prediction(
                 prediction, detection.measurement_model)
+
+            # Perform gating
+            mahal = Mahalanobis()
+            m_dist = mahal(measurement_prediction, detection)
+            gate_level = chi2.ppf(float(self.prob_gate), df=detection.ndim)
+            if m_dist > gate_level:
+                continue
+
             log_pdf = mn.logpdf(detection.state_vector.ravel(),
                                 measurement_prediction.state_vector.ravel(),
                                 measurement_prediction.covar)
