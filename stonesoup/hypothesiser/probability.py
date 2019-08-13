@@ -152,7 +152,69 @@ class PDAHypothesiser(Hypothesiser):
                                 measurement_prediction.state_vector.ravel(),
                                 measurement_prediction.covar)
             pdf = Probability(log_pdf, log_value=True)
-            probability = (pdf * self.prob_detect)/self.clutter_spatial_density
+            probability = (pdf * self.prob_detect * self.prob_gate)/self.clutter_spatial_density
+
+            # True detection hypothesis
+            hypotheses.append(
+                SingleProbabilityHypothesis(
+                    prediction,
+                    detection,
+                    probability,
+                    measurement_prediction))
+
+        return MultipleHypothesis(hypotheses, normalise=True, total_weight=1)
+
+class IPDAHypothesiser(PDAHypothesiser):
+    """ Integrated PDA Hypothesiser """
+
+    def hypothesise(self, track, detections, timestamp):
+        r"""Evaluate and return all track association hypotheses.
+        """
+
+        hypotheses = list()
+
+        # Common state & measurement prediction
+        prediction = self.predictor.predict(track.state, timestamp=timestamp)
+        measurement_prediction = self.updater.get_measurement_prediction(
+            prediction)
+
+        # Compute predicted existence
+        track.score = 0.99*track.score
+        # Missed detection hypothesis
+        probability = Probability(1 - self.prob_detect*self.prob_gate*track.score)
+        w = (1-track.score)/((1-self.prob_detect*self.prob_detect)*track.score)
+        hypotheses.append(
+            SingleProbabilityHypothesis(
+                prediction,
+                MissedDetection(timestamp=timestamp),
+                probability,
+                measurement_prediction,
+                metadata={"w":w}))
+
+        # True detection hypotheses
+        for detection in detections:
+
+            # Re-evaluate prediction
+            prediction = self.predictor.predict(
+                track.state, timestamp=detection.timestamp)
+
+            # Compute measurement prediction and probability measure
+            measurement_prediction = self.updater.get_measurement_prediction(
+                prediction, detection.measurement_model)
+
+            # Perform gating
+            mahal = Mahalanobis()
+            m_dist = mahal(measurement_prediction, detection)
+            gate_level = chi2.ppf(float(self.prob_gate), df=detection.ndim)
+            if m_dist > gate_level:
+                continue
+
+            log_pdf = mn.logpdf(detection.state_vector.ravel(),
+                                measurement_prediction.state_vector.ravel(),
+                                measurement_prediction.covar)
+            pdf = Probability(log_pdf, log_value=True)
+            probability = (pdf * self.prob_detect * self.prob_gate *
+                           track.score)/self.clutter_spatial_density
 
             # True detection hypothesis
             hypotheses.append(
