@@ -18,6 +18,12 @@ class Track(StateMutableSequence):
         doc="The initial states of the track. Default `None` which initialises"
             "with empty list.")
 
+    score = Property(
+        float,
+        default=0.5,
+        doc="A score indicating the quality of the track"
+    )
+
     id = Property(
         str,
         default=None,
