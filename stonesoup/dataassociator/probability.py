@@ -264,40 +264,26 @@ class JIPDA(JPDA):
         # available Detections with probabilities drawn from JointHypotheses
         new_hypotheses = dict()
 
-        for track in tracks:
-
+        # record hypothesis for any given Detection being associated with
+        # this track
+        for track, track_hypotheses in hypotheses.items():
             single_measurement_hypotheses = list()
-
-            # record the MissedDetection hypothesis for this track
-            prob_misdetect = Probability.sum(
-                joint_hypothesis.probability
-                for joint_hypothesis in joint_hypotheses
-                if not joint_hypothesis.hypotheses[track].measurement)
-            w = hypotheses[track][0].metadata["w"]
-            single_measurement_hypotheses.append(
-                SingleProbabilityHypothesis(
-                    hypotheses[track][0].prediction,
-                    MissedDetection(timestamp=time),
-                    measurement_prediction=hypotheses[track][0]
-                    .measurement_prediction,
-                    probability=prob_misdetect))
-
-            # record hypothesis for any given Detection being associated with
-            # this track
-            for detection in detections:
-                pro_detect_assoc = Probability.sum(
+            for hypothesis in track_hypotheses:
+                detection = hypothesis.measurement
+                assoc_prob = Probability.sum(
                     joint_hypothesis.probability
                     for joint_hypothesis in joint_hypotheses
-                    if joint_hypothesis.
-                    hypotheses[track].measurement is detection)
-
+                    if joint_hypothesis.hypotheses[track].measurement
+                    is detection)
                 single_measurement_hypotheses.append(
                     SingleProbabilityHypothesis(
-                        hypotheses[track][0].prediction,
+                        hypothesis.prediction,
                         detection,
-                        measurement_prediction=hypotheses[track][0].
-                        measurement_prediction,
-                        probability=pro_detect_assoc))
+                        measurement_prediction=hypothesis.measurement_prediction,
+                        probability=assoc_prob))
+                # Extract the miss-detection ratio
+                if not hypothesis:
+                    w = hypothesis.metadata["w"]
 
             sum_weights = Probability.sum(hypothesis.probability
                                           for hypothesis in

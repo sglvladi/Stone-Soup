@@ -307,31 +307,41 @@ class PtzPidController2:
     error_pan  = []
     error_tilt = []
     error_zoom = []
-    i_terms = [0,0,0]
+    i_terms = [0, 0, 0]
     sat_pt = False
     sat_z = False
 
-    def __init__(self, gains):
+    def __init__(self, gains, tolerances=(0.2, 0.2, 0.3)):
         self.gains = gains
+        self.tolerances = tolerances
 
-    def get_x_error(self, image, box):
-        width = image.shape[1]
-        center_x = (box[1] + box[3])*width/2
-        err_x = 1 - 2*center_x/width
+    def reset(self):
+        self.error_pan = []
+        self.error_tilt = []
+        self.error_zoom = []
+        self.i_terms = [0, 0, 0]
+        self.sat_pt = False
+        self.sat_z = False
+
+    def round(self, value):
+        return np.round(value*255)/255.0
+
+    def get_x_error(self, box):
+        center_x = (box[1] + box[3])/2
+        err_x = 0.5 - center_x
         return -err_x
 
-    def get_y_error(self, image, box):
-        height = image.shape[0]
-        center_y = (box[0] + box[2]) * height / 2
-        err_y = 1 - 2 * center_y / height
+    def get_y_error(self, box):
+        center_y = (box[0] + box[2])/2
+        err_y = 0.5 - center_y
         return err_y
 
-    def get_wh_error(self, image, box, percent=0.7):
-        err_w = percent - (box[3] - box[1])
-        err_h = percent - (box[2] - box[0])
+    def get_wh_error(self, box):
+        err_w = 0.9 - (box[3] - box[1])
+        err_h = 0.9 - (box[2] - box[0])
         return np.array([err_w, err_h])
 
-    def pid_pan(self, image, box, feedback=None, tolerance=0.05):
+    def pid_pan(self, image, box, feedback=None, tolerance=None):
         """Run Pan-Tilt PID controller
 
         Parameters
@@ -359,6 +369,8 @@ class PtzPidController2:
         """
         # PID parameters
         Kp, Kd, Ki = self.gains[0]
+        if tolerance is None:
+            tolerance = self.tolerances[0]
 
         if(feedback is not None and 'dt' in feedback):
             dt = feedback['dt']
@@ -366,7 +378,7 @@ class PtzPidController2:
             dt = 1
 
         # Compute error
-        err = self.get_x_error(image, box)
+        err = self.get_x_error(box)
         self.error_pan.append(err)
         self.i_terms[0] += err*dt
 
@@ -376,11 +388,12 @@ class PtzPidController2:
         intg = self.i_terms[0]
         if(len(self.error_pan) > 1):
             der = (self.error_pan[-1]-self.error_pan[-2])/dt
-        vel = np.round((Kp*prop + Ki*intg + Kd*der)*255)/255.0
+        vel = self.round(Kp*prop + Ki*intg + Kd*der)
 
         # Saturate
         if abs(err) < tolerance:
             vel = 0
+            self.i_terms[0] = 0
 
         command = {
             "panSpeed": vel
@@ -393,7 +406,7 @@ class PtzPidController2:
 
         return command, errors
 
-    def pid_tilt(self, image, box, feedback=None, tolerance=0.05):
+    def pid_tilt(self, image, box, feedback=None, tolerance=None):
         """Run Pan-Tilt PID controller
 
         Parameters
@@ -421,6 +434,8 @@ class PtzPidController2:
         """
         # PID parameters
         Kp, Kd, Ki = self.gains[1]
+        if tolerance is None:
+            tolerance = self.tolerances[1]
 
         if(feedback is not None and 'dt' in feedback):
             dt = feedback['dt']
@@ -428,7 +443,7 @@ class PtzPidController2:
             dt = 1
 
         # Compute error
-        err = self.get_y_error(image, box)
+        err = self.get_y_error(box)
         self.error_tilt.append(err)
         self.i_terms[1] += err*dt
 
@@ -438,11 +453,12 @@ class PtzPidController2:
         intg = self.i_terms[0]
         if(len(self.error_tilt) > 1):
             der = (self.error_tilt[-1]-self.error_tilt[-2])/dt
-        vel = np.round((Kp*prop + Ki*intg + Kd*der)*255)/255.0
+        vel = self.round(Kp*prop + Ki*intg + Kd*der)
 
         # Saturate
         if abs(err) < tolerance:
             vel = 0
+            self.i_terms[1] = 0
 
         command = {
             "tiltSpeed": vel
@@ -455,9 +471,11 @@ class PtzPidController2:
 
         return command, errors
 
-    def pid_zoom(self, image, box, feedback=None, tolerance=0.1):
+    def pid_zoom(self, image, box, feedback=None, tolerance=None):
         # PID parameters
         Kp, Kd, Ki = self.gains[2]
+        if tolerance is None:
+            tolerance = self.tolerances[2]
 
         if(feedback is not None and 'dt' in feedback):
             dt = feedback['dt']
@@ -465,7 +483,7 @@ class PtzPidController2:
             dt = 1
 
         # Compute error
-        err_wh = self.get_wh_error(image, box)
+        err_wh = self.get_wh_error(box)
         err = min(err_wh)
         self.error_zoom.append(err)
         self.i_terms[2] += err*dt
@@ -479,8 +497,9 @@ class PtzPidController2:
         vel = Kp*prop + Ki*intg + Kd*der
 
         # print("ZoomSpeed: {}".format(vel))
-        if(abs(err) < tolerance):
+        if err > 0 and abs(err) < tolerance:
             vel = 0
+            self.i_terms[2] = 0
 
         command = {
             "zoomRelative": vel*dt,
@@ -494,7 +513,10 @@ class PtzPidController2:
         }
         return command, errors
 
-    def run(self, image, box, feedback=None, tolerances=(0.2, 0.2, 0.3)):
+    def run(self, image, box, feedback=None, tolerances=None):
+        if tolerances is None:
+            tolerances = self.tolerances
+
         p_commands, p_errors = self.pid_pan(
             image, box, feedback, tolerances[0])
         t_commands, t_errors = self.pid_tilt(

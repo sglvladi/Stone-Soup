@@ -26,7 +26,8 @@ setup(name='stonesoup',
       ],
       packages=find_packages(exclude=('docs', '*.tests')),
       install_requires=[
-          'ruamel.yaml>=0.15.45', 'scipy', 'matplotlib', 'utm', 'pymap3d', 'ffmpeg-python'],
+          'ruamel.yaml>=0.15.45', 'scipy', 'matplotlib', 'utm', 'pymap3d',
+          'ffmpeg-python', 'moviepy', 'tensorflow-gpu==1.9'],
       extras_require={
           'dev': [
               'pytest-flake8', 'pytest-cov', 'Sphinx', 'sphinx_rtd_theme',
