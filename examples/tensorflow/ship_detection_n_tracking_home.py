@@ -358,7 +358,9 @@ for timestamp, detections in feeder.detections_gen():
             multihypothesis[0].measurement_prediction.timestamp))
 
     # Delete invalid tracks
-    tracks -= delete_tracks(tracks)
+    del_tracks = {track for track in tracks if track.score<0.1}
+    tracks -= del_tracks
+    #tracks -= delete_tracks(tracks)
 
     # Initiate new tracks
     unassociated_detections = detections - associated_detections
@@ -391,6 +393,8 @@ for timestamp, detections in feeder.detections_gen():
     print("Time: {} - Tracks: {} - Detections: {}".format(timestamp,
                                                           num_c_tracks,
                                                           len(detections)))
+    for track in tracks:
+        print(track.score)
     frameIndex += 1
 
     # Display output
