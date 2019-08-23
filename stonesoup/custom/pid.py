@@ -1,5 +1,7 @@
 import numpy as np
 import time
+import json
+from datetime import datetime, timedelta
 
 
 class FlirPidController:
@@ -310,6 +312,7 @@ class PtzPidController2:
     i_terms = [0, 0, 0]
     sat_pt = False
     sat_z = False
+    new_zoom = None
 
     def __init__(self, gains, tolerances=(0.2, 0.2, 0.3)):
         self.gains = gains
@@ -481,6 +484,7 @@ class PtzPidController2:
             dt = feedback['dt']
         else:
             dt = 1
+        feedback_zoom = round(feedback["zoom"])
 
         # Compute error
         err_wh = self.get_wh_error(box)
@@ -496,15 +500,21 @@ class PtzPidController2:
             der = (self.error_zoom[-1]-self.error_zoom[-2])/dt
         vel = Kp*prop + Ki*intg + Kd*der
 
-        # print("ZoomSpeed: {}".format(vel))
-        if err > 0 and abs(err) < tolerance:
+        print("Feedback zoom: {}".format(feedback_zoom))
+        print("New zoom: {}".format(self.new_zoom))
+        if (self.new_zoom is not None and feedback_zoom != self.new_zoom) or (err > 0 and abs(err) < tolerance):
             vel = 0
             self.i_terms[2] = 0
+
+
+        new_zoom = round(feedback_zoom + vel*dt)
+        if self.new_zoom is None or (self.new_zoom is not None and self.new_zoom == feedback_zoom):
+            self.new_zoom = new_zoom
 
         command = {
             "zoomRelative": vel*dt,
             "zoomSpeed": vel,
-            "zoom": feedback["zoom"] + vel*dt
+            "zoom": new_zoom
         }
         errors = {
             "prop": prop,
@@ -537,7 +547,310 @@ class PtzPidController2:
 
         return command, errors
 
+class PtzPidController3:
+
+    error_pan  = []
+    error_tilt = []
+    error_zoom = []
+    i_terms = [0, 0, 0]
+    sat_pt = False
+    sat_z = False
+    new_zoom = None
+    last_command = {"type": "command",
+                    "panSpeed": 0,
+                    "tiltSpeed": 0,
+                    "zoom": 0}
+    last_command_time = datetime.now()
+
+    def __init__(self, gains, tolerances=(0.2, 0.2, 0.3)):
+        self.gains = gains
+        self.tolerances = tolerances
+        self.last_command_time = datetime.now()
+
+    def reset(self):
+        self.error_pan = []
+        self.error_tilt = []
+        self.error_zoom = []
+        self.i_terms = [0, 0, 0]
+        self.sat_pt = False
+        self.sat_z = False
+
+    def round(self, value):
+        return np.round(value*255)/255.0
+
+    def get_x_error(self, box):
+        left = box[1]
+        width = box[3]
+        right = left + width
+        center = (left + width)/2.0
+        err_x = 0.5 - center
+        # if (box[1] < 0.1):
+        #     err_x1 = 0.1 - box[1]
+        # if
+        # err_x2 = 0.1 - box[1]
+        # err_x3 = 0.9 - (box[1] + box[3])
+        # return -min((err_x1, err_x2, err_x3))
+        return -err_x
+
+    def get_y_error(self, box):
+        top = box[0]
+        height = box[2]
+        bottom = top + height
+        center = (top + height)/2.0
+        err_y = 0.5 - center
+        return err_y
+
+    def get_wh_error(self, box):
+        err_w = 0.9 - (box[3] - box[1])
+        err_h = 0.9 - (box[2] - box[0])
+        return np.array([err_w, err_h])
+
+    def pid_pan(self, image, box, feedback=None, tolerance=None):
+        """Run Pan-Tilt PID controller
+
+        Parameters
+        ----------
+        image : ndarray of shape (h,w,3)
+            The frame on which the box is laid out.
+        box : ndarray of shape (1,4)
+            The box coordinates given as [ymin, xmin, ymax, xmax]
+        feedback : dict, optional
+            Feedback received from the camera, by default None
+        tolerance : float, optional
+            Tolerance in Pan-Tilt expressed as fraction of the \
+            image size, by default 0.2
+
+        Returns
+        -------
+        dict
+            A dict object containing control commands to the camera, e.g.
+                * panSpeed
+        dict
+            A dict object containg the errors calculated by the pid:
+                * prop: Proportional error
+                * der: Derivative error
+                * pid: Total error calculated the pid
+        """
+        # PID parameters
+        Kp, Kd, Ki = map(lambda x: float(x/(feedback["zoom"]/20.0)), self.gains[0])
+        if tolerance is None:
+            tolerance = self.tolerances[0]
+
+        if(feedback is not None and 'dt' in feedback):
+            dt = feedback['dt']
+        else:
+            dt = 1
+
+        # Compute error
+        err = self.get_x_error(box)
+        self.error_pan.append(err)
+        self.i_terms[0] += err*dt
+
+        # Generate PID control
+        prop = err
+        der = 0
+        intg = self.i_terms[0]
+        if(len(self.error_pan) > 1):
+            der = (self.error_pan[-1]-self.error_pan[-2])/dt
+        vel = self.round(Kp*prop + Ki*intg + Kd*der)
+
+        # Saturate
+        if abs(err) < tolerance:
+            vel = 0
+            self.i_terms[0] = 0
+
+        command = {
+            "panSpeed": vel
+        }
+        errors = {
+            "prop": prop,
+            "der": der,
+            "pid": vel
+        }
+
+        return command, errors
+
+    def pid_tilt(self, image, box, feedback=None, tolerance=None):
+        """Run Pan-Tilt PID controller
+
+        Parameters
+        ----------
+        image : ndarray of shape (h,w,3)
+            The frame on which the box is laid out.
+        box : ndarray of shape (1,4)
+            The box coordinates given as [ymin, xmin, ymax, xmax]
+        feedback : dict, optional
+            Feedback received from the camera, by default None
+        tolerance : float, optional
+            Tolerance in Pan-Tilt expressed as fraction of the \
+            image size, by default 0.2
+
+        Returns
+        -------
+        dict
+            A dict object containing control commands to the camera, e.g.
+                * panSpeed
+        dict
+            A dict object containg the errors calculated by the pid:
+                * prop: Proportional error
+                * der: Derivative error
+                * pid: Total error calculated the pid
+        """
+        # PID parameters
+        Kp, Kd, Ki = map(lambda x: float(x/(feedback["zoom"]/20.0)), self.gains[1])
+        if tolerance is None:
+            tolerance = self.tolerances[1]
+
+        if(feedback is not None and 'dt' in feedback):
+            dt = feedback['dt']
+        else:
+            dt = 1
+
+        # Compute error
+        err = self.get_y_error(box)
+        self.error_tilt.append(err)
+        self.i_terms[1] += err*dt
+
+        # Generate PID control
+        prop = err
+        der = 0
+        intg = self.i_terms[0]
+        if(len(self.error_tilt) > 1):
+            der = (self.error_tilt[-1]-self.error_tilt[-2])/dt
+        vel = self.round(Kp*prop + Ki*intg + Kd*der)
+
+        # Saturate
+        if abs(err) < tolerance:
+            vel = 0
+            self.i_terms[1] = 0
+
+        command = {
+            "tiltSpeed": vel
+        }
+        errors = {
+            "prop": prop,
+            "der": der,
+            "pid": vel
+        }
+
+        return command, errors
+
+    def pid_zoom(self, image, box, feedback=None, tolerance=None):
+        # PID parameters
+        Kp, Kd, Ki = self.gains[2]
+        if tolerance is None:
+            tolerance = self.tolerances[2]
+
+        if(feedback is not None and 'dt' in feedback):
+            dt = feedback['dt']
+        else:
+            dt = 1
+        feedback_zoom = round(feedback["zoom"])
+
+        # Compute error
+        err_wh = self.get_wh_error(box)
+        err = min(err_wh)
+        self.error_zoom.append(err)
+        self.i_terms[2] += err*dt
+
+        # Generate PID control
+        prop = err
+        der = 0
+        intg = self.i_terms[2]
+        if(len(self.error_zoom) > 1):
+            der = (self.error_zoom[-1]-self.error_zoom[-2])/dt
+        vel = self.round((Kp*prop + Ki*intg + Kd*der)/100.0)*100.0
+
+        print("Feedback zoom: {}".format(feedback_zoom))
+        print("New zoom: {}".format(self.new_zoom))
+        if (err > 0 and abs(err) < tolerance):
+            vel = 0
+            self.i_terms[2] = 0
+
+
+        new_zoom = round(feedback_zoom + vel*dt)
+
+        command = {
+            "zoomRelative": vel*dt,
+            "zoomSpeed": vel,
+            "zoom": new_zoom
+        }
+        errors = {
+            "prop": prop,
+            "der": der,
+            "pid": vel
+        }
+        return command, errors
+
+    def run(self, image, box, feedback=None, tolerances=None):
+        if tolerances is None:
+            tolerances = self.tolerances
+
+        p_commands, p_errors = self.pid_pan(
+            image, box, feedback, tolerances[0])
+        t_commands, t_errors = self.pid_tilt(
+            image, box, feedback, tolerances[1])
+        z_command, z_errors = self.pid_zoom(
+            image, box, feedback, tolerances[2])
+
+        commands = {
+            "Pan": p_commands,
+            "Tilt": t_commands,
+            "Zoom": z_command
+        }
+        errors = {
+            "Pan": p_errors,
+            "Tilt": t_errors,
+            "Zoom": z_errors
+        }
+
+        panSpeed = commands["Pan"]["panSpeed"]
+        tiltSpeed = commands["Tilt"]["tiltSpeed"]
+        zoomRelative = commands["Zoom"]["zoomRelative"]
+        zoomSpeed = commands["Zoom"]["zoomSpeed"]
+        zoom = commands["Zoom"]["zoom"]
+
+        # Pre-process commands to check convergence
+        # This ensures that Pan-Tilt are allowed to converge first
+        # after which the zoom will be adjusted. This helps make the
+        # transformations less non-linear.
+        converged = False
+        if panSpeed + tiltSpeed == 0:
+            if zoomRelative == 0:
+                converged = True
+        # else:
+        #     # Control ONLY the pan-tilt
+        #     zoomSpeed = 0
+        #     zoom = feedback["zoom"]
+
+        # Send command to CCTV server
+        command = {"type": "command",
+                   "panSpeed": panSpeed,
+                   "tiltSpeed": tiltSpeed,
+                   "zoom": zoom,
+                   "zoomSpeed": zoomSpeed}
+
+        send_flag = False
+        if datetime.now() - self.last_command_time > timedelta(seconds=0.5):
+            if not self.last_command == command:
+                print("Sending command: {}".format(json.dumps(command)))
+                self.last_command = command
+                send_flag = True
+                # if self.new_zoom is None or (self.new_zoom is not None and self.new_zoom == feedback["zoom"]):
+                #     self.new_zoom = zoom
+                # else:
+                #     command["zoomSpeed"] = 0
+                #     command["zoom"] = feedback["zoom"]
+
+            else:
+                print("Duplicate command: {}".format(json.dumps(command)))
+            self.last_command_time = datetime.now()
+
+        return command, send_flag, converged
+
 if __name__ == "__main__":
     flir_pid = FlirPidController()
     for i in range(0, 70):
         print("{} -> {}".format(i, flir_pid.fov_to_zoom(i)))
+
+

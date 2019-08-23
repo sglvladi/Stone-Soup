@@ -34,27 +34,30 @@ from stonesoup.dataassociator.probability import JPDA, JIPDA
 
 from stonesoup.custom.tcpsocket import TcpClient
 from stonesoup.custom.camera import DenbridgeCctvCamera, FloureonCctvCamera
-from stonesoup.custom.pid import PtzPidController2
+from stonesoup.custom.pid import PtzPidController3
 from stonesoup.custom.models import (OutputInferenceGraph5_Home,
                                      OpenDatasetPlusFasterRcnnCoco876754_Home,
                                      GenericHomeGraph,
+                                     GenericDenbridgeGraph,
                                      OutputInferenceGraph5_Denbridge)
 from utils import label_map_util
 
 # PATHS
 ##############################################################################
 # Model
-# MODEL_NAME = 'ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03'
+MODEL_NAME = 'ssd_inception_v2_coco_2018_01_28'
+#MODEL_NAME = 'ssd_resnet50_v1_fpn_shared_box_predictor_640x640_coco14_sync_2018_07_03'
 # model = GenericHomeGraph(MODEL_NAME)
-model = OutputInferenceGraph5_Home()
+model = GenericDenbridgeGraph(MODEL_NAME)
+#model = OutputInferenceGraph5_Home()
 #model = OpenDatasetPlusFasterRcnnCoco876754_Home()
-# model = OutputInferenceGraph5_Denbridge()
+model = OutputInferenceGraph5_Denbridge()
 PATH_TO_CKPT = model.path_to_ckpt
 PATH_TO_LABELS = model.path_to_labels
 
 # Define the video stream
-BASE_VIDEO_PATH = "D:/OneDrive/TensorFlow/datasets/video-samples/"
-# BASE_VIDEO_PATH = "/home/denbridge/Documents/Tensorflow/datasets/"
+#BASE_VIDEO_PATH = "D:/OneDrive/TensorFlow/datasets/video-samples/"
+BASE_VIDEO_PATH = "/home/denbridge/Documents/Tensorflow/datasets/"
 VIDEO_PATH = BASE_VIDEO_PATH + "video7_Trim.mp4"
 
 # MODELS
@@ -88,14 +91,14 @@ deleter = CovarianceBasedDeleter(0.1**2)
 
 # DETECTION
 ##############################################################################
-videoReader = VideoClipReader(VIDEO_PATH)
+#videoReader = VideoClipReader(VIDEO_PATH)
 # videoReader = FFmpegVideoStreamReader('rtsp://192.168.0.10:554/1/h264minor',
 #                                       input_args=[
 #                                           [], {'threads': 1, 'fflags': 'nobuffer', 'vsync': 0}],
 #                                       output_args=[[], {'format': 'rawvideo', 'pix_fmt': 'bgr24'}])
-# videoReader = FFmpegVideoStreamReader('rtsp://admin:admin@10.36.0.160:554/videoinput_1:0/h264_1/media.stm',
-#                                       input_args=[[],{'threads':1, 'fflags':'nobuffer', 'vsync':0}],
-#                                       output_args=[[],{'format':'rawvideo', 'pix_fmt':'rgb24'}])
+videoReader = FFmpegVideoStreamReader('rtsp://admin:admin@10.36.0.169:554/videoinput_1:0/h264_1/media.stm',
+                                      input_args=[[],{'threads':1, 'fflags':'nobuffer', 'vsync':0}],
+                                      output_args=[[],{'format':'rawvideo', 'pix_fmt':'bgr24'}])
 detector = TensorflowObjectDetectorThreaded(videoReader, PATH_TO_CKPT)
 score_threshold = 0.5
 feeder = MetadataValueFilter(detector,
@@ -112,21 +115,31 @@ feeder = MetadataValueFilter(feeder,
 camera = DenbridgeCctvCamera('127.0.0.1', 1563)
 #camera = FloureonCctvCamera('192.168.0.10', 8999, 'admin', 'neonJam546214!')
 # (Kp,Kd,Ki)
-# pid_gains = ((0.01,  0.002, 0.0001),     # Pan
+pid_gains = ((0.03,  0.005, 0.001),     # Pan
+             (0.02, 0.001, 0.0001),     # Tilt
+             (50,   5,    0))          # Zoom
+pid_gains = ((0.1,  0.02, 0.000),     # Pan
+             (0.05, 0.01, 0.000),     # Tilt
+             (20,   1,    0))          # Zoom
+# pid_gains = ((0.01,  0.005, 0.001),     # Pan
 #              (0.005, 0.001, 0.0001),     # Tilt
-#              (100,   10,    0))          # Zoom
-# pid_gains = ((1.0,     0.2,   0.001),     # Pan
-#              (0.5,   0.1,   0),     # Tilt
-#              (100,   10,    0))     # Zoom
-pid_gains = ((0.8,  0.1, 0.05),         # Pan
-             (0.8,  0.1, 0.05),         # Tilt     FLOUREON
-             (0.2,  0.1, 0.0))         # Zoom
+#              (50,   5,    0))          # Zoom
+# pid_gains = ((0.8,  0.1, 0.05),         # Pan
+#              (0.8,  0.1, 0.05),         # Tilt     FLOUREON
+#              (0.2,  0.1, 0.0))         # Zoom
 pid_tolerances = (0.1, 0.1, 0.2)
-pid_controller = PtzPidController2(pid_gains, pid_tolerances)
+pid_controller = PtzPidController3(pid_gains, pid_tolerances)
 
 # Video writing
+counter = 1
+video_base = "output{}.avi"
+VIDEO_OUTPUT = video_base.format(counter)
+while os.path.exists(VIDEO_OUTPUT):
+    counter += 1
+    VIDEO_OUTPUT = video_base.format(counter)
+print(VIDEO_OUTPUT)
 fourcc = cv2.VideoWriter_fourcc(*'XVID')
-out = cv2.VideoWriter('output.avi',fourcc, 20.0, (640,480))
+out = cv2.VideoWriter(VIDEO_OUTPUT,fourcc, 20.0, (700,500))
 
 # Load label map
 NUM_CLASSES = 90
@@ -229,6 +242,7 @@ def click_callback(event,x,y,*args):
 
 def process_pid(frame_np, track, feedback=None):
     converged = False
+    send = False
     command = {"type": "command",
                "panSpeed":  0,
                "tiltSpeed": 0,
@@ -244,34 +258,9 @@ def process_pid(frame_np, track, feedback=None):
 
         # Run pid controller
         # tolerance = (0.0, 0.0, 0.0)
-        commands, _ = pid_controller.run(frame_np, box, feedback)
+        command, send, converged = pid_controller.run(frame_np, box, feedback)
 
-        # Extract and serialise commands
-        panSpeed = commands["Pan"]["panSpeed"]
-        tiltSpeed = commands["Tilt"]["tiltSpeed"]
-        zoomRelative = commands["Zoom"]["zoomRelative"]
-        zoomSpeed = commands["Zoom"]["zoomSpeed"]
-        zoom = commands["Zoom"]["zoom"]
-
-        # Pre-process commands to check convergence
-        # This ensures that Pan-Tilt are allowed to converge first
-        # after which the zoom will be adjusted. This helps make the
-        # transformations less non-linear.
-        if panSpeed + tiltSpeed == 0:
-            if zoomRelative == 0:
-                converged = True
-        else:
-            # Control ONLY the pan-tilt
-            zoomSpeed = 0
-
-        # Send command to CCTV server
-        command = {"type": "command",
-                   "panSpeed": panSpeed,
-                   "tiltSpeed": tiltSpeed,
-                   "zoom": zoom,
-                   "zoomSpeed": zoomSpeed}
-
-    return command, converged
+    return command, send, converged
 
 # MAIN
 ##############################################################################
@@ -377,15 +366,10 @@ for timestamp, detections in feeder.detections_gen():
 
     # Process PID controller
     feedback = camera.send_request()
-    command, converged = process_pid(image, c_track, feedback)
-    if datetime.now() - last_command_time > timedelta(seconds=0.1):
-        if not last_command == command:
-            print("Sending command: {}".format(json.dumps(command)))
-            response = camera.send_command(command)
-            last_command = command
-        else:
-            print("Duplicate command: {}".format(json.dumps(command)))
-        last_command_time = datetime.now()
+    command, send, converged = process_pid(image, c_track, feedback)
+
+    if send:
+        response = camera.send_command(command)
 
     num_c_tracks = len([track for track in tracks
                         if (len([state for state in track.states if
@@ -393,8 +377,8 @@ for timestamp, detections in feeder.detections_gen():
     print("Time: {} - Tracks: {} - Detections: {}".format(timestamp,
                                                           num_c_tracks,
                                                           len(detections)))
-    for track in tracks:
-        print(track.score)
+    # for track in tracks:
+    #     print(track.score)
     frameIndex += 1
 
     # Display output

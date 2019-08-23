@@ -64,7 +64,7 @@ class VideoClipReader(FileReader, FrameReader):
     def frame_gen(self):
         start_time = datetime.datetime.now()
         for timestamp_sec, frame in self.clip.iter_frames(with_times=True):
-            #frame = cv2.resize(frame, (700,500))
+            frame = cv2.resize(frame, (700,500))
             timestamp = start_time + datetime.timedelta(seconds=timestamp_sec)
             self._frame = ImageFrame(frame, timestamp)
             yield timestamp, self.frame
@@ -146,6 +146,7 @@ class FFmpegVideoStreamReader(UrlReader, FrameReader):
                         .frombuffer(in_bytes, np.uint8)
                         .reshape([height, width, 3])
                 )
+                frame_np = cv2.resize(frame_np, (700, 500))
             if (success):
                 self._thread_lock.acquire()
                 if len(self.buffer) == self.buffer_size:
