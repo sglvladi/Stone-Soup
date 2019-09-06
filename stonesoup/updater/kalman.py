@@ -3,12 +3,19 @@ import warnings
 import numpy as np
 import scipy.linalg as la
 from functools import lru_cache
+from scipy.stats import multivariate_normal as mvn
 
-from ..base import Property
+from ..base import Property, Base
 from .base import Updater
 from ..types.array import CovarianceMatrix
-from ..types.prediction import MeasurementPrediction
-from ..types.update import Update
+from ..types.prediction import (MeasurementPrediction,
+                                WeightedGaussianStatePrediction,
+                                GaussianMixtureStatePrediction)
+from ..types.update import (Update,
+                            WeightedGaussianStateUpdate,
+                            GaussianMixtureStateUpdate)
+from ..types.state import WeightedGaussianState, GaussianMixtureState
+from ..types.hypothesis import SingleHypothesis
 from ..models.base import LinearModel
 from ..models.measurement.linear import LinearGaussian
 from ..models.measurement import MeasurementModel
@@ -628,3 +635,101 @@ class IteratedKalmanUpdater(ExtendedKalmanUpdater):
             iterations += 1
 
         return post_state
+
+
+class IMMUpdater(Base):
+
+    updaters = Property([Updater],
+                        doc="A bank of predictors each parameterised with "
+                            "a different model")
+    model_transition_matrix = \
+        Property(np.ndarray,
+                 doc="The square transition probability "
+                     "matrix of size equal to the number of "
+                     "updaters")
+    @lru_cache()
+    def predict_measurement(self, state_prediction, **kwargs):
+        """IMM measurement prediction step
+
+        Parameters
+        ----------
+        state_prediction : :class:`~.GaussianMixtureStatePrediction`
+            A predicted state object
+
+        Returns
+        -------
+        : :class:`~.GaussianMixtureMeasurementPrediction`
+            The measurement prediction
+        """
+        nm = self.model_transition_matrix.shape[0]
+
+        # Extract means, covars and weights
+        means, covars, weights = (state_prediction.means,
+                                  state_prediction.covars,
+                                  state_prediction.weights)
+
+        meas_predictions = []
+        for i in range(nm):
+            pred = WeightedGaussianState(means[:, [i]],
+                                         np.squeeze(covars[[i], :, :]),
+                                         timestamp=state_prediction.timestamp)
+            meas_prediction = self.updaters[i].get_measurement_prediction(pred)
+            meas_predictions.append(
+                WeightedGaussianMeasurementPrediction(
+                    meas_prediction.mean,
+                    meas_prediction.covar,
+                    cross_covar=meas_prediction.cross_covar,
+                    timestamp=meas_prediction.timestamp,
+                    weight = weights[i,0]))
+        return GaussianMixtureMeasurementPrediction(meas_predictions)
+
+    def update(self, hypothesis, **kwargs):
+        """ IMM measurement update step
+
+        Parameters
+        ----------
+        hypothesis : :class:`~.Hypothesis`
+            Hypothesis with predicted state and associated detection used for
+            updating.
+
+        Returns
+        -------
+        : :class:`~.GaussianMixtureStateUpdate`
+            The state posterior
+        """
+        nm = self.model_transition_matrix.shape[0]
+
+        # Extract weights
+        weights = hypothesis.prediction.weights
+
+        # Step 3) Mode-matched filtering (ctn'd)
+        Lj = np.zeros((nm, 1))
+        posteriors = []
+        for i in range(nm):
+            pred = hypothesis.prediction.components[i]
+            meas_prediction = self.updaters[i].get_measurement_prediction(pred)
+            hyp = SingleHypothesis(pred, hypothesis.measurement,
+                                   meas_prediction)
+            posterior = self.updaters[i].update(hyp)
+            posteriors.append(posterior)
+            S = meas_prediction.covar
+            # try:
+            Lj[[i], 0] = mvn.pdf(posterior.hypothesis.measurement.state_vector.T,
+                                 posterior.hypothesis.measurement_prediction.mean.ravel(),
+                                 (S+S.T)/2)
+            # except:
+            #     a=2
+
+        # Step 4) Mode Probability update
+        c_j = self.model_transition_matrix @ weights  # (11.6.6-8)
+        weights = Lj * c_j  # (11.6.6-15)
+        weights = weights / np.sum(weights)  # Normalise
+        posteriors_w = [WeightedGaussianStateUpdate(
+                            posteriors[i].mean,
+                            posteriors[i].covar,
+                            posteriors[i].hypothesis,
+                            weight=weights[i, 0],
+                            timestamp=posteriors[i].timestamp)
+                        for i in range(nm)]
+
+        return GaussianMixtureStateUpdate(posteriors_w, hypothesis)

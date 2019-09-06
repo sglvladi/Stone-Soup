@@ -7,13 +7,17 @@ from functools import partial
 from .base import Predictor
 from ._utils import predict_lru_cache
 from ..base import Property
-from ..types.prediction import Prediction, SqrtGaussianStatePrediction
+from ..types.prediction import (Prediction, SqrtGaussianStatePrediction,
+                                WeightedGaussianStatePrediction,
+                                GaussianMixtureStatePrediction)
 from ..models.base import LinearModel
 from ..models.transition import TransitionModel
 from ..models.transition.linear import LinearGaussianTransitionModel
 from ..models.control import ControlModel
 from ..models.control.linear import LinearControlModel
-from ..functions import gauss2sigma, unscented_transform
+from ..functions import gauss2sigma, unscented_transform, imm_merge
+from ..types.state import (State, GaussianMixtureState, GaussianState,
+                           WeightedGaussianState)
 
 
 class KalmanPredictor(Predictor):
@@ -460,3 +464,70 @@ class SqrtKalmanPredictor(KalmanPredictor):
             return np.linalg.cholesky(trans_m@sqrt_prior_cov@sqrt_prior_cov.T@trans_m.T +
                                       sqrt_trans_cov@sqrt_trans_cov.T +
                                       ctrl_mat@sqrt_ctrl_noi@sqrt_ctrl_noi.T@ctrl_mat.T)
+
+
+class IMMPredictor(Base):
+    predictors = Property([Predictor],
+                          doc="A bank of predictors each parameterised with "
+                              "a different model")
+    model_transition_matrix = \
+        Property(np.ndarray,
+                 doc="The square transition probability "
+                     "matrix of size equal to the number of "
+                     "predictors")
+
+    @lru_cache()
+    def predict(self, prior, control_input=None, timestamp=None, **kwargs):
+        """
+        IMM prediction step
+        Parameters
+        ----------
+        prior: :class:`~GaussianMixtureState`
+            The prior state
+        control_input : :class:`~.State`, optional
+            The control input. It will only have an effect if
+            :attr:`control_model` is not `None` (the default is `None`)
+        timestamp: :class:`datetime.datetime`, optional
+            A timestamp signifying when the prediction is performed \
+            (the default is `None`)
+
+        Returns
+        -------
+        :class:`~GaussianMixtureState`
+        """
+        nm = self.model_transition_matrix.shape[0]
+
+        # Extract means, covars and weights
+        means = prior.means
+        covars = prior.covars
+        weights = prior.weights
+
+        # Step 1) Calculation of mixing probabilities
+        c_j = np.dot(weights.ravel(), self.model_transition_matrix)
+        mu_ij = np.zeros((nm,nm))
+        for i in range(nm):
+            for j in range(nm):
+                mu_ij[i, j] = \
+                    (self.model_transition_matrix[i, j] * weights[i,0]) / c_j[j]
+        # c_j1 = self.model_transition_matrix @ weights
+        # mu_ij1 = self.model_transition_matrix * (weights @ (1 / c_j1).T)
+
+        #a = mu_ij - mu_ij
+        # Step 2) Mixing (Mixture Reduction)
+        means_k, covars_k = imm_merge(means, covars, mu_ij)
+
+        # Step 3) Mode-matched prediction
+        predictions = []
+        for i in range(nm):
+            prior_i = GaussianState(means_k[:, [i]],
+                                    np.squeeze(covars_k[[i], :, :]),
+                                    timestamp=prior.timestamp)
+            prediction = self.predictors[i].predict(prior_i,
+                                                    timestamp=timestamp)
+            predictions.append(
+                WeightedGaussianStatePrediction(prediction.mean,
+                                      prediction.covar,
+                                      weight=weights[i, 0],
+                                      timestamp=prediction.timestamp))
+
+        return GaussianMixtureStatePrediction(predictions)
