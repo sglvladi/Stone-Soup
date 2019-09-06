@@ -4,6 +4,7 @@ from ..base import Property
 from ..measures import Measure
 from ..predictor import Predictor
 from ..types.detection import MissedDetection
+from ..types.prediction import Prediction
 from ..types.hypothesis import SingleDistanceHypothesis
 from ..types.multihypothesis import MultipleHypothesis
 from ..updater import Updater
@@ -81,11 +82,21 @@ class DistanceHypothesiser(Hypothesiser):
                                    or distances[detection] < self.missed_distance]
         else:
             # Missed detection hypothesis with distance as 'missed_distance'
-            hypotheses.append(
-                SingleDistanceHypothesis(
-                    track.last_update.hypothesis.prediction,
-                    MissedDetection(timestamp=track.last_update.timestamp),
-                    self.missed_distance))
+            if isinstance(track.state, Prediction):
+                prediction = track.state
+                hypotheses.append(
+                    SingleDistanceHypothesis(
+                        prediction,
+                        MissedDetection(timestamp=prediction.timestamp),
+                        self.missed_distance))
+            else:
+                prediction = self.predictor.predict(track.state,
+                                                    timestamp=timestamp)
+                hypotheses.append(
+                    SingleDistanceHypothesis(
+                        prediction,
+                        MissedDetection(timestamp=timestamp),
+                        self.missed_distance))
         # for detection in detections:
         #
         #     # Re-evaluate prediction
