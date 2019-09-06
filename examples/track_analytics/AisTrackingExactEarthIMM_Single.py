@@ -342,11 +342,6 @@ if __name__ == '__main__':
 
             print("Measurements: " + str(len(detections)))
 
-            # Recycle tracks
-            # tracks, temp_deleted_tracks, deleted_tracks = \
-            #     recycle_tracks(tracks, temp_deleted_tracks, deleted_tracks,
-            #                    detections, scan_time)
-
             # Process static AIS
             for track in tracks:
                 for detection in static_detections:
