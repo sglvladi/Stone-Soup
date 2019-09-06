@@ -721,7 +721,7 @@ class IMMUpdater(Base):
             #     a=2
 
         # Step 4) Mode Probability update
-        c_j = self.model_transition_matrix @ weights  # (11.6.6-8)
+        c_j = self.model_transition_matrix.T @ weights  # (11.6.6-8)
         weights = Lj * c_j  # (11.6.6-15)
         weights = weights / np.sum(weights)  # Normalise
         posteriors_w = [WeightedGaussianStateUpdate(
