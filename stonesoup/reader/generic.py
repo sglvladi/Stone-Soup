@@ -136,3 +136,57 @@ class CSVDetectionReader(DetectionReader, _CSVReader):
 
             # Yield remaining
             yield previous_time, detections
+
+
+class CSVDetectionReader_EE(CSVDetectionReader):
+    """A modified CSV detection reader for the Exact Earth dataset
+
+    This class adds a metadata field "type" to flag each detection as being
+    either "static" or "dynamic"
+    """
+
+	@BufferedGenerator.generator_method
+    def detections_gen(self):
+        with self.path.open(encoding=self.encoding, newline='') as csv_file:
+            reader = csv.DictReader(csv_file)
+            sortedlist = sorted(reader, key=lambda row: row[self.time_field],
+                                reverse=False)
+
+            for row in sortedlist:
+                time_field_value = self._get_time(row)
+
+                if self.metadata_fields is None:
+                    local_metadata = dict(row)
+                    copy_local_metadata = dict(local_metadata)
+                    for (key, value) in copy_local_metadata.items():
+                        if (key == self.time_field) or\
+                                (key in self.state_vector_fields):
+                            del local_metadata[key]
+                else:
+                    local_metadata = {field: row[field]
+                                      for field in self.metadata_fields
+                                      if field in row}
+
+                # Flag dynamic/static detections
+                valid = 0
+                for col_name in self.state_vector_fields:
+                    if row[col_name] != "":
+                        valid += 1
+                if valid == len(self.state_vector_fields):
+                    local_metadata["type"] = "dynamic"
+                    detect = Detection(np.array(
+                        [[row[col_name]] for col_name in self.state_vector_fields],
+                        dtype=np.float32), time_field_value,
+                        metadata=local_metadata)
+                    self._detections = {detect}
+                elif valid == 0:
+                    local_metadata["type"] = "static"
+                    detect = Detection(np.array(
+                        [[0]],dtype=np.float32),
+                        time_field_value,
+                        metadata=local_metadata)
+                    self._detections = {detect}
+                else:
+                    self._detections = set()
+
+                yield time_field_value, self.detections
