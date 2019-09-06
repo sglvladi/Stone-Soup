@@ -1,4 +1,5 @@
 import numpy as np
+from copy import copy
 from scipy.stats import multivariate_normal
 
 from .base import GaussianInitiator, ParticleInitiator, Initiator
@@ -12,7 +13,9 @@ from ..types.numeric import Probability
 from ..types.particle import Particle
 from ..types.state import State, GaussianState
 from ..types.track import Track
-from ..types.update import GaussianStateUpdate, ParticleStateUpdate, Update
+from ..types.prediction import WeightedGaussianStatePrediction, GaussianMixtureStatePrediction
+from ..types.update import GaussianStateUpdate, ParticleStateUpdate, Update, \
+    WeightedGaussianStateUpdate, GaussianMixtureStateUpdate
 from ..updater import Updater
 from ..updater.kalman import ExtendedKalmanUpdater
 
@@ -142,6 +145,58 @@ class SimpleMeasurementInitiator(GaussianInitiator):
                 SingleHypothesis(prediction, detection),
                 timestamp=detection.timestamp)
             ]))
+        return tracks
+
+        
+class LinearMeasurementInitiatorMixture(GaussianInitiator):
+    """Initiator that maps measurement space to state space
+
+    This initiator utilises the :class:`~.MeasurementModel` matrix to convert
+    :class:`~.Detection` state vector and model covariance into state space.
+    This then replaces mapped values in the :attr:`prior_state` to form the
+    initial :class:`~.GaussianState` of the :class:`~.Track`.
+    """
+    prior_state: GaussianState = Property(doc="Prior state information")
+    measurement_model: MeasurementModel = Property(doc="Measurement model")
+
+    def initiate(self, detections, **kwargs):
+        tracks = set()
+
+        model_matrix = self.measurement_model.matrix()
+        model_covar = self.measurement_model.covar()
+
+        prior_state_vector = self.prior_state.state_vector.copy()
+        prior_covar = self.prior_state.covar.copy()
+
+        # Zero out elements of prior state that will be replaced by measurement
+        mapped_dimensions, _ = np.nonzero(
+            model_matrix.T@np.ones((model_matrix.shape[0], 1)))
+        prior_state_vector[mapped_dimensions, :] = 0
+        prior_covar[mapped_dimensions, :] = 0
+
+        inv_model_matrix = np.linalg.pinv(model_matrix)
+
+        for detection in detections:
+            prediction1 = WeightedGaussianStatePrediction(
+                prior_state_vector + inv_model_matrix @ detection.state_vector,
+                prior_covar + inv_model_matrix @ model_covar @ model_matrix.astype(
+                    bool),
+                timestamp=detection.timestamp,
+                weight=0.5)
+            update1 = WeightedGaussianStateUpdate(
+                prior_state_vector + inv_model_matrix @ detection.state_vector,
+                prior_covar
+                + inv_model_matrix @ model_covar @ model_matrix.astype(bool),
+                SingleHypothesis(prediction1, detection),
+                timestamp=detection.timestamp,
+                weight=0.5)
+            prediction = GaussianMixtureStatePrediction([copy(prediction1),
+                                                         copy(prediction1)])
+            hyp = SingleHypothesis(prediction,detection)
+            update = GaussianMixtureStateUpdate([copy(update1),
+                                                 copy(update1)],
+                                                hyp)
+            tracks.add(Track([update]))
         return tracks
 
 
