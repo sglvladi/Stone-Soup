@@ -549,6 +549,67 @@ def gm_reduce_single(means, covars, weights):
 
     return mean.view(StateVector), covar.view(CovarianceMatrix)
 
+def imm_merge(means, covars, weights):
+    """ Perform IMM components merging/mixing
+
+    Parameters
+    ----------
+    means: np.array of shape (num_dims, num_models)
+        The IMM means
+    covars: np.array of shape (num_models, num_dims, num_dims)
+        The IMM covariances
+    weights: np.array of shape (num_models, num_models)
+        The IMM mixing weights
+
+    Returns
+    -------
+    np.array of shape (num_dims, num_models)
+        The mixed IMM means
+    np.array of shape (num_models, num_dims, num_dims)
+        The mixed IMM covariances
+
+    """
+    nx, nm = means.shape
+
+    class Filter:
+        def __init__(self, x, P):
+            self.x = x
+            self.P = P
+
+    filters = []
+    for i in range(nm):
+        filter = Filter(means[:,[i]], np.squeeze(covars[[i],:,:]))
+        filters.append(filter)
+    xs, Ps = [], []
+    for i, (f, w) in enumerate(zip(filters, weights.T)):
+        x = np.zeros((nx,1))
+        for kf, wj in zip(filters, w):
+            x += kf.x * wj
+        xs.append(x)
+
+        P = np.zeros((nx,nx))
+        for kf, wj in zip(filters, w):
+            y = kf.x - x
+            P += wj * (np.outer(y, y) + kf.P)
+        Ps.append(P)
+    return np.concatenate((xs),1), np.array(Ps)
+
+    # weights = weights.T
+    # x_0j = means @ weights
+    # v = means - x_0j
+    # P_t = np.zeros((nm, nx, nx))
+    # for i in range(nm):
+    #     P_t[[i], :, :,] = covars[[i], :, :] + v[:, [i]]@v[:, [i]].T
+    #
+    # x_0j = np.zeros((nx, nm))
+    # P_0j = np.zeros((nm, nx, nx))
+    # for j in range(nm):
+    #     x_0j[:, [j]] = means @ weights[:, [j]]
+    #     v_0 = means[:, [j]] - x_0j[:, [j]]
+    #     for i in range(nm):
+    #         P_0j[[j], :,:] = P_0j[[j], :, :] \
+    #                          + weights[i, j]*(covars[[j], :, :] + v_0@v_0.T)
+    # return x_0j, P_0j
 
 def mod_bearing(x):
     r"""Calculates the modulus of a bearing. Bearing angles are within the \
