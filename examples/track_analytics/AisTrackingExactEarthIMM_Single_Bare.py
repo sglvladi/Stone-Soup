@@ -10,7 +10,9 @@
 ################################################################################
 # General imports
 import glob
+import logging
 import os
+import time
 import numpy as np
 from datetime import datetime, timedelta
 import argparse
@@ -47,6 +49,41 @@ parser.add_argument("-o", "--output_path",
 args = parser.parse_args()
 in_path = args.input_path
 out_path = args.output_path
+
+# Create output dir, only if it doesn't exist
+try:
+    os.makedirs(out_path)
+except FileExistsError:
+    # Safety check to prevent accidentally overwriting results
+    print(f"Warning, output dir '{out_path}' already exists.  "
+          "Please delete or move and try again. Exiting...")
+    exit(1)
+
+# Configure logging/logger:
+log_level = logging.INFO
+log_format = "[%(asctime)s] %(levelname)-8s [%(filename)s:%(lineno)3i] %(message)s"
+logging.basicConfig(
+    level=log_level,
+    format=log_format,
+)
+logger = logging.getLogger()
+
+# Define log file handler, and add
+log_file = os.path.join(
+    out_path,
+    f'{time.strftime("%Y-%m-%d_%H-%M-%S", time.localtime(time.time()))}.log',
+)
+file_handler = logging.FileHandler(log_file)
+file_handler.setLevel(log_level)
+file_handler.setFormatter(logging.Formatter(log_format))
+logger.addHandler(file_handler)
+
+# Log info about this run
+logger.info("Logger started...")
+logger.info("Script running with arguments: %s ...", args)
+logger.info("Logging to: %s", log_file)
+logger.info("Reading from: %s", in_path)
+
 
 ##########################################################################
 # Tracking components                                                    #
@@ -102,9 +139,16 @@ deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=24))
 ################################################################################
 from stonesoup.types.sets import TrackSet
 
-# We process each MMSI file sequentially
-for file_path in glob.iglob(os.path.join(in_path, r'*.csv')):
+start_time = time.time()
+logger.info(f"Starting...")
 
+discovered_files = list(glob.iglob(os.path.join(in_path, r'*.csv')))
+logger.info("Discovered %d files to process...", len(discovered_files))
+
+iteration_timestamp = time.time()
+
+# We process each MMSI file sequentially
+for i, file_path in enumerate(discovered_files, start=1):
     # Detection readers
     # ================
     detector = CSVDetectionReader_EE(
@@ -150,7 +194,7 @@ for file_path in glob.iglob(os.path.join(in_path, r'*.csv')):
                 unique_detections.add(detection)
         detections = unique_detections
 
-        print("Measurements: " + str(len(detections)))
+        logger.debug("Measurements: %s", str(len(detections)))
 
         # Process static AIS
         for track in tracks:
@@ -162,7 +206,7 @@ for file_path in glob.iglob(os.path.join(in_path, r'*.csv')):
                                             x in static_fields})
 
         # Perform data association
-        print("Tracking.... NumTracks: {}".format(str(len(tracks))))
+        logger.debug("Tracking.... NumTracks: %s", (str(len(tracks))))
         associations = associator.associate(tracks, detections, scan_time)
 
         # Update tracks based on association hypotheses
@@ -176,7 +220,7 @@ for file_path in glob.iglob(os.path.join(in_path, r'*.csv')):
                 track.append(hypothesis.prediction)
 
         # Write data
-        print("Writing....")
+        logger.debug("Writing....")
         writer.write(tracks,
                      detections,
                      timestamp=scan_time)
@@ -190,7 +234,18 @@ for file_path in glob.iglob(os.path.join(in_path, r'*.csv')):
         del_tracks = deleter.delete_tracks(tracks, timestamp=scan_time)
         tracks -= del_tracks
 
-        print("{}".format(filename)
-              + " - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y')
-              + " - Measurements: " + str(len(detections))
-              + " - Tracks: " + str(len(tracks)))
+        logger.debug(
+            "%s - Time: %s - Measurements: %s - Tracks: %s",
+            filename, scan_time.strftime('%H:%M:%S %d/%m/%Y'),
+            str(len(detections)), str(len(tracks))
+        )
+
+    # Log file processing stats
+    logger.info(
+        f"Processed file {i:>5} / {len(discovered_files):>5} "
+        f"in {time.time() - iteration_timestamp:>6.1f} secs"
+        f" - Running time {(time.time() - start_time)/60:>6.1f} mins..."
+    )
+    iteration_timestamp = time.time()
+
+logger.info(f"Finished processing after: {time.time() - start_time}")
