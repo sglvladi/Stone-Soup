@@ -244,7 +244,10 @@ for i, file_path in enumerate(discovered_files, start=1):
     logger.info(
         f"Processed file {i:>5} / {len(discovered_files):>5} "
         f"in {time.time() - iteration_timestamp:>6.1f} secs"
-        f" - Running time {(time.time() - start_time)/60:>6.1f} mins..."
+        f" | elapsed time {(time.time() - start_time)/60:>6.1f} mins"
+        f" | est. time left "
+        f"{((time.time() - start_time) / i) * len(discovered_files)/60:6.1f}"
+        f" mins..."
     )
     iteration_timestamp = time.time()
 
