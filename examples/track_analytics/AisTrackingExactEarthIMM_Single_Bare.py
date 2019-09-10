@@ -242,8 +242,8 @@ for i, file_path in enumerate(discovered_files, start=1):
 
     # Log file processing stats
     logger.info(
-        f"Processed file {i:>5} / {len(discovered_files):>5} "
-        f"in {time.time() - iteration_timestamp:>6.1f} secs"
+        f"Processed file {i:>5} / {len(discovered_files)} "
+        f"in {time.time() - iteration_timestamp:>4.1f} secs"
         f" | elapsed time {(time.time() - start_time)/60:>6.1f} mins"
         f" | est. time left "
         f"{( ((time.time() - start_time) / i) * (len(discovered_files) - i) ) / 60:5.1f}"
@@ -251,4 +251,4 @@ for i, file_path in enumerate(discovered_files, start=1):
     )
     iteration_timestamp = time.time()
 
-logger.info(f"Finished processing after: {time.time() - start_time}")
+logger.info(f"Finished processing after: {(time.time() - start_time) / 60:.1f} minutes")
