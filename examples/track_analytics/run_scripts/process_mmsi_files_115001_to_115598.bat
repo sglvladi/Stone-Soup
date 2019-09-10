@@ -3,7 +3,7 @@ REM Activate python virtual environment
 CALL ..\..\..\venv\Scripts\activate.bat
 
 REM Define group/block
-SET mmsi_group=mmsi_files_115001_to_117500
+SET mmsi_group=mmsi_files_115001_to_115598
 
 REM Define MMSI data root folder
 SET data_root=C:\mmsi_files
