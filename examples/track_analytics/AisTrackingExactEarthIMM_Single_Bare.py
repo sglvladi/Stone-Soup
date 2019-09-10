@@ -243,7 +243,7 @@ for i, file_path in enumerate(discovered_files, start=1):
     # Log file processing stats
     logger.info(
         f"Processed MMSI {i:>5} ({os.path.basename(file_path)[:-4]:>9}) "
-        f"in {time.time() - iteration_timestamp:>4.1f} secs"
+        f"in {time.time() - iteration_timestamp:>5.1f} secs"
         f" | {(time.time() - start_time)/60:>6.1f} mins elapsed "
         f" | {( ((time.time() - start_time) / i) * (len(discovered_files) - i) ) / 60:6.1f}"
         f" mins remaining (est.)..."
