@@ -246,7 +246,7 @@ for i, file_path in enumerate(discovered_files, start=1):
         f"in {time.time() - iteration_timestamp:>6.1f} secs"
         f" | elapsed time {(time.time() - start_time)/60:>6.1f} mins"
         f" | est. time left "
-        f"{((time.time() - start_time) / i) * len(discovered_files)/60:6.1f}"
+        f"{( ((time.time() - start_time) / i) * (len(discovered_files) - i) ) / 60:5.1f}"
         f" mins..."
     )
     iteration_timestamp = time.time()
