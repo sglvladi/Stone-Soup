@@ -1,7 +1,7 @@
 import pathlib
 import shutil
 
-input_dir = pathlib.Path(r'C:\mmsi_files')
+input_dir = pathlib.Path(r'C:\mmsi_files\per_mmsi')
 
 output_dir = pathlib.Path(r'C:\mmsi_files\grouped')
 
