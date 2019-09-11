@@ -12,6 +12,7 @@
 import glob
 import logging
 import os
+import socket
 import time
 import numpy as np
 from datetime import datetime, timedelta
@@ -81,6 +82,7 @@ logger.addHandler(file_handler)
 # Log info about this run
 logger.info("Logger started...")
 logger.info("Script running with arguments: %s ...", args)
+logger.info("Running on %s", socket.gethostname())
 logger.info("Logging to: %s", log_file)
 logger.info("Reading from: %s", in_path)
 
