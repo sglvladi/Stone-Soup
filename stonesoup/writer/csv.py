@@ -8,6 +8,7 @@ from copy import copy
 from .base import Writer
 from ..base import Property
 from ..functions import mod_bearing
+from ..types.prediction import StatePrediction
 
 class CSV_Writer_EE_MMSI(Writer):
     """
@@ -107,8 +108,10 @@ class CSV_Writer_EE_MMSI(Writer):
         track_documents = []
         point_documents = []
         for track in tracks:
-            if timestamp is not None and track.last_update.timestamp != \
-                    timestamp:
+            # if timestamp is not None and track.last_update.timestamp != \
+            #         timestamp:
+            #     continue
+            if isinstance(track.state, StatePrediction):
                 continue
             metadata = track.metadata
             latest_position = {
@@ -131,7 +134,7 @@ class CSV_Writer_EE_MMSI(Writer):
 
             # Standardise date/timestamps into both epoch, and date formats
             received_date = datetime.fromtimestamp(
-                tm.mktime(track.timestamp.timetuple()))
+                tm.mktime(timestamp.timetuple()))
             received_epoch_in_ms = self.epoch_in_ms_from_date(received_date)
 
             # Prepare values to insert
@@ -145,16 +148,14 @@ class CSV_Writer_EE_MMSI(Writer):
                 'DataType': 'fused',
                 'Speed': speed,
                 'Heading': heading,
-                'LRIMOShipNo': int(metadata['IMO']) if metadata['IMO'] else -1,
+                'LRIMOShipNo': int(metadata['IMO']) if ('IMO' in metadata and metadata['IMO']) else -1,
                 'MMSI': int(metadata.get('MMSI')),
-                'ShipName': metadata['Vessel_Name'],
-                'ShipType': metadata['Ship_Type'],
+                'ShipName': metadata['Vessel_Name'] if 'Vessel_Name' in metadata else '',
+                'ShipType': metadata['Ship_Type'] if 'Ship_Type' in metadata else '',
                 'AdditionalInfo': '',
-                'DetectionHistory': detection_history,
-                'CallSign': metadata['Call_sign'],
-                'Draught': float(metadata['Draught']) if metadata['Draught']
-                                                        else -1,
-                'Destination': metadata['Destination'],
+                'CallSign': metadata['Call_sign'] if 'Call_sign' in metadata else '',
+                'Draught': float(metadata['Draught']) if ('Draught' in metadata and metadata['Draught']) else -1,
+                'Destination': metadata['Destination'] if 'Destination' in metadata else '',
                 'Location': {
                     'type': "Point",
                     'coordinates': latest_position
@@ -203,15 +204,14 @@ class CSV_Writer_EE_MMSI(Writer):
                 'DataType': 'self_reported',
                 'Speed': speed,
                 'Heading': heading,
-                'LRIMOShipNo': int(metadata['IMO']) if metadata['IMO'] else -1,
+                'LRIMOShipNo': int(metadata['IMO']) if 'IMO' in metadata else -1,
                 'MMSI': int(metadata.get('MMSI')),
-                'ShipName': metadata['Vessel_Name'],
-                'ShipType': metadata['Ship_Type'],
+                'ShipName': metadata['Vessel_Name'] if 'Vessel_Name' in metadata else '',
+                'ShipType': metadata['Ship_Type'] if 'Ship_Type' in metadata else '',
                 'AdditionalInfo': '',
-                'CallSign': metadata['Call_sign'],
-                'Draught': float(metadata['Draught'])
-                            if metadata['Draught'] else -1,
-                'Destination': metadata['Destination'],
+                'CallSign': metadata['Call_sign'] if 'Call_sign' in metadata else '',
+                'Draught': float(metadata['Draught']) if 'Draught' in metadata else -1,
+                'Destination': metadata['Destination'] if 'Destination' in metadata else '',
                 'Location': {
                     'type': "Point",
                     'coordinates': position
