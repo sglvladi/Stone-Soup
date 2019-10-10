@@ -141,8 +141,8 @@ deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=24))
 ################################################################################
 from stonesoup.types.sets import TrackSet
 
-start_time = time.time()
-logger.info(f"Starting...")
+start_time_in_ms = time.time()
+logger.info("Starting...")
 
 discovered_files = list(glob.iglob(os.path.join(in_path, r'*.csv')))
 logger.info("Discovered %d files to process...", len(discovered_files))
@@ -250,13 +250,35 @@ for i, file_path in enumerate(discovered_files, start=1):
         )
 
     # Log file processing stats
+    total_count = len(discovered_files)
+    percentage_complete = (i / total_count) * 100
+    last_loop_time = time.time() - iteration_timestamp
+    elapsed_time_in_secs = time.time() - start_time_in_ms
+    estimated_total_time_in_secs = elapsed_time_in_secs / percentage_complete * 100  # noqa
+    estimated_remaining_time_in_hours = (
+        (estimated_total_time_in_secs - elapsed_time_in_secs) / 60 / 60
+    )
+    estimated_finish_time = time.strftime(
+        "%a %d, %H:%M",
+        time.localtime(start_time_in_ms + estimated_total_time_in_secs)
+    )
+
+    # Determine elapsed time in hours, minutes and seconds
+    # Note: we don't use % to round hours to days
+    total_secs = int(elapsed_time_in_secs % 60)
+    total_mins = int((elapsed_time_in_secs / 60) % 60)
+    total_hours = int((elapsed_time_in_secs / 60 / 60))
+
     logger.info(
-        f"Processed MMSI {i:>5} ({os.path.basename(file_path)[:-4]:>9}) "
-        f"in {time.time() - iteration_timestamp:>5.1f} secs"
-        f" | {(time.time() - start_time)/60:>6.1f} mins elapsed "
-        f" | {( ((time.time() - start_time) / i) * (len(discovered_files) - i) ) / 60:6.1f}"
-        f" mins remaining (est.)..."
+        f"Processed MMSI {i:>4}/{len(discovered_files):>4}"
+        f" ({os.path.basename(file_path)[:-4]:>9})"
+        f" in {last_loop_time:4.1f} secs"
+        f" | {percentage_complete:5.2f}% complete"
+        f" | Est. {estimated_remaining_time_in_hours:4.1f} hrs"
+        f" remain ({estimated_finish_time})"
+        f" | Total: {total_hours:02}:{total_mins:02d}:{total_secs:02}"
     )
     iteration_timestamp = time.time()
 
-logger.info(f"Finished processing after: {(time.time() - start_time) / 60:.1f} minutes")
+if discovered_files:
+    logger.info(f"Finished processing after: {total_hours:02}:{total_mins:02d}:{total_secs:02}")
