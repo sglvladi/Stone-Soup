@@ -213,7 +213,7 @@ for i, file_path in enumerate(discovered_files, start=1):
                                             x in static_fields})
         if len(detections) != 0:
             # Perform data association
-            print("Tracking.... NumTracks: {}".format(str(len(tracks))))
+            logger.debug("Tracking.... NumTracks: %s", (str(len(tracks))))
             associations = associator.associate(tracks, detections, scan_time)
 
             # Update tracks based on association hypotheses
