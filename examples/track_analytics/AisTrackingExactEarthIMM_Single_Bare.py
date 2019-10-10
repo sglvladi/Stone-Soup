@@ -177,8 +177,15 @@ for i, file_path in enumerate(discovered_files, start=1):
         if len(detections) == 0:
             continue
 
+        static_fields = ['Vessel_Name', 'Call_sign', 'IMO', 'Ship_Type', 'Dimension_to_Bow', 'Dimension_to_stern',
+                         'Dimension_to_port', 'Dimension_to_starboard', 'Draught', 'Destination', 'AIS_version',
+                         'Fixing_device', 'ETA_month', 'ETA_day', 'ETA_hour', 'ETA_minute', 'Data_terminal']
         dynamic_detections = [detection for detection in detections
                               if detection.metadata["type"] == "dynamic"]
+        for detection in dynamic_detections:
+            for field in static_fields:
+                del detection.metadata[field]
+
         static_detections = [detection for detection in detections
                              if detection.metadata["type"] == "static"]
         detections = set(dynamic_detections)
@@ -202,24 +209,24 @@ for i, file_path in enumerate(discovered_files, start=1):
         for track in tracks:
             for detection in static_detections:
                 if detection.metadata["MMSI"] == track.metadata["MMSI"]:
-                    static_fields = ['Vessel_Name', 'Ship_Type',
-                                     'Destination', 'IMO']
                     track._metadata.update({x: detection.metadata[x] for
                                             x in static_fields})
+        if len(detections) != 0:
+            # Perform data association
+            print("Tracking.... NumTracks: {}".format(str(len(tracks))))
+            associations = associator.associate(tracks, detections, scan_time)
 
-        # Perform data association
-        logger.debug("Tracking.... NumTracks: %s", (str(len(tracks))))
-        associations = associator.associate(tracks, detections, scan_time)
-
-        # Update tracks based on association hypotheses
-        associated_detections = set()
-        for track, hypothesis in associations.items():
-            if hypothesis:
-                state_post = updater.update(hypothesis)
-                track.append(state_post)
-                associated_detections.add(hypothesis.measurement)
-            else:
-                track.append(hypothesis.prediction)
+            # Update tracks based on association hypotheses
+            associated_detections = set()
+            for track, hypothesis in associations.items():
+                if hypothesis:
+                    state_post = updater.update(hypothesis)
+                    track.append(state_post)
+                    associated_detections.add(hypothesis.measurement)
+                else:
+                    track.append(hypothesis.prediction)
+                if len(track.states) > 10:
+                    track.states = track.states[-10:]
 
         # Write data
         logger.debug("Writing....")
