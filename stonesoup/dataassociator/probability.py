@@ -52,7 +52,7 @@ class SimplePDA(DataAssociator):
             track: self.hypothesiser.hypothesise(track, detections, time)
             for track in tracks}
 
-        return associate_highest_probability_hypotheses(tracks, hypotheses)
+        return hypotheses
 
 
 class JPDA(DataAssociator):
@@ -225,59 +225,3 @@ class JPDA(DataAssociator):
                 measurements.add(measurement)
 
         return True
-
-# ==========================================
-#
-# HELPER METHODS
-#
-# ==========================================
-
-
-def associate_highest_probability_hypotheses(tracks, hypotheses):
-    """Associate Detections with Tracks according to highest probability hypotheses
-
-        Parameters
-        ----------
-        tracks : list of :class:`Track`
-            Current tracked objects
-        hypotheses : list of :class:`ProbabilityMultipleHypothesis`
-            Hypothesis containing probability each of the Detections is
-            associated with the specified Track (or MissedDetection)
-
-        Returns
-        -------
-        dict
-            Key value pair of tracks with associated detection
-    """
-    associations = {}
-
-    if not tracks or not hypotheses:
-        return associations
-
-    associated_measurements = set()
-    while tracks > associations.keys():
-        # Define a 'greedy' association
-        highest_probability_hypothesis = None
-
-        for track in tracks - associations.keys():
-            for hypothesis in hypotheses[track]:
-                # A measurement may only be associated with a single track
-                current_probability = hypothesis.probability
-                if hypothesis.measurement in \
-                        associated_measurements:
-                    continue
-                # best_hypothesis is 'greater than' other
-                if (highest_probability_hypothesis is None
-                        or current_probability >
-                        highest_probability_hypothesis.probability):
-                    highest_probability_hypothesis = \
-                        hypothesis
-                    highest_probability_track = track
-
-        associations[highest_probability_track] = \
-            hypotheses[highest_probability_track]
-        if highest_probability_hypothesis:
-            associated_measurements.add(
-                highest_probability_hypothesis.measurement)
-
-    return associations
