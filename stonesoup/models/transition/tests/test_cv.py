@@ -1,7 +1,8 @@
 # coding: utf-8
 import datetime
 
-import scipy as sp
+from pytest import approx
+import numpy as np
 from scipy.stats import multivariate_normal
 
 from ..linear import ConstantVelocity
@@ -11,7 +12,7 @@ def test_cvmodel():
     """ ConstanVelocity Transition Model test """
 
     # State related variables
-    state_vec = sp.array([[3.0], [1.0]])
+    state_vec = np.array([[3.0], [1.0]])
     old_timestamp = datetime.datetime.now()
     timediff = 1  # 1sec
     new_timestamp = old_timestamp + datetime.timedelta(seconds=timediff)
@@ -19,21 +20,21 @@ def test_cvmodel():
 
     # Model-related components
     noise_diff_coeff = 0.001  # m/s^2
-    F = sp.array([[1, timediff], [0, 1]])
-    Q = sp.array([[sp.power(timediff, 3)/3,
-                   sp.power(timediff, 2)/2],
-                  [sp.power(timediff, 2)/2,
+    F = np.array([[1, timediff], [0, 1]])
+    Q = np.array([[timediff**3 / 3,
+                   timediff**2 / 2],
+                  [timediff**2 / 2,
                    timediff]]) * noise_diff_coeff
 
     # Create and a Constant Velocity model object
     cv = ConstantVelocity(noise_diff_coeff=noise_diff_coeff)
 
     # Ensure ```cv.transfer_function(time_interval)``` returns F
-    assert sp.array_equal(F, cv.matrix(
+    assert np.array_equal(F, cv.matrix(
         timestamp=new_timestamp, time_interval=time_interval))
 
     # Ensure ```cv.covar(time_interval)``` returns Q
-    assert sp.array_equal(Q, cv.covar(
+    assert np.array_equal(Q, cv.covar(
         timestamp=new_timestamp, time_interval=time_interval))
 
     # Propagate a state vector through the model
@@ -43,7 +44,7 @@ def test_cvmodel():
         timestamp=new_timestamp,
         time_interval=time_interval,
         noise=0)
-    assert sp.array_equal(new_state_vec_wo_noise, F@state_vec)
+    assert np.array_equal(new_state_vec_wo_noise, F@state_vec)
 
     # Evaluate the likelihood of the predicted state, given the prior
     # (without noise)
@@ -51,10 +52,10 @@ def test_cvmodel():
                   state_vec,
                   timestamp=new_timestamp,
                   time_interval=time_interval)
-    assert sp.array_equal(prob, multivariate_normal.pdf(
+    assert approx(prob) == multivariate_normal.pdf(
         new_state_vec_wo_noise.T,
-        mean=sp.array(F@state_vec).ravel(),
-        cov=Q).T)
+        mean=np.array(F@state_vec).ravel(),
+        cov=Q)
 
     # Propagate a state vector throught the model
     # (with internal noise)
@@ -62,7 +63,7 @@ def test_cvmodel():
         state_vec,
         timestamp=new_timestamp,
         time_interval=time_interval)
-    assert not sp.array_equal(new_state_vec_w_inoise, F@state_vec)
+    assert not np.array_equal(new_state_vec_w_inoise, F@state_vec)
 
     # Evaluate the likelihood of the predicted state, given the prior
     # (with noise)
@@ -70,10 +71,10 @@ def test_cvmodel():
                   state_vec,
                   timestamp=new_timestamp,
                   time_interval=time_interval)
-    assert sp.array_equal(prob, multivariate_normal.pdf(
+    assert approx(prob) == multivariate_normal.pdf(
         new_state_vec_w_inoise.T,
-        mean=sp.array(F@state_vec).ravel(),
-        cov=Q).T)
+        mean=np.array(F@state_vec).ravel(),
+        cov=Q)
 
     # Propagate a state vector throught the model
     # (with external noise)
@@ -83,13 +84,13 @@ def test_cvmodel():
         timestamp=new_timestamp,
         time_interval=time_interval,
         noise=noise)
-    assert sp.array_equal(new_state_vec_w_enoise, F@state_vec+noise)
+    assert np.array_equal(new_state_vec_w_enoise, F@state_vec+noise)
 
     # Evaluate the likelihood of the predicted state, given the prior
     # (with noise)
     prob = cv.pdf(new_state_vec_w_enoise, state_vec,
                   timestamp=new_timestamp, time_interval=time_interval)
-    assert sp.array_equal(prob, multivariate_normal.pdf(
+    assert approx(prob) == multivariate_normal.pdf(
         new_state_vec_w_enoise.T,
-        mean=sp.array(F@state_vec).ravel(),
-        cov=Q).T)
+        mean=np.array(F@state_vec).ravel(),
+        cov=Q)
