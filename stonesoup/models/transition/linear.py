@@ -2,8 +2,8 @@
 import math
 from functools import lru_cache
 
+import numpy as np
 import scipy as sp
-from scipy.stats import multivariate_normal
 from scipy.linalg import block_diag
 from scipy.integrate import quad
 
@@ -28,76 +28,6 @@ class LinearGaussianTransitionModel(
         """
 
         return self.matrix().shape[0]
-
-    def rvs(self, num_samples=1, **kwargs):
-        r""" Model noise/sample generation function
-
-        Generates noisy samples from the transition model.
-
-        In mathematical terms, this can be written as:
-
-        .. math::
-
-            w_t \sim \mathcal{N}(0,Q)
-
-        where :math:`w_t =` ``noise``.
-
-        Parameters
-        ----------
-        num_samples: :class:`int`, optional
-            The number of samples to be generated (the default is 1)
-
-        Returns
-        -------
-        noise : :class:`numpy.ndarray` of shape\
-        (:py:attr:`~ndim_state`, ``num_samples``)
-            A set of Np samples, generated from the model's noise distribution.
-        """
-
-        noise = sp.array([multivariate_normal.rvs(
-            sp.zeros(self.ndim_state),
-            self.covar(**kwargs),
-            num_samples)])
-
-        if num_samples == 1:
-            return noise.reshape((-1, 1))
-        else:
-            return noise.T
-
-    def pdf(self, state_vector_post, state_vector_prior, **kwargs):
-        r""" Model pdf/likelihood evaluation function
-
-        Evaluates the pdf/likelihood of the transformed state ``state_post``,
-        given the prior state ``state_prior``.
-
-        In mathematical terms, this can be written as:
-
-        .. math::
-
-            p = p(x_t | x_{t-1}) = \mathcal{N}(x_t; x_{t-1}, Q)
-
-        where :math:`x_t` = ``state_post``, :math:`x_{t-1}` = ``state_prior``
-        and :math:`Q` = :py:attr:`~covar`.
-
-        Parameters
-        ----------
-        state_vector_post : :class:`~.StateVector`
-            A predicted/posterior state
-        state_vector_prior : :class:`~.StateVector`
-            A prior state
-
-        Returns
-        -------
-        : :class:`float`
-            The likelihood of ``state_vec_post``, given ``state_vec_prior``
-        """
-
-        likelihood = multivariate_normal.pdf(
-            state_vector_post.T,
-            mean=self.function(state_vector_prior, noise=0, **kwargs).ravel(),
-            cov=self.covar(**kwargs)
-        )
-        return likelihood
 
 
 class CombinedLinearGaussianTransitionModel(LinearGaussianTransitionModel):
@@ -225,7 +155,7 @@ class ConstantNthDerivative(LinearGaussianTransitionModel, TimeVariantModel):
     def matrix(self, time_interval, **kwargs):
         time_interval_sec = time_interval.total_seconds()
         N = self.constant_derivative
-        Fmat = sp.zeros((N + 1, N + 1))
+        Fmat = np.zeros((N + 1, N + 1))
         dt = time_interval_sec
         for i in range(0, N + 1):
             for j in range(i, N + 1):
@@ -238,14 +168,14 @@ class ConstantNthDerivative(LinearGaussianTransitionModel, TimeVariantModel):
         dt = time_interval_sec
         N = self.constant_derivative
         if N == 1:
-            covar = sp.array([[dt**3 / 3, dt**2 / 2],
+            covar = np.array([[dt**3 / 3, dt**2 / 2],
                               [dt**2 / 2, dt]])
         else:
             Fmat = self.matrix(time_interval, **kwargs)
-            Q = sp.zeros((N + 1, N + 1))
+            Q = np.zeros((N + 1, N + 1))
             Q[N, N] = 1
             igrand = Fmat @ Q @ Fmat.T
-            covar = sp.zeros((N + 1, N + 1))
+            covar = np.zeros((N + 1, N + 1))
             for l in range(0, N + 1):
                 for k in range(0, N + 1):
                     covar[l, k] = (igrand[l, k]*dt / (1 + N**2 - l - k))
@@ -417,9 +347,9 @@ class NthDerivativeDecay(LinearGaussianTransitionModel, TimeVariantModel):
     @staticmethod
     @lru_cache()
     def _continoustransitionmatrix(t, N, K):
-        FCont = sp.zeros((N + 1, N + 1))
+        FCont = np.zeros((N + 1, N + 1))
         for i in range(0, N + 1):
-            FCont[i, N] = sp.exp(-K * t) * (-1) ** (N - i) / K ** (N - i)
+            FCont[i, N] = np.exp(-K * t) * (-1) ** (N - i) / K ** (N - i)
             for n in range(1, N - i + 1):
                 FCont[i, N] -= (-1) ** n * t ** (N - i - n) /\
                                (math.factorial(N - i - n) * K ** n)
@@ -436,7 +366,7 @@ class NthDerivativeDecay(LinearGaussianTransitionModel, TimeVariantModel):
     @classmethod
     def _continouscovar(cls, t, N, K, k, l):
         FcCont = cls._continoustransitionmatrix(t, N, K)
-        Q = sp.zeros((N + 1, N + 1))
+        Q = np.zeros((N + 1, N + 1))
         Q[N, N] = 1
         CovarCont = FcCont @ Q @ FcCont.T
         return CovarCont[k, l]
@@ -444,7 +374,7 @@ class NthDerivativeDecay(LinearGaussianTransitionModel, TimeVariantModel):
     @classmethod
     @lru_cache()
     def _covardiscrete(cls, N, q, K, dt):
-        covar = sp.zeros((N + 1, N + 1))
+        covar = np.zeros((N + 1, N + 1))
         for k in range(0, N + 1):
             for l in range(0, N + 1):
                 covar[k, l] = quad(cls._continouscovar, 0,
@@ -669,15 +599,15 @@ class SingerApproximate(Singer):
         time_interval_sec = time_interval.total_seconds()
 
         # Only leading terms get calculated for speed.
-        covar = sp.array(
-            [[sp.power(time_interval_sec, 5) / 20,
-              sp.power(time_interval_sec, 4) / 8,
-              sp.power(time_interval_sec, 3) / 6],
-             [sp.power(time_interval_sec, 4) / 8,
-              sp.power(time_interval_sec, 3) / 3,
-              sp.power(time_interval_sec, 2) / 2],
-             [sp.power(time_interval_sec, 3) / 6,
-              sp.power(time_interval_sec, 2) / 2,
+        covar = np.array(
+            [[time_interval_sec**5 / 20,
+              time_interval_sec**4 / 8,
+              time_interval_sec**3 / 6],
+             [time_interval_sec**4 / 8,
+              time_interval_sec**3 / 3,
+              time_interval_sec**2 / 2],
+             [time_interval_sec**3 / 6,
+              time_interval_sec**2 / 2,
               time_interval_sec]]
         ) * self.noise_diff_coeff
 
@@ -781,15 +711,15 @@ class ConstantTurn(LinearGaussianTransitionModel, TimeVariantModel):
         time_interval_sec = time_interval.total_seconds()
         turn_ratedt = self.turn_rate * time_interval_sec
 
-        return sp.array(
-            [[1, sp.sin(turn_ratedt) / self.turn_rate,
-              0, -(1 - sp.cos(turn_ratedt)) / self.turn_rate],
-             [0, sp.cos(turn_ratedt),
-              0, -sp.sin(turn_ratedt)],
-             [0, (1 - sp.cos(turn_ratedt)) / self.turn_rate,
-              1, sp.sin(turn_ratedt) / self.turn_rate],
-             [0, sp.sin(turn_ratedt),
-              0, sp.cos(turn_ratedt)]])
+        return np.array(
+            [[1, np.sin(turn_ratedt) / self.turn_rate,
+              0, -(1 - np.cos(turn_ratedt)) / self.turn_rate],
+             [0, np.cos(turn_ratedt),
+              0, -np.sin(turn_ratedt)],
+             [0, (1 - np.cos(turn_ratedt)) / self.turn_rate,
+              1, np.sin(turn_ratedt) / self.turn_rate],
+             [0, np.sin(turn_ratedt),
+              0, np.cos(turn_ratedt)]])
 
     def covar(self, time_interval, **kwargs):
         """Returns the transition model noise covariance matrix.
@@ -807,12 +737,12 @@ class ConstantTurn(LinearGaussianTransitionModel, TimeVariantModel):
         """
 
         time_interval_sec = time_interval.total_seconds()
-        base_covar = sp.array([[sp.power(time_interval_sec, 3) / 3,
-                                sp.power(time_interval_sec, 2) / 2],
-                               [sp.power(time_interval_sec, 2) / 2,
+        base_covar = np.array([[time_interval_sec**3 / 3,
+                                time_interval_sec**2 / 2],
+                               [time_interval_sec**2 / 2,
                                 time_interval_sec]])
-        covar_list = [base_covar*sp.power(self.noise_diff_coeffs[0], 2),
-                      base_covar*sp.power(self.noise_diff_coeffs[1], 2)]
+        covar_list = [base_covar * self.noise_diff_coeffs[0]**2,
+                      base_covar * self.noise_diff_coeffs[1]**2]
         covar = sp.linalg.block_diag(*covar_list)
 
         return CovarianceMatrix(covar)

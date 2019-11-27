@@ -162,7 +162,7 @@ class KalmanPredictor(Predictor):
         x_pred = self._transition_function(
             prior, time_interval=predict_over_interval, **kwargs) \
             + self.control_model.control_input()
-
+        x_pred = [type(s)(v) for (s, v) in zip(prior.state_vector[:, 0], x_pred[:, 0])]
         # As this is Kalman-like, the control model must be capable of
         # returning a control matrix (B)
 
