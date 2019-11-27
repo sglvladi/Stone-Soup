@@ -18,3 +18,15 @@ Particle
 
 .. automodule:: stonesoup.updater.particle
     :show-inheritance:
+
+Point Process
+-------------
+
+.. automodule:: stonesoup.updater.pointprocess
+    :show-inheritance:
+
+AlphaBeta
+---------
+
+.. automodule:: stonesoup.updater.alphabeta
+    :show-inheritance:

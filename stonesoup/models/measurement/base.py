@@ -1,21 +1,23 @@
 # -*- coding: utf-8 -*-
-from abc import abstractmethod
-
-import scipy as sp
+from abc import abstractmethod, ABC
+from typing import Sequence
 
 from ..base import Model
 from ...base import Property
 
 
-class MeasurementModel(Model):
+class MeasurementModel(Model, ABC):
     """Measurement Model base class"""
 
-    ndim_state = Property(int, doc="Number of state dimensions")
-    mapping = Property(
-        sp.ndarray, doc="Mapping between measurement and state dims")
+    ndim_state: int = Property(doc="Number of state dimensions")
+    mapping: Sequence[int] = Property(doc="Mapping between measurement and state dims")
+
+    @property
+    def ndim(self) -> int:
+        return self.ndim_meas
 
     @property
     @abstractmethod
-    def ndim_meas(self):
+    def ndim_meas(self) -> int:
         """Number of measurement dimensions"""
         pass
