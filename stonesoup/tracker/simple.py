@@ -8,6 +8,7 @@ from ..deleter import Deleter
 from ..reader import DetectionReader
 from ..initiator import Initiator
 from ..updater import Updater
+from ..types.array import StateVectors
 from ..types.prediction import GaussianStatePrediction
 from ..types.update import GaussianStateUpdate
 from ..functions import gm_reduce_single
@@ -57,10 +58,10 @@ class SingleTargetTracker(Tracker):
     @BufferedGenerator.generator_method
     def tracks_gen(self):
         track = None
-        for time, detections in self.detector.detections_gen():
+        for time, detections in self.detector:
             if track is not None:
                 associations = self.data_associator.associate(
-                        self.current[1], detections, time)
+                    {track}, detections, time)
                 if associations[track]:
                     state_post = self.updater.update(associations[track])
                     track.append(state_post)
@@ -68,10 +69,10 @@ class SingleTargetTracker(Tracker):
                     track.append(
                         associations[track].prediction)
 
-            if track is None or self.deleter.delete_tracks(self.current[1]):
+            if track is None or self.deleter.delete_tracks({track}):
                 new_tracks = self.initiator.initiate(detections)
                 if new_tracks:
-                    track = next(iter(new_tracks))
+                    track = new_tracks.pop()
                 else:
                     track = None
 
@@ -115,7 +116,7 @@ class MultiTargetTracker(Tracker):
     def tracks_gen(self):
         tracks = set()
 
-        for time, detections in self.detector.detections_gen():
+        for time, detections in self.detector:
 
             associations = self.data_associator.associate(
                 tracks, detections, time)
@@ -174,7 +175,7 @@ class MultiTargetMixtureTracker(Tracker):
     def tracks_gen(self):
         tracks = set()
 
-        for time, detections in self.detector.detections_gen():
+        for time, detections in self.detector:
 
             associations = self.data_associator.associate(
                 tracks, detections, time)
@@ -195,34 +196,26 @@ class MultiTargetMixtureTracker(Tracker):
                     posterior_state_weights.append(
                         hypothesis.probability)
 
-                means = np.array([state.state_vector for state
-                                  in posterior_states])
-                means = np.reshape(means, np.shape(means)[:-1])
-                covars = np.array([state.covar for state
-                                   in posterior_states])
-                covars = np.reshape(covars, (np.shape(covars)))
-                weights = np.array([weight for weight
-                                    in posterior_state_weights])
-                weights = np.reshape(weights, np.shape(weights))
+                means = StateVectors([state.state_vector for state in posterior_states])
+                covars = np.stack([state.covar for state in posterior_states], axis=2)
+                weights = np.asarray(posterior_state_weights)
 
-                post_mean, post_covar = gm_reduce_single(means,
-                                                         covars, weights)
+                post_mean, post_covar = gm_reduce_single(means, covars, weights)
 
-                missed_detection_weight = next(
-                    hyp.weight for hyp in multihypothesis if not hyp)
+                missed_detection_weight = next(hyp.weight for hyp in multihypothesis if not hyp)
 
                 # Check if at least one reasonable measurement...
                 if any(hypothesis.weight > missed_detection_weight
                        for hypothesis in multihypothesis):
                     # ...and if so use update type
                     track.append(GaussianStateUpdate(
-                        np.array(post_mean), np.array(post_covar),
+                        post_mean, post_covar,
                         multihypothesis,
                         multihypothesis[0].measurement.timestamp))
                 else:
                     # ...and if not, treat as a prediction
                     track.append(GaussianStatePrediction(
-                        np.array(post_mean), np.array(post_covar),
+                        post_mean, post_covar,
                         multihypothesis[0].prediction.timestamp))
 
                 # any detections in multihypothesis that had an

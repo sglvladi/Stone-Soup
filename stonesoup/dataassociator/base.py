@@ -40,7 +40,7 @@ class DataAssociator(Base):
 
         Returns
         -------
-        : mapping of :class:`~.Track` : :class:`~.Hypothesis`}
+        : mapping of :class:`~.Track` : :class:`~.Hypothesis`
             Mapping of track to Hypothesis
         """
         raise NotImplementedError
