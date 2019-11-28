@@ -34,7 +34,11 @@ class Track(StateMutableSequence):
     def __init__(self, *args, **kwargs):
 
         super().__init__(*args, **kwargs)
-
+		self._last_update = None
+        for state in reversed(self.states):
+            if isinstance(state, Update):
+                self._last_update = state
+                break
         self.metadatas = list()
 
         for state in self.states:
@@ -43,6 +47,8 @@ class Track(StateMutableSequence):
             self.id = str(uuid.uuid4())
 
     def __setitem__(self, index, value):
+		if isinstance(value, Update):
+            self._last_update = value
         super().__setitem__(index, value)
         if index < 0:
             index = len(self.states) + index
@@ -58,6 +64,8 @@ class Track(StateMutableSequence):
         value: State
             A state object to be inserted at the specified index of :attr:`states`.
         """
+		if isinstance(value, Update):
+            self._last_update = value
         super().insert(index, value)
 
         if index < 0:
@@ -81,6 +89,10 @@ class Track(StateMutableSequence):
         self._update_metadata_from_state(value)
         return self.states.append(value)
 
+	@property
+    def last_update(self):
+        return self._last_update
+        
     @property
     def metadata(self):
         """Current metadata dictionary of track. If track contains no states, this is the initial
