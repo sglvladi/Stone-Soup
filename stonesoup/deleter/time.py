@@ -64,5 +64,12 @@ class UpdateTimeDeleter(Deleter):
         """
         if timestamp is None:
             timestamp = track.timestamp
-        return not any(isinstance(state, Update) and state.hypothesis
-                       for state in track[timestamp - self.time_since_update:])
+
+        if track.last_update is not None:
+            if timestamp - track.last_update.timestamp > \
+                    self.time_since_update:
+                return True
+        else:
+            return True
+
+        return False
