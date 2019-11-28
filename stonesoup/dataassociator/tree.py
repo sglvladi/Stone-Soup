@@ -109,12 +109,13 @@ class TPRTreeMixIn(DataAssociator):
         state_vector = track.state_vector[self.pos_mapping, :]
         state_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.pos_mapping].reshape(-1, 1))
+        meas_delta = 3 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
         vel_vector = track.state_vector[self.vel_mapping, :]
         vel_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.vel_mapping].reshape(-1, 1))
 
-        min_pos = (state_vector - state_delta).ravel()
-        max_pos = (state_vector + state_delta).ravel()
+        min_pos = (state_vector - state_delta - meas_delta).ravel()
+        max_pos = (state_vector + state_delta + meas_delta).ravel()
         min_vel = (vel_vector - vel_delta).ravel()
         max_vel = (vel_vector + vel_delta).ravel()
 
@@ -127,10 +128,14 @@ class TPRTreeMixIn(DataAssociator):
             return dict()
 
         c_time = None
+        # Tree management
+        print("Tree management")
         for track in sorted(tracks.union(self._tree),
                             key=attrgetter('timestamp')):
+
             if c_time is None:
                 c_time = track.timestamp
+
             if track not in self._tree:
                 self._coords[track] = self._track_tree_coordinates(track)
                 self._tree.insert(track, self._coords[track])
@@ -142,11 +147,15 @@ class TPRTreeMixIn(DataAssociator):
             elif isinstance(track.state, Update):
                 coords = self._coords[track][:-1] \
                     + ((self._coords[track][-1], c_time.timestamp()),)
+                if self._coords[track][-1] - c_time.timestamp() > - 1:
+                    a=2
                 self._tree.delete(track, coords)
                 self._coords[track] = self._track_tree_coordinates(track)
                 self._tree.insert(track, self._coords[track])
             c_time = track.timestamp
 
+        # Detection gating
+        print("Detection gating management")
         track_detections = defaultdict(set)
         for detection in sorted(detections, key=attrgetter('timestamp')):
             if detection.measurement_model is not None:
@@ -170,6 +179,12 @@ class TPRTreeMixIn(DataAssociator):
                 (det_time, det_time + 1e-3)))
             for track in intersected_tracks:
                 track_detections[track].add(detection)
+
+
+        print("Hypothesising")
+        # hypotheses = dict()
+        # for track in tracks:
+        #     if len(track_detections[track])
 
         return {track: self.hypothesiser.hypothesise(
             track, track_detections[track], time, **kwargs)
