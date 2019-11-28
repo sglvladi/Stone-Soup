@@ -26,22 +26,35 @@ class Track(StateMutableSequence):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        # Initialise metadata
+        self._last_update = None
+        for state in reversed(self.states):
+            if isinstance(state, Update):
+                self._last_update = state
+                break
         self._metadata = {}
         for state in self.states:
             self._update_metadata_from_state(state)
+
         if self.id is None:
             self.id = str(uuid.uuid4())
 
     def __setitem__(self, index, value):
         # Update metadata
         self._update_metadata_from_state(value)
+        if isinstance(value, Update):
+            self._last_update = value
         return super().__setitem__(index, value)
 
     def insert(self, index, value):
         # Update metadata
         self._update_metadata_from_state(value)
-        return super().insert(index, value)
+        if isinstance(value, Update):
+            self._last_update = value
+        return self.states.insert(index, value)
+
+    @property
+    def last_update(self):
+        return self._last_update
 
     @property
     def metadata(self):
