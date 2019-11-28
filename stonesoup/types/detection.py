@@ -1,4 +1,5 @@
 # -*- coding: utf-8 -*-
+import uuid
 from ..base import Property
 from .groundtruth import GroundTruthPath
 from .state import State, GaussianState, StateVector
@@ -14,10 +15,17 @@ class Detection(State):
     metadata = Property(dict, default=None,
                         doc='Dictionary of metadata items for Detections.')
 
+    id = Property(
+        str,
+        default=None,
+        doc="The unique track ID")
+
     def __init__(self, state_vector, *args, **kwargs):
         super().__init__(state_vector, *args, **kwargs)
         if self.metadata is None:
             self.metadata = {}
+        if self.id is None:
+            self.id = str(uuid.uuid4())
 
 
 class GaussianDetection(Detection, GaussianState):
