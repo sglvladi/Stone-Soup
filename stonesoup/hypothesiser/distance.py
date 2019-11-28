@@ -7,6 +7,7 @@ from ..types.multihypothesis import \
     MultipleHypothesis
 from ..types.hypothesis import SingleDistanceHypothesis
 from ..types.detection import MissedDetection
+from ..types.prediction import Prediction
 from ..updater import Updater
 
 
@@ -95,5 +96,85 @@ class DistanceHypothesiser(Hypothesiser):
                         detection,
                         distance,
                         measurement_prediction))
+
+        return MultipleHypothesis(sorted(hypotheses, reverse=True))
+
+
+class DistanceHypothesiserFast(DistanceHypothesiser):
+    """DistanceHypothesiserFast
+
+    A distance hypothesiser that speeds up hypothesis generation, by only performing
+    prediction for tracks when necessary
+    """
+    def hypothesise(self, track, detections, timestamp):
+        """ Evaluate and return all track association hypotheses.
+
+        For a given track and a set of N available detections, return a
+        MultipleHypothesis object with N+1 detections (first detection is
+        a 'MissedDetection'), each with an associated distance measure..
+
+        Parameters
+        ----------
+        track: :class:`~.Track`
+            The track object to hypothesise on
+        detections: :class:`list`
+            A list of :class:`~Detection` objects, representing the available
+            detections.
+        timestamp: :class:`datetime.datetime`
+            A timestamp used when evaluating the state and measurement
+            predictions. Note that if a given detection has a non empty
+            timestamp, then prediction will be performed according to
+            the timestamp of the detection.
+
+        Returns
+        -------
+        : :class:`~.MultipleHypothesis`
+            A container of :class:`~SingleDistanceHypothesis` objects
+
+        """
+        hypotheses = list()
+
+        # Only Hypothesise tracks whose mmsi appears in the detections
+        if len(detections):
+            prediction = self.predictor.predict(track.state, timestamp=timestamp)
+            measurement_prediction = self.updater.predict_measurement(prediction)
+
+            # Missed detection hypothesis with distance as 'missed_distance'
+            hypotheses.append(
+                SingleDistanceHypothesis(
+                    prediction,
+                    MissedDetection(timestamp=timestamp),
+                    self.missed_distance,
+                    measurement_prediction))
+
+            # True detection hypotheses
+            distances = {detection: self.measure(measurement_prediction, detection)
+                         for detection in detections}
+            hypotheses += [SingleDistanceHypothesis(
+                                prediction,
+                                detection,
+                                distances[detection],
+                                measurement_prediction) for detection in detections
+                                if self.include_all
+                                   or distances[detection] < self.missed_distance]
+        else:
+            # If a prediction already exists simple set it as mis-detected
+            if isinstance(track.state, Prediction):
+                prediction = track.state
+                hypotheses.append(
+                    SingleDistanceHypothesis(
+                        prediction,
+                        MissedDetection(timestamp=prediction.timestamp),
+                        self.missed_distance))
+            else:
+                # Else if the state is an update, then generate a prediction
+                # and generate mis-detection
+                prediction = self.predictor.predict(track.state,
+                                                    timestamp=timestamp)
+                hypotheses.append(
+                    SingleDistanceHypothesis(
+                        prediction,
+                        MissedDetection(timestamp=timestamp),
+                        self.missed_distance))
 
         return MultipleHypothesis(sorted(hypotheses, reverse=True))
