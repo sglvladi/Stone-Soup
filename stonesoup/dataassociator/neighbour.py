@@ -138,9 +138,7 @@ class GNNWith2DAssignment(DataAssociator):
         """
 
         # Generate a set of hypotheses for each track on each detection
-        hypotheses = {
-            track: self.hypothesiser.hypothesise(track, detections, time)
-            for track in tracks}
+        hypotheses = self.generate_hypotheses(tracks, detections, time)
 
         # Create dictionary for associations
         associations = {}
