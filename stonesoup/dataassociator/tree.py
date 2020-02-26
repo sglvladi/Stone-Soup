@@ -145,10 +145,12 @@ class TPRTreeMixIn(DataAssociator):
                 self._tree.delete(track, coords)
                 del self._coords[track]
             elif isinstance(track.state, Update):
-                coords = self._coords[track][:-1] \
-                    + ((self._coords[track][-1], c_time.timestamp()),)
-                if self._coords[track][-1] - c_time.timestamp() > - 1:
-                    a=2
+                if self._coords[track][-1] - c_time.timestamp() >= 0:
+                    coords = self._coords[track][:-1] \
+                        + ((self._coords[track][-1]-1e-3, c_time.timestamp()),)
+                else:
+                    coords = self._coords[track][:-1] \
+                        + ((self._coords[track][-1], c_time.timestamp()),)
                 self._tree.delete(track, coords)
                 self._coords[track] = self._track_tree_coordinates(track)
                 self._tree.insert(track, self._coords[track])
