@@ -18,6 +18,10 @@ from datetime import datetime, timedelta
 import msvcrt
 import time
 from copy import copy
+import cProfile as profile
+# In outer section of code
+pr = profile.Profile()
+pr.disable()
 
 # Stone-Soup imports
 from stonesoup.dataassociator.tree import TPRTreeMixIn
@@ -31,12 +35,13 @@ from stonesoup.dataassociator.neighbour import (
 from stonesoup.hypothesiser.distance import DistanceHypothesiser, DistanceHypothesiserFast
 from stonesoup.measures import Mahalanobis
 from stonesoup.hypothesiser.filtered import FilteredDetectionsHypothesiser
+from stonesoup.types.update import Update
 from stonesoup.updater.kalman import (KalmanUpdater)
 from stonesoup.predictor.kalman import (KalmanPredictor)
 from stonesoup.models.measurement.linear import LinearGaussian
 from stonesoup.types.array import StateVector, CovarianceMatrix
-from stonesoup.types.prediction import GaussianStatePrediction
-from stonesoup.types.angle import Bearing
+from stonesoup.types.prediction import GaussianStatePrediction, Prediction
+from stonesoup.types.angle import Longitude, Latitude
 from stonesoup.reader.generic import CSVDetectionReader_EE
 from stonesoup.feeder.time import TimeSyncFeeder, TimeBufferedFeeder
 
@@ -44,7 +49,7 @@ if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "GREECE"
+    TARGET = "MEDITERRANEAN"
     LIMITS = {
         "TEST": {
             "LON_MIN": -62.,
@@ -118,6 +123,7 @@ if __name__ == '__main__':
     plt.rcParams['figure.figsize'] = (12, 8)
     plt.style.use('seaborn-colorblind')
     fig = plt.figure()
+
 
     def plot_map(timestamp):
         # Mercator projection map
@@ -194,10 +200,10 @@ if __name__ == '__main__':
                 x, y = m(lon, lat)
                 m.plot(x, y, 'b-o', linewidth=1, markersize=1)
                 m.plot(x[-1], y[-1], 'ro', markersize=1)
-                #plt.text(x[-1], y[-1], track.metadata["Vessel_Name"], fontsize=12)
+                # plt.text(x[-1], y[-1], track.metadata["Vessel_Name"], fontsize=12)
                 if show_probs:
                     plt.text(x[-1], y[-1],
-                             np.around(track.last_update.weights[0,0], 2),
+                             np.around(track.last_update.weights[0, 0], 2),
                              fontsize=6)
                 elif show_mmsis:
                     ind = mmsis.index(track.metadata["MMSI"])
@@ -206,7 +212,7 @@ if __name__ == '__main__':
                              fontsize=6)
             else:
                 plt.plot(data[:, 0], data[:, 2], '-', label="AIS Tracks")
-                #if show_error:
+                # if show_error:
                 plot_cov_ellipse(track.state.covar[[0, 2], :][:, [0, 2]],
                                  track.state.mean[[0, 2], :], edgecolor='r',
                                  facecolor='none')
@@ -243,13 +249,16 @@ if __name__ == '__main__':
     hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
                                                   match_missing=False)
 
+
     class TPRGNN(GNNWith2DAssignment, TPRTreeMixIn):
         pass
+
+
     associator = TPRGNN(hypothesiser, measurement_model, timedelta(hours=24), [1, 3])
 
     # Track Initiator
     # ===============
-    state_vector = StateVector([[Bearing(0)], [0], [Bearing(0)], [0]])
+    state_vector = StateVector([[Longitude(0)], [0], [Latitude(0)], [0]])
     covar = CovarianceMatrix(np.diag([0.0001 ** 2, 0.0003 ** 2,
                                       0.0001 ** 2, 0.0003 ** 2]))
     prior_state = GaussianStatePrediction(state_vector, covar)
@@ -328,15 +337,15 @@ if __name__ == '__main__':
                 unique = True
                 for detection_2 in unique_detections:
                     if (detection.metadata["MMSI"] == detection_2.metadata["MMSI"]
-                        and np.allclose(detection.state_vector,
-                                        detection_2.state_vector,
-                                        atol=0.005)):
+                            and np.allclose(np.array(detection.state_vector, dtype=np.float32),
+                                            np.array(detection_2.state_vector, dtype=np.float32),
+                                            atol=0.005)):
                         unique = False
                 if unique:
                     unique_detections.add(detection)
             detections = unique_detections
 
-            print("Measurements: " + str(len(detections))+" - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y'))
+            print("Measurements: " + str(len(detections)) + " - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y'))
 
             # Process static AIS
             for track in tracks:
@@ -350,7 +359,9 @@ if __name__ == '__main__':
             # Perform data association
             print("Tracking.... NumTracks: {}".format(str(len(tracks))))
 
+            pr.enable()
             associations = associator.associate(tracks, detections, scan_time)
+            pr.disable()
 
             # Update tracks based on association hypotheses
             print("Updating...")
@@ -361,7 +372,12 @@ if __name__ == '__main__':
                     track.append(state_post)
                     associated_detections.add(hypothesis.measurement)
                 else:
-                    track.append(hypothesis.prediction)
+                    # Only append new prediction if previous is an Update
+                    # or is a Prediction with different timestamp
+                    if (isinstance(track.state, Update)
+                            or (isinstance(track.state, Prediction)
+                                and track.state.timestamp != hypothesis.prediction.timestamp)):
+                        track.append(hypothesis.prediction)
                 if LIMIT_STATES and len(track.states) > 10:
                     track.states = track.states[-10:]
 
@@ -407,6 +423,9 @@ if __name__ == '__main__':
                         t_tracks = tracks
                         plot_tracks(t_tracks, show_mmsis=False, show_map=SHOW_MAP)
                         plt.show()
+                elif ch == b'r':
+                    print("[INFO]: Dumping Profiler stats")
+                    pr.dump_stats('profile_{}.pstat'.format(scan_time.strftime('%H-%M-%S_%d-%m-%Y')))
 
             if END_TIME is not None and scan_time >= END_TIME:
                 break
