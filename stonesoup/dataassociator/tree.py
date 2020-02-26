@@ -107,9 +107,9 @@ class TPRTreeMixIn(DataAssociator):
 
     def _track_tree_coordinates(self, track):
         state_vector = track.state_vector[self.pos_mapping, :]
-        state_delta = 3 * np.sqrt(
+        state_delta = 300 * np.sqrt(
             np.diag(track.covar)[self.pos_mapping].reshape(-1, 1))
-        meas_delta = 3 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
+        meas_delta = 300 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
         vel_vector = track.state_vector[self.vel_mapping, :]
         vel_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.vel_mapping].reshape(-1, 1))
