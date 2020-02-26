@@ -3,7 +3,7 @@ import numpy as np
 from numbers import Real
 from numpy import float64
 from math import trunc, ceil, floor
-from ..functions import mod_bearing, mod_elevation
+from ..functions import mod_bearing, mod_elevation, mod_longitude, mod_latitude
 
 
 class Angle(Real):
@@ -154,3 +154,27 @@ class Elevation(Angle):
     @staticmethod
     def mod_angle(value):
         return mod_elevation(value)
+
+
+class Longitude(Angle):
+    """Longitude angle class.
+
+    Longitude handles modulo arithmetic for adding and subtracting angles. \
+    The return type for addition and subtraction is Longitude.
+    Multiplication or division produces a float object rather than Longitude.
+    """
+    @staticmethod
+    def mod_angle(value):
+        return mod_longitude(value)
+
+
+class Latitude(Angle):
+    """Latitude angle class.
+
+    Latitude handles modulo arithmetic for adding and subtracting angles. \
+    The return type for addition and subtraction is Latitude.
+    Multiplication or division produces a float object rather than Latitude.
+    """
+    @staticmethod
+    def mod_angle(value):
+        return mod_latitude(value)
