@@ -49,7 +49,7 @@ if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "GREECE"
+    TARGET = "UK"
     LIMITS = {
         "TEST": {
             "LON_MIN": -62.,
@@ -217,6 +217,29 @@ if __name__ == '__main__':
                                  track.state.mean[[0, 2], :], edgecolor='r',
                                  facecolor='none')
 
+        shared_mmsi = dict()
+        for track in tracks:
+            for track2 in tracks:
+                if track.id != track2.id and track.metadata["MMSI"] == track2.metadata["MMSI"]:
+                    mmsi = track.metadata["MMSI"]
+                    if mmsi in shared_mmsi:
+                        if track not in shared_mmsi[mmsi]:
+                            shared_mmsi[mmsi].push(track)
+                        if track2 not in shared_mmsi[mmsi]:
+                            shared_mmsi[mmsi].push(track2)
+                    else:
+                        shared_mmsi[mmsi] = [track, track2]
+
+        for mmsi in shared_mmsi:
+            states = [track.state.state_vector for track in shared_mmsi[mmsi]]
+            data = np.array(states)
+            lat = data[:, 2]
+            lon = data[:, 0]
+            if show_map:
+                x, y = m(lon, lat)
+                m.plot(x, y, 'y-o', linewidth=0.5, markersize=1)
+            else:
+                plt.plot(data[:, 0], data[:, 2], '-', label="AIS Tracks")
 
     def plot_data(detections=None):
         if len(detections) > 0:
@@ -266,7 +289,7 @@ if __name__ == '__main__':
 
     # Track Deleter
     # =============
-    deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=24))
+    deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=5))
 
     ################################################################################
     # Main Tracking process                                                        #
