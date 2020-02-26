@@ -104,11 +104,13 @@ class SimpleMeasurementInitiator(GaussianInitiator):
 
             mapped_dimensions, _ = np.nonzero(
                 model_matrix.T @ np.ones((model_matrix.shape[0], 1)))
-            prior_state_vector[mapped_dimensions, :] = 0
+            # prior_state_vector[mapped_dimensions, :] = 0
             prior_covar[mapped_dimensions, :] = 0
 
+			sv = prior_state_vector + state_vector
+            sv = [type(s)(v) for (s,v) in zip(prior_state_vector[:, 0],sv[:,0])]
             tracks.add(Track([GaussianStateUpdate(
-                prior_state_vector + state_vector,
+                sv,
                 prior_covar
                 + inv_model_matrix @ model_covar @ model_matrix.astype(bool),
                 SingleHypothesis(None, detection),
