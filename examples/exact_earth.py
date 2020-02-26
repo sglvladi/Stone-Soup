@@ -49,7 +49,7 @@ if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "MEDITERRANEAN"
+    TARGET = "GREECE"
     LIMITS = {
         "TEST": {
             "LON_MIN": -62.,
@@ -304,9 +304,14 @@ if __name__ == '__main__':
             # Skip iteration if there are no available detections
             if len(detections) == 0:
                 continue
-
+            static_fields = ['Vessel_Name', 'Call_sign', 'IMO', 'Ship_Type', 'Dimension_to_Bow', 'Dimension_to_stern',
+                             'Dimension_to_port', 'Dimension_to_starboard', 'Draught', 'Destination', 'AIS_version',
+                             'Fixing_device', 'ETA_month', 'ETA_day', 'ETA_hour', 'ETA_minute', 'Data_terminal']
             dynamic_detections = [detection for detection in detections
                                   if detection.metadata["type"] == "dynamic"]
+            for detection in dynamic_detections:
+                for field in static_fields:
+                    del detection.metadata[field]
             static_detections = [detection for detection in detections
                                  if detection.metadata["type"] == "static"]
             detections = set(dynamic_detections)
@@ -358,28 +363,29 @@ if __name__ == '__main__':
 
             # Perform data association
             print("Tracking.... NumTracks: {}".format(str(len(tracks))))
-
-            pr.enable()
-            associations = associator.associate(tracks, detections, scan_time)
-            pr.disable()
-
-            # Update tracks based on association hypotheses
-            print("Updating...")
             associated_detections = set()
-            for track, hypothesis in associations.items():
-                if hypothesis:
-                    state_post = updater.update(hypothesis)
-                    track.append(state_post)
-                    associated_detections.add(hypothesis.measurement)
-                else:
-                    # Only append new prediction if previous is an Update
-                    # or is a Prediction with different timestamp
-                    if (isinstance(track.state, Update)
-                            or (isinstance(track.state, Prediction)
-                                and track.state.timestamp != hypothesis.prediction.timestamp)):
-                        track.append(hypothesis.prediction)
-                if LIMIT_STATES and len(track.states) > 10:
-                    track.states = track.states[-10:]
+            if len(detections) > 0:
+                pr.enable()
+                associations = associator.associate(tracks, detections, scan_time)
+                pr.disable()
+
+                # Update tracks based on association hypotheses
+                print("Updating...")
+                associated_detections = set()
+                for track, hypothesis in associations.items():
+                    if hypothesis:
+                        state_post = updater.update(hypothesis)
+                        track.append(state_post)
+                        associated_detections.add(hypothesis.measurement)
+                    else:
+                        # Only append new prediction if previous is an Update
+                        # or is a Prediction with different timestamp
+                        if (isinstance(track.state, Update)
+                                or (isinstance(track.state, Prediction)
+                                    and track.state.timestamp != hypothesis.prediction.timestamp)):
+                            track.append(hypothesis.prediction)
+                    if LIMIT_STATES and len(track.states) > 10:
+                        track.states = track.states[-10:]
 
             # Write data
             # print("Writing....")
