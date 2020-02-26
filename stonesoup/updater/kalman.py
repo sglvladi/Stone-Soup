@@ -248,6 +248,9 @@ class KalmanUpdater(Updater):
             kalman_gain@(hypothesis.measurement.state_vector -
                          hypothesis.measurement_prediction.state_vector)
 
+        # Preserve state types
+        posterior_mean = [type(s)(v) for (s, v) in zip(predicted_state.state_vector[:, 0], posterior_mean[:, 0])]
+
         if self.force_symmetric_covariance:
             posterior_covariance = \
                 (posterior_covariance + posterior_covariance.T)/2
