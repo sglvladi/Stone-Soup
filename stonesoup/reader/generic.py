@@ -19,6 +19,7 @@ from .base import GroundTruthReader, DetectionReader
 from .file import TextFileReader
 from stonesoup.buffered_generator import BufferedGenerator
 from ..types.groundtruth import GroundTruthPath, GroundTruthState
+from ..types.angle import Longitude, Latitude
 
 
 class CSVGroundTruthReader(GroundTruthReader, TextFileReader):
@@ -176,9 +177,12 @@ class CSVDetectionReader_EE(CSVDetectionReader):
                         valid += 1
                 if valid == len(self.state_vector_fields):
                     local_metadata["type"] = "dynamic"
+                    # detect = Detection(np.array(
+                    #     [[row[col_name]] for col_name in self.state_vector_fields],
+                    #     dtype=np.float32), time_field_value,
+                    #     metadata=local_metadata)
                     detect = Detection(np.array(
-                        [[row[col_name]] for col_name in self.state_vector_fields],
-                        dtype=np.float32), time_field_value,
+                        [[Longitude(np.float64(row["Longitude"]))], [Latitude(np.float64(row["Latitude"]))]]), time_field_value,
                         metadata=local_metadata)
                     self._detections = {detect}
                 elif valid == 0:
