@@ -8,6 +8,7 @@ from ..types.hypothesis import SingleDistanceHypothesis
 from ..types.multihypothesis import MultipleHypothesis
 from ..types.prediction import Prediction
 from ..updater import Updater
+from copy import copy
 
 
 class DistanceHypothesiser(Hypothesiser):
@@ -108,7 +109,7 @@ class DistanceHypothesiserFast(DistanceHypothesiser):
     prediction for tracks when necessary
     """
 
-    def hypothesise(self, track, detections, timestamp, missed_detection=None):
+    def hypothesise(self, track, detections, timestamp, missed_detection=None, mult=None):
         """ Evaluate and return all track association hypotheses.
 
         For a given track and a set of N available detections, return a
@@ -181,5 +182,6 @@ class DistanceHypothesiserFast(DistanceHypothesiser):
                         prediction,
                         missed_detection, #MissedDetection(timestamp=timestamp),
                         self.missed_distance))
-
-        return MultipleHypothesis(sorted(hypotheses, reverse=True))
+        mult2 = copy(mult)
+        mult2.single_hypotheses = sorted(hypotheses, reverse=True)
+        return mult2 # MultipleHypothesis(sorted(hypotheses, reverse=True))
