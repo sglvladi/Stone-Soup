@@ -38,7 +38,7 @@ class DistanceHypothesiser(Hypothesiser):
         doc="If `True`, hypotheses beyond missed distance will be returned. "
             "Default `False`")
 
-    def hypothesise(self, track, detections, timestamp):
+    def hypothesise(self, track, detections, timestamp, missed_detection=None):
         """ Evaluate and return all track association hypotheses.
 
         For a given track and a set of N available detections, return a
@@ -66,6 +66,9 @@ class DistanceHypothesiser(Hypothesiser):
         """
         hypotheses = list()
 
+        if missed_detection is None:
+            missed_detection = MissedDetection(timestamp=timestamp)
+
         # Common state & measurement prediction
         prediction = self.predictor.predict(track.state, timestamp=timestamp)
         measurement_prediction = self.updater.predict_measurement(
@@ -75,7 +78,7 @@ class DistanceHypothesiser(Hypothesiser):
         hypotheses.append(
             SingleDistanceHypothesis(
                 prediction,
-                MissedDetection(timestamp=timestamp),
+                missed_detection, #MissedDetection(timestamp=timestamp),
                 self.missed_distance,
                 measurement_prediction))
 
@@ -109,7 +112,8 @@ class DistanceHypothesiserFast(DistanceHypothesiser):
     A distance hypothesiser that speeds up hypothesis generation, by only performing
     prediction for tracks when necessary
     """
-    def hypothesise(self, track, detections, timestamp):
+
+    def hypothesise(self, track, detections, timestamp, missed_detection=None):
         """ Evaluate and return all track association hypotheses.
 
         For a given track and a set of N available detections, return a
@@ -137,6 +141,9 @@ class DistanceHypothesiserFast(DistanceHypothesiser):
         """
         hypotheses = list()
 
+        if missed_detection is None:
+            missed_detection = MissedDetection(timestamp=timestamp)
+
         # Only Hypothesise tracks whose mmsi appears in the detections
         if len(detections):
             prediction = self.predictor.predict(track.state, timestamp=timestamp)
@@ -146,7 +153,7 @@ class DistanceHypothesiserFast(DistanceHypothesiser):
             hypotheses.append(
                 SingleDistanceHypothesis(
                     prediction,
-                    MissedDetection(timestamp=timestamp),
+                    missed_detection, #MissedDetection(timestamp=timestamp),
                     self.missed_distance,
                     measurement_prediction))
 
@@ -167,7 +174,7 @@ class DistanceHypothesiserFast(DistanceHypothesiser):
                 hypotheses.append(
                     SingleDistanceHypothesis(
                         prediction,
-                        MissedDetection(timestamp=prediction.timestamp),
+                        missed_detection, #MissedDetection(timestamp=prediction.timestamp),
                         self.missed_distance))
             else:
                 # Else if the state is an update, then generate a prediction
@@ -177,7 +184,7 @@ class DistanceHypothesiserFast(DistanceHypothesiser):
                 hypotheses.append(
                     SingleDistanceHypothesis(
                         prediction,
-                        MissedDetection(timestamp=timestamp),
+                        missed_detection, #MissedDetection(timestamp=timestamp),
                         self.missed_distance))
 
         return MultipleHypothesis(sorted(hypotheses, reverse=True))
