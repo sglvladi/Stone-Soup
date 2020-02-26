@@ -206,6 +206,7 @@ class KalmanUpdater(Updater):
         posterior_mean = \
             predicted_state.state_vector \
             + kalman_gain@(hypothesis.measurement.state_vector - pred_meas)
+        posterior_mean = [type(s)(v) for (s, v) in zip(predicted_state.state_vector[:, 0], posterior_mean[:, 0])]
         posterior_covariance = \
             predicted_state.covar - kalman_gain@innov_cov@kalman_gain.T
 
