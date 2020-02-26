@@ -8,7 +8,7 @@ import scipy as sp
 import rtree
 from scipy.spatial import KDTree
 
-
+from stonesoup.types.detection import MissedDetection
 from .base import DataAssociator
 from ..base import Property
 from ..models.base import LinearModel
@@ -184,10 +184,8 @@ class TPRTreeMixIn(DataAssociator):
 
 
         print("Hypothesising")
-        # hypotheses = dict()
-        # for track in tracks:
-        #     if len(track_detections[track])
 
+        misdet = MissedDetection(timestamp=time)
         return {track: self.hypothesiser.hypothesise(
-            track, track_detections[track], time, **kwargs)
+            track, track_detections[track], time, missed_detection=misdet, **kwargs)
             for track in tracks}
