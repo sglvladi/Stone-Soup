@@ -9,6 +9,7 @@ import rtree
 from scipy.spatial import KDTree
 
 from stonesoup.types.detection import MissedDetection
+from stonesoup.types.multihypothesis import MultipleHypothesis
 from .base import DataAssociator
 from ..base import Property
 from ..models.base import LinearModel
@@ -17,6 +18,37 @@ from ..predictor import Predictor
 from ..types.update import Update
 from ..updater import Updater
 
+
+# import concurrent.futures
+# from joblib import Parallel, delayed
+# import multiprocessing
+# def chunks(l,n):
+#     """Yield successive n-sized chunks from l."""
+#     c = []
+#     j = []
+#     x = 0
+#     m = np.max([int(np.ceil(float(len(l))/float(n))),1])
+#     for i in range(0, len(l), m):
+#         c.append(l[i:i + m])
+#         j.append([k for k in range(x, x + len(c[-1]))])
+#         x += len(c[-1])
+#     return c, j
+#
+# def f(args):
+#     hyp = args[0]
+#     tracks = args[1]
+#     t_inds = args[2]
+#     detections = args[3]
+#     time = args[4]
+#     return [{t_ind: hyp.hypothesise(tracks[i], detections,time)}
+#             for i, t_ind in enumerate(t_inds)]
+#
+# def f2(args):
+#     hyp = args[0]
+#     track = args[1]
+#     detections = args[2]
+#     time = args[3]
+#     return {track: hyp.hypothesise(track, detections,time)}
 
 class DetectionKDTreeMixIn(DataAssociator):
     """Detection kd-tree based mixin
@@ -107,9 +139,9 @@ class TPRTreeMixIn(DataAssociator):
 
     def _track_tree_coordinates(self, track):
         state_vector = track.state_vector[self.pos_mapping, :]
-        state_delta = 300 * np.sqrt(
+        state_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.pos_mapping].reshape(-1, 1))
-        meas_delta = 300 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
+        meas_delta = 3 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
         vel_vector = track.state_vector[self.vel_mapping, :]
         vel_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.vel_mapping].reshape(-1, 1))
@@ -182,10 +214,39 @@ class TPRTreeMixIn(DataAssociator):
             for track in intersected_tracks:
                 track_detections[track].add(detection)
 
+        """ Attempts to do Multi-threading
+        ==================================
+        track_list = list(tracks)
+        track_lists, t_inds = chunks(track_list, 20)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # with concurrent.futures.ProcessPoolExecutor() as executor:
+            hypotheses = executor.map(f,
+                                      [(self.hypothesiser, tracks, t_inds[t_ind],
+                                        detections, time)
+                                       for t_ind, tracks in enumerate(track_lists)])
+        hypotheses = dict((track_list[key], d[key]) for hypothesis in hypotheses for d in hypothesis for
+                          key in d)
+
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            # with concurrent.futures.ProcessPoolExecutor() as executor:
+            hypotheses = executor.map(f2,
+                                      [(self.hypothesiser, track, track_detections[track], time)
+                                       for track in tracks])
+        hypotheses = dict((d, hypothesis[d]) for hypothesis in hypotheses for d in hypothesis)
+
+        num_cores = multiprocessing.cpu_count()
+        executor = Parallel(n_jobs=num_cores, backend="threading")
+        inputs = [(self.hypothesiser, track, track_detections[track], time)
+                                       for track in tracks]
+        tasks = (delayed(f2)(i) for i in inputs)
+        hypotheses = executor(tasks)
+        return hypotheses
+        """
 
         print("Hypothesising")
 
         misdet = MissedDetection(timestamp=time)
+        mult = MultipleHypothesis()
         return {track: self.hypothesiser.hypothesise(
-            track, track_detections[track], time, missed_detection=misdet, **kwargs)
+            track, track_detections[track], time, missed_detection=misdet, mult=mult, **kwargs)
             for track in tracks}
