@@ -39,7 +39,7 @@ class DistanceHypothesiser(Hypothesiser):
         doc="If `True`, hypotheses beyond missed distance will be returned. "
             "Default `False`")
 
-    def hypothesise(self, track, detections, timestamp, missed_detection=None):
+    def hypothesise(self, track, detections, timestamp, missed_detection=None, mult=None):
         """ Evaluate and return all track association hypotheses.
 
         For a given track and a set of N available detections, return a
@@ -84,12 +84,12 @@ class DistanceHypothesiser(Hypothesiser):
         for detection in detections:
 
             # Re-evaluate prediction
-            prediction = self.predictor.predict(
-                track.state, timestamp=detection.timestamp)
-
-            # Compute measurement prediction and distance measure
-            measurement_prediction = self.updater.predict_measurement(
-                prediction, detection.measurement_model)
+            # prediction = self.predictor.predict(
+            #     track.state, timestamp=detection.timestamp)
+            #
+            # # Compute measurement prediction and distance measure
+            # measurement_prediction = self.updater.predict_measurement(
+            #     prediction, detection.measurement_model)
             distance = self.measure(measurement_prediction, detection)
 
             if self.include_all or distance < self.missed_distance:
@@ -101,7 +101,9 @@ class DistanceHypothesiser(Hypothesiser):
                         distance,
                         measurement_prediction))
 
-        return MultipleHypothesis(sorted(hypotheses, reverse=True))
+        mult2 = copy(mult)
+        mult2.single_hypotheses = sorted(hypotheses, reverse=True)
+        return mult2  #return MultipleHypothesis(sorted(hypotheses, reverse=True))
 
 
 class DistanceHypothesiserFast(DistanceHypothesiser):
