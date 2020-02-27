@@ -49,7 +49,7 @@ if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "UK"
+    TARGET = "GREECE"
     LIMITS = {
         "TEST": {
             "LON_MIN": -62.,
@@ -97,7 +97,7 @@ if __name__ == '__main__':
             "LON_MAX": 3.5,
             "LAT_MIN": 48.,
             "LAT_MAX": 60.,
-            "RES": 'l'
+            "RES": 'h'
         }
     }
     LON_MIN = LIMITS[TARGET]["LON_MIN"]
@@ -224,9 +224,9 @@ if __name__ == '__main__':
                     mmsi = track.metadata["MMSI"]
                     if mmsi in shared_mmsi:
                         if track not in shared_mmsi[mmsi]:
-                            shared_mmsi[mmsi].push(track)
+                            shared_mmsi[mmsi].append(track)
                         if track2 not in shared_mmsi[mmsi]:
-                            shared_mmsi[mmsi].push(track2)
+                            shared_mmsi[mmsi].append(track2)
                     else:
                         shared_mmsi[mmsi] = [track, track2]
 
@@ -387,6 +387,8 @@ if __name__ == '__main__':
             # Perform data association
             print("Tracking.... NumTracks: {}".format(str(len(tracks))))
             associated_detections = set()
+            if scan_time.timestamp() == 1502319955.0:
+                a=2
             if len(detections) > 0:
                 pr.enable()
                 associations = associator.associate(tracks, detections, scan_time)
