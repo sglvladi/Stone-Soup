@@ -30,7 +30,7 @@ class DistanceHypothesiser(Hypothesiser):
         default=False,
         doc="If `True`, hypotheses beyond missed distance will be returned. Default `False`")
 
-    def hypothesise(self, track, detections, timestamp, missed_detection=None, **kwargs):
+    def hypothesise(self, track, detections, timestamp, missed_detection=None, mult=None, **kwargs):
         """ Evaluate and return all track association hypotheses.
 
         For a given track and a set of N available detections, return a
