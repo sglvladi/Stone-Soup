@@ -19,9 +19,17 @@ import msvcrt
 import time
 from copy import copy
 
+import cProfile as profile
+
+pr = profile.Profile()
+pr.disable()
+
 # Stone-Soup imports
 from stonesoup.dataassociator.tree import TPRTreeMixIn
+from stonesoup.deleter.elint import ELINTDeleter
 from stonesoup.feeder.filter import BoundingBoxDetectionReducer
+from stonesoup.hypothesiser.probability import ELINTHypothesiser, ELINTHypothesiserFast
+from stonesoup.initiator.elint import ELINTInitiator
 from stonesoup.models.transition.linear import (
     RandomWalk, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
 from stonesoup.initiator.simple import LinearMeasurementInitiator
@@ -35,16 +43,18 @@ from stonesoup.updater.kalman import (KalmanUpdater)
 from stonesoup.predictor.kalman import (KalmanPredictor)
 from stonesoup.models.measurement.linear import LinearGaussian
 from stonesoup.types.array import StateVector, CovarianceMatrix
+from stonesoup.types.update import StateUpdate, GaussianStateUpdate
 from stonesoup.types.prediction import GaussianStatePrediction
 from stonesoup.types.angle import Bearing
 from stonesoup.reader.generic import CSVDetectionReader_EE
+from stonesoup.reader.elint import BasicELINTDetectionReader
 from stonesoup.feeder.time import TimeSyncFeeder, TimeBufferedFeeder
 
 if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "GREECE"
+    TARGET = "GLOBAL"
     LIMITS = {
         "TEST": {
             "LON_MIN": -62.,
@@ -188,12 +198,14 @@ if __name__ == '__main__':
             if len(states) == 0:
                 continue
             data = np.array(states)
-            lat = data[:, 2]
-            lon = data[:, 0]
+            lat = np.array(data[:, 2], dtype=np.float32)
+            lon = np.array(data[:, 0], dtype=np.float32)
             if show_map:
                 x, y = m(lon, lat)
-                m.plot(x, y, 'b-o', linewidth=1, markersize=1)
+                m.plot(x, y, '-o', linewidth=1, markersize=1)
                 m.plot(x[-1], y[-1], 'ro', markersize=1)
+                # print([lon[-1], lat[-1]])
+                # print([x[-1], y[-1]])
                 #plt.text(x[-1], y[-1], track.metadata["Vessel_Name"], fontsize=12)
                 if show_probs:
                     plt.text(x[-1], y[-1],
@@ -213,21 +225,49 @@ if __name__ == '__main__':
 
 
     def plot_data(detections=None):
+        m = Basemap(llcrnrlon=LON_MIN, llcrnrlat=LAT_MIN, urcrnrlon=LON_MAX,
+                    urcrnrlat=LAT_MAX, projection='merc', resolution='c')
         if len(detections) > 0:
-            x = [s.state_vector[0] for s in detections]
-            y = [s.state_vector[1] for s in detections]
-            plt.plot(x, y, linestyle='', marker='x')
+            lon = [s.state_vector[0] for s in detections]
+            lat = [s.state_vector[1] for s in detections]
+            x, y = m(lon, lat)
+            m.plot(x, y, linestyle='', marker='x', markersize=4)
 
 
     ##########################################################################
     # Tracking components                                                    #
     ##########################################################################
 
+    mins2sec = 60
+    hours2sec = 60 * mins2sec
+    days2sec = 24 * hours2sec
+    rates = {
+        "birth": 1 / (10 * hours2sec),
+        "death": 1 / (10 * days2sec),
+        "killProbThresh": 0.1
+    }
+    sensors = {
+        "ELINT": {
+            "rates": {
+            }
+        }
+    }
+    sensors["ELINT"]["rates"]["meas"] = 1/(60*mins2sec)
+    sensors["ELINT"]["rates"]["firstmeas"] = (rates["birth"]*sensors["ELINT"]["rates"]["meas"] /
+                                              (rates["death"] + sensors["ELINT"]["rates"]["meas"]))
+
+    prior = {
+        "lonlat_min": [108, 5],
+        "lonlat_max": [119, 16],
+        "lonlat_mean": StateVector([[113.5], [10.5]]),
+        "lonlat_cov": CovarianceMatrix([[10.0833, 0], [0, 10.083]]),
+        "initspeed_sd_metres": 10
+    }
     # Transition & Measurement models
     # ===============================
     transition_model = CombinedLinearGaussianTransitionModel(
-        (OrnsteinUhlenbeck(0.00001 ** 2, 2e-3),
-         OrnsteinUhlenbeck(0.00001 ** 2, 2e-3)))
+        (OrnsteinUhlenbeck(5e-11, 5e-4),
+         OrnsteinUhlenbeck(1e-11, 5e-4)))
     measurement_model = LinearGaussian(ndim_state=4, mapping=[0, 2],
                                        noise_covar=np.diag([0.001 ** 2,
                                                             0.001 ** 2]))
@@ -239,174 +279,168 @@ if __name__ == '__main__':
 
     # Hypothesiser & Data Associator
     # ==============================
-    hypothesiser = DistanceHypothesiserFast(predictor, updater, Mahalanobis(), 20)
-    hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
-                                                  match_missing=False)
+    logNullLogLikelihood = -4.795790545596741 + np.log(sensors["ELINT"]["rates"]["firstmeas"])
+    hypothesiser = ELINTHypothesiser(predictor, updater,
+                                     sensors["ELINT"]["rates"]["meas"],
+                                     rates["death"], logNullLogLikelihood)
+    # hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 100)
 
     class TPRGNN(GNNWith2DAssignment, TPRTreeMixIn):
         pass
-    associator = TPRGNN(hypothesiser, measurement_model, timedelta(hours=24), [1, 3])
+    associator = TPRGNN(hypothesiser, measurement_model, timedelta(hours=24), [1, 3], std_thresh=300)
+    # associator = GNNWith2DAssignment(hypothesiser)
 
     # Track Initiator
     # ===============
-    state_vector = StateVector([[Bearing(0)], [0], [Bearing(0)], [0]])
-    covar = CovarianceMatrix(np.diag([0.0001 ** 2, 0.0003 ** 2,
-                                      0.0001 ** 2, 0.0003 ** 2]))
+    state_vector = StateVector([[113.5], [0], [10.5], [0]])
+    covar = CovarianceMatrix(np.diag([10.0833, 3e-8,
+                                      3e-8, 10.0833]))
     prior_state = GaussianStatePrediction(state_vector, covar)
-    initiator = LinearMeasurementInitiator(prior_state, measurement_model)
+    initiator = ELINTInitiator(prior, measurement_model)
+    # initiator = LinearMeasurementInitiator(prior_state, measurement_model)
 
     # Track Deleter
     # =============
-    deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=24))
+    # deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=2))
+    deleter = ELINTDeleter(rates["killProbThresh"])
 
     ################################################################################
     # Main Tracking process                                                        #
     ################################################################################
 
     tracks = set()  # Main set of tracks
-    for file_path in glob.iglob(
-            os.path.join('C:/Users/sglvladi/Documents/TrackAnalytics/data'
-                         '/exact_earth/id_sorted/', r'*.csv')):
-        print(file_path)
-        # Detection readers
-        # ================
-        detector = CSVDetectionReader_EE(
-            path=file_path,
-            state_vector_fields=["Longitude", "Latitude"],
-            time_field="Time",
-            time_field_format="%Y%m%d_%H%M%S")
-        detector = TimeBufferedFeeder(detector)
-        detector = TimeSyncFeeder(detector,
-                                  time_window=timedelta(seconds=1))
+    file_path = r"C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\MATLAB\ELINT\smalldata2   0tracks_elint_LV.mat"
+    detector = BasicELINTDetectionReader(path=file_path, )
 
-        # Writer
-        # ======
-        filename = os.path.basename(file_path)
-        # writer = CSV_Writer_EE_MMSI(
-        #     'C:/Users/sglvladi/Documents/TrackAnalytics/output/exact_earth'
-        #     '/per_mmsi', mmsi)
 
-        # We process each scan sequentially
-        date = datetime.now().date()
-        # last_static_time, last_static_detections = next(static_gen)
+    # Writer
+    # ======
+    filename = os.path.basename(file_path)
+    # writer = CSV_Writer_EE_MMSI(
+    #     'C:/Users/sglvladi/Documents/TrackAnalytics/output/exact_earth'
+    #     '/per_mmsi', mmsi)
 
-        for scan_time, detections in detector.detections_gen():
+    # We process each scan sequentially
+    date = datetime.now().date()
+    # last_static_time, last_static_detections = next(static_gen)
+    alldetections = set()
+    prev_time = None
+    for scan_time, detections in detector.detections_gen():
+        if prev_time is None:
+            prev_time = scan_time
 
-            # Skip iteration if there are no available detections
-            if len(detections) == 0:
-                continue
+        alldetections |= detections
+        # Skip iteration if there are no available detections
 
-            dynamic_detections = [detection for detection in detections
-                                  if detection.metadata["type"] == "dynamic"]
-            static_detections = [detection for detection in detections
-                                 if detection.metadata["type"] == "static"]
-            detections = set(dynamic_detections)
+        # BBox reducer low patch
+        limits = np.array([[LON_MIN, LON_MAX],
+                           [LAT_MIN, LAT_MAX]])
+        num_dims = len(limits)
+        mapping = [0, 1]
+        outlier_detections = set()
+        for detection in detections:
+            state_vector = detection.state_vector
+            for i in range(num_dims):
+                min = limits[i][0]
+                max = limits[i][1]
+                value = state_vector[mapping[i]]
+                if value < min or value > max:
+                    outlier_detections.add(detection)
+                    break
+        detections -= outlier_detections
 
-            # BBox reducer low patch
-            limits = np.array([[LON_MIN, LON_MAX],
-                               [LAT_MIN, LAT_MAX]])
-            num_dims = len(limits)
-            mapping = [0, 1]
-            outlier_detections = set()
-            for detection in detections:
-                state_vector = detection.state_vector
-                for i in range(num_dims):
-                    min = limits[i][0]
-                    max = limits[i][1]
-                    value = state_vector[mapping[i]]
-                    if value < min or value > max:
-                        outlier_detections.add(detection)
-                        break
-            detections -= outlier_detections
+        print("Measurements: " + str(len(detections))+" - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y'))
 
-            # Remove potential duplicate detections
-            # This has been added to solve the problem where the same ship may broadcast
-            # its position more than once within the set time-window. If not dealt with
-            # this will result in new false tracks being spawned
-            unique_detections = set([])
-            for detection in detections:
-                unique = True
-                for detection_2 in unique_detections:
-                    if (detection.metadata["MMSI"] == detection_2.metadata["MMSI"]
-                        and np.allclose(detection.state_vector,
-                                        detection_2.state_vector,
-                                        atol=0.005)):
-                        unique = False
-                if unique:
-                    unique_detections.add(detection)
-            detections = unique_detections
+        # Perform data association
+        print("Tracking.... NumTracks: {}".format(str(len(tracks))))
 
-            print("Measurements: " + str(len(detections))+" - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y'))
+        pr.enable()
+        associations = associator.associate(tracks, detections, scan_time)
+        pr.disable()
 
-            # Process static AIS
-            for track in tracks:
-                for detection in static_detections:
-                    if detection.metadata["MMSI"] == track.metadata["MMSI"]:
-                        static_fields = ['Vessel_Name', 'Ship_Type',
-                                         'Destination', 'IMO']
-                        track._metadata.update({x: detection.metadata[x] for
-                                                x in static_fields})
+        # Update tracks based on association hypotheses
+        print("Updating...")
+        associated_detections = set()
+        for track, hypothesis in associations.items():
+            if hypothesis:
+                state_post = updater.update(hypothesis)
+                track.append(state_post)
+                associated_detections.add(hypothesis.measurement)
+            else:
+                track.append(hypothesis.prediction)
+            if LIMIT_STATES and len(track.states) > 10:
+                track.states = track.states[-10:]
 
-            # Perform data association
-            print("Tracking.... NumTracks: {}".format(str(len(tracks))))
+        for track in tracks:
+            if isinstance(track.state, GaussianStateUpdate) and track.state.timestamp==scan_time:
+                # since you've assumed that the target definitely generated the measurement
+                track.metadata["existence"]["value"] = 1
+            else:
+                pe = track.metadata["existence"]["value"]
+                dt = scan_time-prev_time
+                logpnotdetect = -sensors["ELINT"]["rates"]["meas"]*dt.total_seconds()
+                pnotdetgivenexist = np.exp(logpnotdetect)
+                pnotdet = pnotdetgivenexist * pe + (1 - pe)
+                track.metadata["existence"]["value"] = pe * pnotdetgivenexist / pnotdet
+        prev_time = scan_time
+        # Write data
+        # print("Writing....")
+        # writer.write(tracks,
+        #              detections,
+        #              timestamp=scan_time)
 
-            associations = associator.associate(tracks, detections, scan_time)
+        # Initiate new tracks
+        print("Track Initiation...")
+        unassociated_detections = detections - associated_detections
+        new_tracks = initiator.initiate(unassociated_detections)
+        tracks |= new_tracks
 
-            # Update tracks based on association hypotheses
-            print("Updating...")
-            associated_detections = set()
-            for track, hypothesis in associations.items():
-                if hypothesis:
-                    state_post = updater.update(hypothesis)
-                    track.append(state_post)
-                    associated_detections.add(hypothesis.measurement)
-                else:
-                    track.append(hypothesis.prediction)
-                if LIMIT_STATES and len(track.states) > 10:
-                    track.states = track.states[-10:]
+        # Delete invalid tracks
+        print("Track Deletion...")
+        del_tracks = deleter.delete_tracks(tracks, timestamp=scan_time)
+        tracks -= del_tracks
 
-            # Write data
-            # print("Writing....")
-            # writer.write(tracks,
-            #              detections,
-            #              timestamp=scan_time)
+        print("{}".format(filename)
+              + " - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y')
+              + " - Measurements: " + str(len(detections))
+              + " - Tracks: " + str(len(tracks)))
 
-            # Initiate new tracks
-            print("Track Initiation...")
-            unassociated_detections = detections - associated_detections
-            new_tracks = initiator.initiate(unassociated_detections)
-            tracks |= new_tracks
+        if scan_time.timestamp() == 1502400890.0:
+            plot_map(scan_time)
+            plot_data(alldetections)
+            plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
+            plt.show()
+            a=2
+        # Only plot if 'f' or 'p' button is pressed
+        # plt.clf()
+        # plot_map(scan_time)
+        # plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
+        # plt.pause(0.01)
+        if msvcrt.kbhit():
+            ch = msvcrt.getch()
+            if ch == b'f' or ch == b'p' or ch == b'm':
+                print("[INFO]: Plotting Tracks")
+                # Plot the data
+                plt.clf()
+                if SHOW_MAP:
+                    plot_map(scan_time)
+                plot_data(alldetections)
+                if ch == b'f':
+                    plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
+                    plt.pause(0.01)
+                elif ch == b'p':
+                    plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
+                    # plot_data(detections)
+                    plt.show()
+                elif ch == b'm':
+                    t_tracks = tracks
+                    plot_tracks(t_tracks, show_mmsis=False, show_map=SHOW_MAP)
+                    plt.show()
+            elif ch == b'r':
+                print("[INFO]: Dumping Profiler stats")
+                pr.dump_stats('profile_ELINT_{}.pstat'.format(scan_time.strftime('%H-%M-%S_%d-%m-%Y')))
 
-            # Delete invalid tracks
-            print("Track Deletion...")
-            del_tracks = deleter.delete_tracks(tracks, timestamp=scan_time)
-            tracks -= del_tracks
+        if END_TIME is not None and scan_time >= END_TIME:
+            break
 
-            print("{}".format(filename)
-                  + " - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y')
-                  + " - Measurements: " + str(len(detections))
-                  + " - Tracks: " + str(len(tracks)))
-
-            # Only plot if 'f' or 'p' button is pressed
-            if msvcrt.kbhit():
-                ch = msvcrt.getch()
-                if ch == b'f' or ch == b'p' or ch == b'm':
-                    print("[INFO]: Plotting Tracks")
-                    # Plot the data
-                    plt.clf()
-                    if SHOW_MAP:
-                        plot_map(scan_time)
-                    plot_data(detections)
-                    if ch == b'f':
-                        plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
-                        plt.pause(0.01)
-                    elif ch == b'p':
-                        plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
-                        plt.show()
-                    elif ch == b'm':
-                        t_tracks = tracks
-                        plot_tracks(t_tracks, show_mmsis=False, show_map=SHOW_MAP)
-                        plt.show()
-
-            if END_TIME is not None and scan_time >= END_TIME:
-                break
+print(scan_time.timestamp())

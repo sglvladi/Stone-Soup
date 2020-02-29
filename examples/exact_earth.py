@@ -20,6 +20,8 @@ import time
 from copy import copy
 import cProfile as profile
 # In outer section of code
+from stonesoup.hypothesiser.probability import PDAHypothesiserFast
+
 pr = profile.Profile()
 pr.disable()
 
@@ -49,7 +51,7 @@ if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "GREECE"
+    TARGET = "MEDITERRANEAN"
     LIMITS = {
         "TEST": {
             "LON_MIN": -62.,
@@ -218,9 +220,11 @@ if __name__ == '__main__':
                                  facecolor='none')
 
         shared_mmsi = dict()
+        examined_tracks = set()
         for track in tracks:
-            for track2 in tracks:
-                if track.id != track2.id and track.metadata["MMSI"] == track2.metadata["MMSI"]:
+            examined_tracks.add(track)
+            for track2 in tracks-examined_tracks:
+                if track.metadata["MMSI"] == track2.metadata["MMSI"]:
                     mmsi = track.metadata["MMSI"]
                     if mmsi in shared_mmsi:
                         if track not in shared_mmsi[mmsi]:
@@ -268,6 +272,7 @@ if __name__ == '__main__':
 
     # Hypothesiser & Data Associator
     # ==============================
+    #hypothesiser = PDAHypothesiserFast(predictor, updater, 1, 1, 1)
     hypothesiser = DistanceHypothesiserFast(predictor, updater, Mahalanobis(), 20)
     hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
                                                   match_missing=False)
