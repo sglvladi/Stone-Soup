@@ -584,3 +584,21 @@ def mod_latitude(x):
     elif N == 3:
         x = x - 360.0
     return x
+
+def degree2meters(lonLatDeg):
+    """ Given a position in lon,lat, calculate the degree to metres conversion
+    factor for lon and lat
+
+    Parameters
+    ----------
+    lonLatDeg
+
+    Returns
+    -------
+
+    """
+
+    lat_deg = lonLatDeg[1, :]
+    r_earth = 6371e3  # radius of earth
+    a = np.array([np.cos(np.deg2rad(lat_deg)), np.ones((len(lat_deg),))])
+    return np.pi * r_earth / 180.0 * a
