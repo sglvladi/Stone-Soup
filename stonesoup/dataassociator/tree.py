@@ -120,6 +120,7 @@ class TPRTreeMixIn(DataAssociator):
     measurement_model = Property(MeasurementModel)
     horizon_time = Property(datetime.timedelta)
     vel_mapping = Property(np.ndarray, default=None)
+    std_thresh = Property(float, default=3)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -145,7 +146,7 @@ class TPRTreeMixIn(DataAssociator):
         # state_vector = np.array(track.state_vector[self.pos_mapping, :], dtype=np.float32) + np.array(self._offset, dtype=np.float32)
         state_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.pos_mapping].reshape(-1, 1))
-        meas_delta = 3 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
+        meas_delta = self.std_thresh * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
         vel_vector = track.state_vector[self.vel_mapping, :]
         vel_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.vel_mapping].reshape(-1, 1))
@@ -185,9 +186,16 @@ class TPRTreeMixIn(DataAssociator):
                 c_time = track.timestamp
             elif track not in tracks:
                 c_time = track.timestamp
-                coords = self._coords[track][:-1] \
-                    + ((self._coords[track][-1], c_time.timestamp()),)
-                self._tree.delete(track, coords)
+                if self._coords[track][-1] - c_time.timestamp() >= 0:
+                    coords = self._coords[track][:-1] \
+                             + ((self._coords[track][-1] - 1e-3, c_time.timestamp()),)
+                else:
+                    coords = self._coords[track][:-1] \
+                             + ((self._coords[track][-1], c_time.timestamp()),)
+                try:
+                    self._tree.delete(track, coords)
+                except:
+                    a=2
                 del self._coords[track]
             elif isinstance(track.state, Update):
                 c_time = track.timestamp
@@ -204,8 +212,13 @@ class TPRTreeMixIn(DataAssociator):
         # Detection gating
         print("Detection gating management")
         track_detections = defaultdict(set)
+        sensor_idx = None
         # minlon, maxlon = self._get_min_max()
         for detection in sorted(detections, key=attrgetter('timestamp')):
+            if detection.metadata['sensor']['type'] == 'AIS':
+                sensor_idx =  0
+            else:
+                sensor_idx = 1
             if detection.measurement_model is not None:
                 model = detection.measurement_model
             else:
@@ -279,5 +292,5 @@ class TPRTreeMixIn(DataAssociator):
         misdet = MissedDetection(timestamp=time)
         mult = MultipleHypothesis()
         return {track: self.hypothesiser.hypothesise(
-            track, track_detections[track], time, missed_detection=misdet, mult=mult, **kwargs)
+            track, track_detections[track], time, missed_detection=misdet, mult=mult, sensor_idx=sensor_idx, **kwargs)
             for track in tracks}
