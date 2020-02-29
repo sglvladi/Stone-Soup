@@ -72,6 +72,10 @@ class Track(StateMutableSequence):
 
         return self._metadata
 
+    @metadata.setter
+    def metadata(self, x):
+        self._metadata.update(x)
+
     def _update_metadata_from_state(self, state):
         """ Extract and update track metadata, given a state
 
