@@ -109,7 +109,7 @@ class KalmanUpdater(Updater):
             The measurement matrix, :math:`H_k`
 
         """
-        return self.measurement_model.matrix(**kwargs)
+        return self._check_measurement_model(measurement_model).matrix(**kwargs)
 
     @lru_cache()
     def predict_measurement(self, predicted_state, measurement_model=None,
