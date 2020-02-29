@@ -119,7 +119,7 @@ class GNNWith2DAssignment(DataAssociator):
         Hypothesiser,
         doc="Generate a set of hypotheses for each prediction-detection pair")
 
-    def associate(self, tracks, detections, time):
+    def associate(self, tracks, detections, time, **kwargs):
         """Associate a set of detections with predicted states.
 
         Parameters
@@ -138,7 +138,7 @@ class GNNWith2DAssignment(DataAssociator):
         """
 
         # Generate a set of hypotheses for each track on each detection
-        hypotheses = self.generate_hypotheses(tracks, detections, time)
+        hypotheses = self.generate_hypotheses(tracks, detections, time, **kwargs)
 
         # Create dictionary for associations
         associations = {}
