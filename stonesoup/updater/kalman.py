@@ -3,6 +3,7 @@
 import numpy as np
 from functools import lru_cache
 
+from stonesoup.types.array import StateVector
 from ..base import Property
 from .base import Updater
 from ..types.prediction import GaussianMeasurementPrediction
@@ -140,6 +141,7 @@ class KalmanUpdater(Updater):
 
         pred_meas = measurement_model.function(predicted_state.state_vector,
                                                noise=0, **kwargs)
+        pred_meas = StateVector([type(s)(v) for (s, v) in zip(predicted_state.state_vector[measurement_model.mapping, :][:, 0], pred_meas[:, 0])])
 
         hh = self._measurement_matrix(predicted_state=predicted_state,
                                       measurement_model=measurement_model,
