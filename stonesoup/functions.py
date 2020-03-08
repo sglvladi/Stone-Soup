@@ -602,3 +602,30 @@ def degree2meters(lonLatDeg):
     r_earth = 6371e3  # radius of earth
     a = np.array([np.cos(np.deg2rad(lat_deg)), np.ones((len(lat_deg),))])
     return np.pi * r_earth / 180.0 * a
+
+def imm_merge(means, covars, weights):
+    """ Perform IMM components merging/mixing
+
+    Parameters
+    ----------
+    means: np.array of shape (num_dims, num_models)
+        The IMM means
+    covars: np.array of shape (num_models, num_dims, num_dims)
+        The IMM covariances
+    weights: np.array of shape (num_models, num_models)
+        The IMM mixing weights
+
+    Returns
+    -------
+    np.array of shape (num_dims, num_models)
+        The mixed IMM means
+    np.array of shape (num_models, num_dims, num_dims)
+        The mixed IMM covariances
+
+    """
+    means_k, covars_k = [], []
+    for w in weights:
+        mean, covar = gm_reduce_single(means.T, covars, w)
+        means_k.append(mean)
+        covars_k.append(covar)
+    return np.concatenate(means_k, 1), np.array(covars_k)
