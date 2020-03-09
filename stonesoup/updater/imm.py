@@ -84,10 +84,10 @@ class IMMUpdater(Base):
         posteriors = []
         for i in range(nm):
             pred = hypothesis.prediction.components[i]
-            meas_prediction = self.updaters[i].predict_measurement(pred)
+            meas_prediction = self.updaters[i].predict_measurement(pred, **kwargs)
             hyp = SingleHypothesis(pred, hypothesis.measurement,
                                    meas_prediction)
-            posterior = self.updaters[i].update(hyp)
+            posterior = self.updaters[i].update(hyp, **kwargs)
             posteriors.append(posterior)
             Lj.append(mvn.pdf(posterior.hypothesis.measurement.state_vector.T,
                               posterior.hypothesis.measurement_prediction.mean.ravel(),
