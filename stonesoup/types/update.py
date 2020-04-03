@@ -2,7 +2,7 @@
 from ..base import Property
 from .base import Type
 from .hypothesis import Hypothesis
-from .state import State, GaussianState, ParticleState
+from .state import State, GaussianState, ParticleState, ParticleState2
 
 
 class Update(Type):
@@ -33,6 +33,12 @@ class GaussianStateUpdate(Update, GaussianState):
 
 
 class ParticleStateUpdate(Update, ParticleState):
+    """ParticleStateUpdate type
+
+    This is a simple Particle state update object.
+    """
+
+class ParticleStateUpdate2(Update, ParticleState2):
     """ParticleStateUpdate type
 
     This is a simple Particle state update object.

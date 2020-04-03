@@ -3,7 +3,7 @@ from functools import lru_cache
 
 from .base import Predictor
 from ..types.particle import Particle
-from ..types.prediction import ParticleStatePrediction
+from ..types.prediction import ParticleStatePrediction, ParticleStatePrediction2
 
 
 class ParticlePredictor(Predictor):
@@ -51,3 +51,41 @@ class ParticlePredictor(Predictor):
                          parent=particle.parent))
 
         return ParticleStatePrediction(new_particles, timestamp=timestamp)
+
+
+class ParticlePredictor2(Predictor):
+    """ParticlePredictor class
+
+    An implementation of a Particle Filter predictor.
+    """
+
+    @lru_cache()
+    def predict(self, prior, control_input=None, timestamp=None, **kwargs):
+        """Particle Filter prediction step
+
+        Parameters
+        ----------
+        prior : :class:`~.ParticleState`
+            A prior state object
+        control_input : :class:`~.State`, optional
+            The control input. It will only have an effect if
+            :attr:`control_model` is not `None` (the default is `None`)
+        timestamp: :class:`datetime.datetime`, optional
+            A timestamp signifying when the prediction is performed
+            (the default is `None`)
+
+        Returns
+        -------
+        : :class:`~.ParticleStatePrediction`
+            The predicted state
+        """
+        # Compute time_interval
+        try:
+            time_interval = timestamp - prior.timestamp
+        except TypeError:
+            # TypeError: (timestamp or prior.timestamp) is None
+            time_interval = None
+
+        new_particle_sv = self.transition_model.function(prior, time_interval=time_interval, **kwargs)
+
+        return ParticleStatePrediction2(new_particle_sv, prior.weights, timestamp=timestamp)

@@ -1,11 +1,12 @@
 # -*- coding: utf-8 -*-
 import datetime
-from collections.abc import MutableSequence
+from collections.abc import MutableSequence, Sequence
 
 import numpy as np
 
+from stonesoup.types.numeric import Probability
 from ..base import Property
-from .array import StateVector, CovarianceMatrix
+from .array import Matrix, StateVector, CovarianceMatrix
 from .base import Type
 from .particle import Particle
 
@@ -178,6 +179,56 @@ class ParticleState(Type):
     def covar(self):
         cov = np.cov(np.hstack([p.state_vector for p in self.particles]),
                      ddof=0, aweights=[p.weight for p in self.particles])
+        # Fix one dimensional covariances being returned with zero dimension
+        if not cov.shape:
+            cov = cov.reshape(1, 1)
+        return cov
+
+
+class ParticleState2(Type, Sequence):
+    """Particle State type
+
+    This is a particle state object which describes the state as a
+    distribution of particles"""
+
+    particles = Property(Matrix,
+                         doc='Array of particles states')
+    weights = Property([Probability],
+                       default=None,
+                       doc='Array of particle weights')
+    timestamp = Property(datetime.datetime, default=None,
+                         doc="Timestamp of the state. Default None.")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._num_particles = self.particles.shape[1]
+        if self.weights is None:
+            weights = [Probability(1.0/self._num_particles) for i in range(self._num_particles)]
+            # weights = np.ones((self._num_particles,))*(1.0/self._num_particles)
+
+    def __len__(self):
+        return self._num_particles
+
+    def __getitem__(self, index):
+        return StateVector(self.particles[:, index]), self.weights[index]
+
+    @property
+    def mean(self):
+        """The state mean, equivalent to state vector"""
+        result = np.average(self.particles, axis=0,
+                            weights=self.weights)#
+        # Convert type as may have type of weights
+        return result.astype(np.float, copy=False)
+
+    @property
+    def state_vector(self):
+        """The mean value of the particle states"""
+        return self.mean
+
+    @property
+    def covar(self):
+        cov = np.cov(np.hstack(self.particles),
+                     ddof=0, aweights=self.weights)
         # Fix one dimensional covariances being returned with zero dimension
         if not cov.shape:
             cov = cov.reshape(1, 1)

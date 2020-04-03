@@ -2,7 +2,7 @@
 from ..base import Property
 from .array import CovarianceMatrix
 from .base import Type
-from .state import State, GaussianState, ParticleState
+from .state import State, GaussianState, ParticleState, ParticleState2
 
 
 class Prediction(Type):
@@ -69,6 +69,19 @@ class ParticleStatePrediction(Prediction, ParticleState):
 
 
 class ParticleMeasurementPrediction(MeasurementPrediction, ParticleState):
+    """MeasurementStatePrediction type
+
+    This is a simple Particle measurement prediction object.
+    """
+
+class ParticleStatePrediction2(Prediction, ParticleState2):
+    """ParticleStatePrediction type
+
+    This is a simple Particle state prediction object.
+    """
+
+
+class ParticleMeasurementPrediction2(MeasurementPrediction, ParticleState2):
     """MeasurementStatePrediction type
 
     This is a simple Particle measurement prediction object.
