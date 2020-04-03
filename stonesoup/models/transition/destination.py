@@ -2,6 +2,8 @@ import networkx as nx
 import numpy as np
 from scipy.linalg import block_diag
 
+from stonesoup.types.particle import Particle
+from stonesoup.types.state import ParticleState2
 from ...base import Property
 from ..base import LinearModel, NonLinearModel
 from .base import TransitionModel
@@ -31,53 +33,66 @@ class DestinationTransitionModel(LinearGaussianTransitionModel):
         covar_list = [self.cv_model.covar(time_interval, **kwargs), np.zeros((2,2))]
         return block_diag(*covar_list)
 
-    def function(self, state_vector, time_interval, noise=None, **kwargs):
+    def function(self, state, time_interval, noise=None, **kwargs):
+
+        if isinstance(state, ParticleState2):
+            num_particles = len(state)
+        else:
+            num_particles = 1
 
         if noise is None:
-            noise = self.rvs(time_interval=time_interval, **kwargs)
+            noise = self.rvs(num_particles, time_interval=time_interval, **kwargs)
 
-        n_state_vector = self.matrix(time_interval)@state_vector + noise
+        # CV (Position-Velocity) Propagation
+        if num_particles > 1:
+            n_state_vectors = self.matrix(time_interval) @ state.particles + noise
+        else:
+            n_state_vectors = self.matrix(time_interval)@state.state_vector + noise
 
-        r = n_state_vector[0,0]
-        e = n_state_vector[2,0]
-        d = n_state_vector[3,0]
+        r = n_state_vectors[0, :]
+        e = n_state_vectors[2, :]
+        d = n_state_vectors[3, :]
 
         # Get all valid destinations given the current edge
         v_dest = []
-        for dest, path in self.spaths.items():
-            # If the path contains the edge
-            if len(np.where(path == e)[0]) > 0:
-                v_dest.append(dest)
+        u_edges = np.unique(e)
+        for edge in u_edges:
+            for dest, path in self.spaths.items():
+                # If the path contains the edge
+                if len(np.where(path == edge)[0]) > 0:
+                    v_dest.append(dest)
 
-        range = r
-        edge = e
-        edge_len = self.graph.weights_by_idx(edge)[0]
-        path = self.spaths[d]
-        idx = np.where(path == e)[0]  # Find path index of current edge
-        if len(idx) > 0 and len(path) > idx[0]+1:
-            idx = idx[0]
-            # If particle has NOT reached the end of the path
-            while range > edge_len:
-                range = range-edge_len
-                edge = path[idx+1]
-                edge_len = self.graph.weights_by_idx(edge)[0]
-                idx = idx+1
-                if len(path) == idx+1:
-                    # If particle has reached the end of the path
-                    if range > edge_len:
-                        # Cap range to edge_length
-                        range = edge_len
-                    break
-        elif len(idx) > 0 and len(path) == idx[0]+1:
-            # If particle has reached the end of the path
-            if range > edge_len:
-                # Cap range to edge_length
-                range = edge_len
+        for i in range(num_particles):
+            r_i = r[i]
+            e_i = e[i]
+            d_i = d[i]
+            edge_len = self.graph['Edges']['Weight'][int(e_i)]
+            path = self.spaths[d_i]
+            idx = np.where(path == e_i)[0]  # Find path index of current edge
+            if len(idx) > 0 and len(path) > idx[0] + 1:
+                idx = idx[0]
+                # If particle has NOT reached the end of the path
+                while r_i > edge_len:
+                    r_i = r_i - edge_len
+                    e_i = path[idx + 1]
+                    edge_len = self.graph['Edges']['Weight'][int(e_i)]
+                    idx = idx + 1
+                    if len(path) == idx + 1:
+                        # If particle has reached the end of the path
+                        if r_i > edge_len:
+                            # Cap r_i to edge_length
+                            r_i = edge_len
+                        break
+            elif len(idx) > 0 and len(path) == idx[0] + 1:
+                # If particle has reached the end of the path
+                if r_i > edge_len:
+                    # Cap r_i to edge_length
+                    r_i = edge_len
 
-        n_state_vector[0, 0] = range
-        n_state_vector[2, 0] = edge
+            n_state_vectors[0, i] = r_i
+            n_state_vectors[2, i] = e_i
 
-        if np.random.rand() > 0.98:
-            n_state_vector[3, 0] = np.random.choice(v_dest)
+            if np.random.rand() > 0.98:
+                n_state_vectors[3, i] = np.random.choice(v_dest)
 
-        return n_state_vector
+        return n_state_vectors
