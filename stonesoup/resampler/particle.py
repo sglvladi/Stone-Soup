@@ -90,3 +90,45 @@ class ESSResampler(Resampler):
             return self.resampler.resample(self.resampler, particles)
         else:
             return particles
+
+
+class SystematicResampler2(Resampler):
+
+    def resample(self, particles, weights):
+        """Resample the particles
+
+        Parameters
+        ----------
+        particles : list of :class:`~.Particle`
+            The particles to be resampled according to their weight
+
+        Returns
+        -------
+        particles : list of :class:`~.Particle`
+            The resampled particles
+        """
+
+        n_particles = len(weights)
+
+        # Sort the particles by weight (is this necessary?)
+        idx = np.argsort(weights)
+        weights = list(np.array(weights)[idx])
+        particles = particles[:, idx]
+
+        # Compute cumsum
+        cdf = np.cumsum([float(weight) for weight in weights])
+
+        # Pick random starting point
+        u_i = np.random.uniform(0, 1 / n_particles)
+
+        # Cycle through the cumulative distribution and copy the particle
+        # that pushed the score over the current value
+        new_particles = np.zeros(particles.shape)
+        new_weights = [Probability(1/n_particles) for i in range(n_particles)]
+        for j in range(n_particles):
+
+            u_j = u_i + (1 / n_particles) * j
+
+            new_particles[:, j] = particles[:, np.argmax(u_j < cdf)]
+
+        return new_particles, new_weights

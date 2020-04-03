@@ -5,7 +5,7 @@ from ._utils import predict_lru_cache
 from .kalman import KalmanPredictor, ExtendedKalmanPredictor
 from ..base import Property
 from ..types.particle import Particles
-from ..types.prediction import Prediction, ParticleStatePrediction
+from ..types.prediction import Prediction, ParticleStatePrediction, ParticleStatePrediction2
 from ..types.state import GaussianState
 
 
@@ -99,3 +99,41 @@ class ParticleFlowKalmanPredictor(ParticlePredictor):
             particle_prediction.particles,
             kalman_prediction.covar,
             timestamp=particle_prediction.timestamp)
+
+
+class ParticlePredictor2(Predictor):
+    """ParticlePredictor class
+
+    An implementation of a Particle Filter predictor.
+    """
+
+    @predict_lru_cache()
+    def predict(self, prior, control_input=None, timestamp=None, **kwargs):
+        """Particle Filter prediction step
+
+        Parameters
+        ----------
+        prior : :class:`~.ParticleState`
+            A prior state object
+        control_input : :class:`~.State`, optional
+            The control input. It will only have an effect if
+            :attr:`control_model` is not `None` (the default is `None`)
+        timestamp: :class:`datetime.datetime`, optional
+            A timestamp signifying when the prediction is performed
+            (the default is `None`)
+
+        Returns
+        -------
+        : :class:`~.ParticleStatePrediction`
+            The predicted state
+        """
+        # Compute time_interval
+        try:
+            time_interval = timestamp - prior.timestamp
+        except TypeError:
+            # TypeError: (timestamp or prior.timestamp) is None
+            time_interval = None
+
+        new_particle_sv = self.transition_model.function(prior, time_interval=time_interval, **kwargs)
+
+        return ParticleStatePrediction2(new_particle_sv, prior.weights, timestamp=timestamp)

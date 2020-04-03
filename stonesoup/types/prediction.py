@@ -5,7 +5,7 @@ from ..base import Property
 from .array import CovarianceMatrix
 from .base import Type
 from .state import (State, GaussianState, ParticleState, SqrtGaussianState, InformationState,
-                    TaggedWeightedGaussianState, WeightedGaussianState, CategoricalState)
+                    TaggedWeightedGaussianState, WeightedGaussianState, CategoricalState, ParticleState2)
 from ..models.transition.base import TransitionModel
 
 
@@ -123,3 +123,17 @@ class CategoricalStatePrediction(Prediction, CategoricalState):
 
 class CategoricalMeasurementPrediction(MeasurementPrediction, CategoricalState):
     """Categorical measurement prediction type"""
+
+
+class ParticleStatePrediction2(Prediction, ParticleState2):
+    """ParticleStatePrediction type
+
+    This is a simple Particle state prediction object.
+    """
+
+
+class ParticleMeasurementPrediction2(MeasurementPrediction, ParticleState2):
+    """MeasurementStatePrediction type
+
+    This is a simple Particle measurement prediction object.
+    """
