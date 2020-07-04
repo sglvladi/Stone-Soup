@@ -46,7 +46,7 @@ class SystematicResampler(Resampler):
 
 class SystematicResampler2(Resampler):
 
-    def resample(self, particles, weights):
+    def resample(self, particles, weights_l):
         """Resample the particles
 
         Parameters
@@ -60,15 +60,16 @@ class SystematicResampler2(Resampler):
             The resampled particles
         """
 
+        weights = np.array(weights_l).astype(float)
         n_particles = len(weights)
 
         # Sort the particles by weight (is this necessary?)
         idx = np.argsort(weights)
-        weights = list(np.array(weights)[idx])
+        weights = weights[idx]
         particles = particles[:, idx]
 
         # Compute cumsum
-        cdf = np.cumsum([float(weight) for weight in weights])
+        cdf = np.cumsum(weights)
 
         # Pick random starting point
         u_i = np.random.uniform(0, 1 / n_particles)
