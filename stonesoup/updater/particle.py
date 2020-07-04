@@ -6,7 +6,7 @@ from ..base import Property
 from ..resampler import Resampler
 from ..types.numeric import Probability
 from ..types.particle import Particle
-from ..types.prediction import ParticleMeasurementPrediction
+from ..types.prediction import ParticleMeasurementPrediction, ParticleMeasurementPrediction2
 from ..types.update import ParticleStateUpdate, ParticleStateUpdate2
 
 
@@ -127,14 +127,7 @@ class ParticleUpdater2(Updater):
         if measurement_model is None:
             measurement_model = self.measurement_model
 
-        new_particles = []
-        for particle in state_prediction.particles:
-            new_state_vector = measurement_model.function(
-                particle, noise=0, **kwargs)
-            new_particles.append(
-                Particle(new_state_vector,
-                         weight=particle.weight,
-                         parent=particle.parent))
+        new_particle_sv = measurement_model.function(state_prediction, **kwargs)
 
-        return ParticleMeasurementPrediction(
-            new_particles, timestamp=state_prediction.timestamp)
+        return ParticleMeasurementPrediction2(
+            new_particle_sv, state_prediction.weights, timestamp=state_prediction.timestamp)
