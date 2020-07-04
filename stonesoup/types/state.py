@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import datetime
 from collections.abc import MutableSequence, Sequence
+from functools import lru_cache
 
 import numpy as np
 
@@ -203,7 +204,7 @@ class ParticleState2(Type, Sequence):
         super().__init__(*args, **kwargs)
         self._num_particles = self.particles.shape[1]
         if self.weights is None:
-            weights = [Probability(1.0/self._num_particles) for i in range(self._num_particles)]
+            self.weights = [Probability(1.0/self._num_particles) for i in range(self._num_particles)]
             # weights = np.ones((self._num_particles,))*(1.0/self._num_particles)
 
     def __len__(self):
@@ -213,12 +214,15 @@ class ParticleState2(Type, Sequence):
         return StateVector(self.particles[:, index]), self.weights[index]
 
     @property
+    @lru_cache()
     def mean(self):
         """The state mean, equivalent to state vector"""
-        result = np.average(self.particles, axis=0,
-                            weights=self.weights)#
+        result = np.average(self.particles, axis=1,
+                            weights=np.array(self.weights))
+        return StateVector(result).astype(np.float, copy=False)
+        # res = self.particles@np.array(self.weights).T
         # Convert type as may have type of weights
-        return result.astype(np.float, copy=False)
+        # return np.atleast_2d(res.astype(np.float, copy=False)).T
 
     @property
     def state_vector(self):
@@ -226,9 +230,9 @@ class ParticleState2(Type, Sequence):
         return self.mean
 
     @property
+    @lru_cache()
     def covar(self):
-        cov = np.cov(np.hstack(self.particles),
-                     ddof=0, aweights=self.weights)
+        cov = np.cov(self.particles, ddof=0, aweights=self.weights)
         # Fix one dimensional covariances being returned with zero dimension
         if not cov.shape:
             cov = cov.reshape(1, 1)
