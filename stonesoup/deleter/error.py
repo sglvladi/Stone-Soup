@@ -33,7 +33,7 @@ class CovarianceBasedDeleter(Deleter):
             ``True`` if track should be deleted, ``False`` otherwise.
         """
 
-        track_covar_trace = np.trace(track.state.covar)
+        track_covar_trace = np.trace(track.state.covar[0,0])
 
         if(track_covar_trace > self.covar_trace_thresh):
             return True
