@@ -82,33 +82,6 @@ class DestinationTransitionModel(LinearGaussianTransitionModel):
 
         for i in range(num_particles):
             r_i, e_i, d_i, s_i = normalise_re(r[i], e[i], d[i], s[i], self.spaths, self.graph)
-            # r_i = r[i]
-            # e_i = e[i]
-            # d_i = d[i]
-            # s_i = s[i]
-            # edge_len = self.graph['Edges']['Weight'][int(e_i)]
-            # path = self.spaths[(s_i, d_i)]
-            # idx = np.where(path == e_i)[0]  # Find path index of current edge
-            # if len(idx) > 0 and len(path) > idx[0] + 1:
-            #     idx = idx[0]
-            #     # If particle has NOT reached the end of the path
-            #     while r_i > edge_len:
-            #         r_i = r_i - edge_len
-            #         e_i = path[idx + 1]
-            #         edge_len = self.graph['Edges']['Weight'][int(e_i)]
-            #         idx = idx + 1
-            #         if len(path) == idx + 1:
-            #             # If particle has reached the end of the path
-            #             if r_i > edge_len:
-            #                 # Cap r_i to edge_length
-            #                 r_i = edge_len
-            #             break
-            # elif len(idx) > 0 and len(path) == idx[0] + 1:
-            #     # If particle has reached the end of the path
-            #     if r_i > edge_len:
-            #         # Cap r_i to edge_length
-            #         r_i = edge_len
-
             n_state_vectors[0, i] = r_i
             n_state_vectors[2, i] = e_i
 
