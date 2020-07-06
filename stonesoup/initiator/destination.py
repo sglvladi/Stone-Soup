@@ -2,7 +2,7 @@ import numpy as np
 from scipy.stats import multivariate_normal as mvn
 
 from stonesoup.base import Property
-from stonesoup.custom.graph import normalise_re, line_circle_test
+from stonesoup.custom.graph import normalise_re, line_circle_test, calculate_r
 from stonesoup.initiator import Initiator
 from stonesoup.models.measurement import MeasurementModel
 from stonesoup.types.hypothesis import SingleHypothesis
@@ -26,6 +26,7 @@ class DestinationBasedInitiator(Initiator):
         edges = [i for i in range(len(self.graph['Edges']['Weight']))]
         init_tracks = set()
         for detection in detections:
+
             # Get valid edges for detection
             v_edges = []
             for edge in edges:
@@ -57,20 +58,30 @@ class DestinationBasedInitiator(Initiator):
                         else:
                             v_dest[(s, edge)] = [d]
 
-            v_edges = [key[1] for key in v_dest]
+            v_edges = np.unique([key[1] for key in v_dest])
             prior_e = np.random.choice(v_edges, (self.num_particles,))
-            prior_r = np.zeros((self.num_particles,)) + mvn.rvs(cov=0.001, size=self.num_particles)
+            # prior_r = np.zeros((self.num_particles,)) + mvn.rvs(cov=0.001, size=self.num_particles)
             prior_speed = mvn.rvs(0, self.speed_std, (self.num_particles,))
             prior_destinations = []
             prior_source = []
+            prior_r = []
             for e in prior_e:
-                # endnodes = S['Edges']['EndNodes'][e, :]
-                endnodes = [key[0] for key in v_dest if key[1] == e]
-                source = np.random.choice(endnodes)
+                endnodes = self.graph['Edges']['EndNodes'][e, :]
+                p1 = np.array(
+                    [self.graph['Nodes']['Longitude'][endnodes[0]],
+                     self.graph['Nodes']['Latitude'][endnodes[0]]])
+                p2 = np.array(
+                    [self.graph['Nodes']['Longitude'][endnodes[1]],
+                     self.graph['Nodes']['Latitude'][endnodes[1]]])
+                r = calculate_r((p1, p2), detection.state_vector.ravel()) + mvn.rvs(cov=0.001)
+                prior_r.append(r)
+                sources = [key[0] for key in v_dest if key[1] == e]
+                source = np.random.choice(sources)
                 v_d = v_dest[(source, e)]
                 dest = np.random.choice(v_d)
                 prior_source.append(source)
                 prior_destinations.append(dest)
+
 
             prior_particle_sv = np.zeros((5, self.num_particles))
             for i, sv in enumerate(

@@ -304,21 +304,6 @@ def normalise_re(r_i, e_i, d_i, s_i, spaths, G):
     return r_i, e_i, d_i, s_i
 
 
-def line_intersects_circle2(line, circle):
-    p1 = line[0]
-    p2 = line[1]
-
-    c = circle[0]
-    r = circle[1]
-
-    p12 = p2-p1
-    n = p12/np.linalg.norm(p12)
-
-    p1c = c - p1
-    v = np.abs(n[0] * p1c[1] - n[1] * p1c[0])
-    return v <= r
-
-
 def line_intersects_circle(line, circle):
 
     c = circle[0]
@@ -330,17 +315,8 @@ def line_intersects_circle(line, circle):
 
     return not i.is_empty
 
-def line_intersects_circle3(line, circle):
-
-    l = sympy.Line(sympy.Point(line[0]), sympy.Point(line[1]))
-    c = sympy.Circle(sympy.Point(circle[0]), circle[1])
-
-    i = c.intersection(l)
-
-    return len(i) > 0
 
 def circle_contains_line(line, circle):
-
 
     p1 = line[0]
     p2 = line[1]
@@ -359,10 +335,7 @@ def circle_contains_line(line, circle):
 
 def line_circle_test(line, circle):
 
-    a = line_intersects_circle(line, circle)
-    b = circle_contains_line(line, circle)
-
-    return (a or b)
+    return line_intersects_circle(line, circle) or circle_contains_line(line, circle)
 
 
 def calculate_r(line, point):
@@ -370,9 +343,45 @@ def calculate_r(line, point):
     p2 = np.array(line[1])
     p3 = np.array(point)
 
-    d = np.abs(np.cross(p2 - p1, p1 - p3)) / np.linalg.norm(p2 - p1)
+    # Compute orthogonal projection of p3 on line defined by p1 and p2
+    a = np.array([[-p3[0]*(p2[0]-p1[0]) - p3[1]*(p2[1]-p1[1])],
+                  [-p1[1]*(p2[0]-p1[0]) + p1[0]*(p2[1]-p1[1])]])
+    b = np.array([[p2[0] - p1[0], p2[1]-p1[1]],
+                  [p1[1] - p2[1], p2[0] - p1[0]]])
+    projected_point = -np.linalg.lstsq(b, a, rcond=-1)[0].ravel()
 
-    d13 = np.linalg.norm(p1, p3)
+    # Perform checking to see where the projected point lies in relation to p1 and p2
+    if point_is_on_line_segment(line, projected_point):
+        # projected point is between p1 and p2: r is distance between p1 and projected point
+        return np.linalg.norm(p1-projected_point)
+    elif point_is_on_line_segment((projected_point, p2), p1):
+        # projected point is "left" of p1: r is 0
+        return 0
+    elif point_is_on_line_segment((p1, projected_point), p2):
+        # projected point is "right" of p2: r is edge length
+        return np.linalg.norm(p2-p1)
+    else:
+        # raise an error if non of the above hold: There is a bug somewhere!
+        raise AssertionError
 
-    r = np.sqrt(d13**2-d**2)
-    return r
+
+def point_is_on_line_segment(line, point):
+    pt1 = line[0]
+    pt2 = line[1]
+    pt3 = point
+
+    x1, x2, x3 = pt1[0], pt2[0], pt3[0]
+
+    y1, y2, y3 = pt1[1], pt2[1], pt3[1]
+
+    if np.isclose(x2, x1):
+        # If line is parallel to x-axis, the slope is undefined
+        on_and_between = np.isclose(x3, x2) and (min(y1, y2) <= y3 <= max(y1, y2))
+    else:
+        slope = (y2 - y1) / (x2 - x1)
+        pt3_on = np.isclose((y3 - y1), slope * (x3 - x1))
+
+        pt3_between = (min(x1, x2) <= x3 <= max(x1, x2)) and (min(y1, y2) <= y3 <= max(y1, y2))
+
+        on_and_between = pt3_on and pt3_between
+    return on_and_between
