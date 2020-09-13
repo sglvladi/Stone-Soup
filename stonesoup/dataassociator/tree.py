@@ -137,12 +137,110 @@ class TPRTreeMixIn(DataAssociator):
             dimension=len(self.pos_mapping))
         self._tree = rtree.index.RtreeContainer(properties=tree_property)
         self._coords = dict()
-        self._offset = np.array([[Longitude(0)], [Latitude(0)]])
-        # self._offset = np.array([[155], [0]])
 
     def _track_tree_coordinates(self, track):
-        state_vector =track.state_vector[self.pos_mapping, :]+self._offset
-        # state_vector = np.array(track.state_vector[self.pos_mapping, :], dtype=np.float32) + np.array(self._offset, dtype=np.float32)
+        state_vector =track.state_vector[self.pos_mapping, :]
+
+        state_delta = 3 * np.sqrt(
+            np.diag(track.covar)[self.pos_mapping].reshape(-1, 1))
+        meas_delta = 3 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
+        vel_vector = track.state_vector[self.vel_mapping, :]
+        vel_delta = 3 * np.sqrt(
+            np.diag(track.covar)[self.vel_mapping].reshape(-1, 1))
+
+        min_pos = (state_vector - state_delta - meas_delta).ravel()
+        max_pos = (state_vector + state_delta + meas_delta).ravel()
+        min_vel = (vel_vector - vel_delta).ravel()
+        max_vel = (vel_vector + vel_delta).ravel()
+
+        return ((*min_pos, *max_pos), (*min_vel, *max_vel),
+                track.timestamp.timestamp())
+
+    def generate_hypotheses(self, tracks, detections, time, **kwargs):
+        # No need for tree here.
+        if not tracks:
+            return dict()
+
+        c_time = None
+        # Tree management
+        print("Tree management")
+        for track in sorted(tracks.union(self._tree),
+                            key=attrgetter('timestamp')):
+
+            if c_time is None:
+                c_time = track.timestamp
+
+            if track not in self._tree:
+                self._coords[track] = self._track_tree_coordinates(track)
+                self._tree.insert(track, self._coords[track])
+                c_time = track.timestamp
+            elif track not in tracks:
+                c_time = track.timestamp
+                coords = self._coords[track][:-1] \
+                    + ((self._coords[track][-1], c_time.timestamp()),)
+                self._tree.delete(track, coords)
+                del self._coords[track]
+            elif isinstance(track.state, Update):
+                c_time = track.timestamp
+                if self._coords[track][-1] - c_time.timestamp() >= 0:
+                    coords = self._coords[track][:-1] \
+                        + ((self._coords[track][-1]-1e-3, c_time.timestamp()),)
+                else:
+                    coords = self._coords[track][:-1] \
+                        + ((self._coords[track][-1], c_time.timestamp()),)
+                self._tree.delete(track, coords)
+                self._coords[track] = self._track_tree_coordinates(track)
+                self._tree.insert(track, self._coords[track])
+
+        # Detection gating
+        print("Detection gating management")
+        track_detections = defaultdict(set)
+        for detection in sorted(detections, key=attrgetter('timestamp')):
+            if detection.measurement_model is not None:
+                model = detection.measurement_model
+            else:
+                model = self.measurement_model
+
+            if isinstance(model, LinearModel):
+                model_matrix = model.matrix(**kwargs)
+                inv_model_matrix = sp.linalg.pinv(model_matrix)
+                state_meas = (inv_model_matrix
+                              @ detection.state_vector)[self.pos_mapping, :]
+            else:
+                state_meas = model.inverse_function(
+                    detection.state_vector, **kwargs)[self.pos_mapping, :]
+
+            det_time = detection.timestamp.timestamp()
+            intersected_tracks = self._tree.intersection((
+                (*state_meas.ravel(), *state_meas.ravel()),
+                (0, 0)*len(self.pos_mapping),
+                (det_time, det_time + 1e-3)))
+            for track in intersected_tracks:
+                track_detections[track].add(detection)
+
+        print("Hypothesising")
+
+        misdet = MissedDetection(timestamp=time)
+        mult = MultipleHypothesis()
+        return {track: self.hypothesiser.hypothesise(
+            track, track_detections[track], time, missed_detection=misdet, mult=mult, **kwargs)
+            for track in tracks}
+
+
+class LongLatTPRTreeMixIn(TPRTreeMixIn):
+
+    offset = Property(np.array,
+                      doc='2D vector specifying the offset. Default is ``np.array([[Longitude(0)], [Latitude(0)]])``.',
+                      default=np.array([[Longitude(0)], [Latitude(0)]]))
+    window_delta = Property(float,
+                            doc='Confidence window added to detection windows when checking for +-180 overlaps. '
+                                'Default is 0.2rad',
+                            default=0.2)
+
+    def _track_tree_coordinates(self, track):
+        state_vector = np.array(track.state_vector[self.pos_mapping, :], dtype=np.float32) \
+                       + np.array(self.offset, dtype=np.float32)
+
         state_delta = 3 * np.sqrt(
             np.diag(track.covar)[self.pos_mapping].reshape(-1, 1))
         meas_delta = 3 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
@@ -160,9 +258,9 @@ class TPRTreeMixIn(DataAssociator):
 
     def _get_min_max(self):
         minlons = [self._coords[key][0][0] for key in self._coords]
-        maxlons = [self._coords[key][0][2] for key in self._coords]
+        maxlons = np.array([self._coords[key][0][2] for key in self._coords])
         minlon = np.amin(minlons)
-        maxlon = np.amin(maxlons)
+        maxlon = np.amax(maxlons)
         return minlon, maxlon
 
     def generate_hypotheses(self, tracks, detections, time, **kwargs):
@@ -204,7 +302,7 @@ class TPRTreeMixIn(DataAssociator):
         # Detection gating
         print("Detection gating management")
         track_detections = defaultdict(set)
-        # minlon, maxlon = self._get_min_max()
+        minlon, maxlon = self._get_min_max()
         for detection in sorted(detections, key=attrgetter('timestamp')):
             if detection.measurement_model is not None:
                 model = detection.measurement_model
@@ -215,10 +313,10 @@ class TPRTreeMixIn(DataAssociator):
                 model_matrix = model.matrix(**kwargs)
                 inv_model_matrix = sp.linalg.pinv(model_matrix)
                 state_meas = (inv_model_matrix
-                              @ detection.state_vector)[self.pos_mapping, :]+self._offset
+                              @ detection.state_vector)[self.pos_mapping, :]+self.offset
             else:
                 state_meas = model.inverse_function(
-                    detection.state_vector, **kwargs)[self.pos_mapping, :]+self._offset
+                    detection.state_vector, **kwargs)[self.pos_mapping, :]+self.offset
 
             det_time = detection.timestamp.timestamp()
             intersected_tracks = self._tree.intersection((
@@ -228,51 +326,25 @@ class TPRTreeMixIn(DataAssociator):
             for track in intersected_tracks:
                 track_detections[track].add(detection)
 
-            # if minlon < -180 and float(state_meas[0])-360 > minlon:
-            #     state_meas[0] = float(state_meas[0]) - 360
-            #     c_intersected_tracks = self._tree.intersection((
-            #         (*state_meas.ravel(), *state_meas.ravel()),
-            #         (0, 0) * len(self.pos_mapping),
-            #         (det_time, det_time + 1e-3)))
-            #     for track in c_intersected_tracks:
-            #         track_detections[track].add(detection)
-            # elif maxlon > 180 and float(state_meas[0])+360 < maxlon:
-            #     state_meas[0] = float(state_meas[0]) + 360
-            #     c_intersected_tracks = self._tree.intersection((
-            #         (*state_meas.ravel(), *state_meas.ravel()),
-            #         (0, 0) * len(self.pos_mapping),
-            #         (det_time, det_time + 1e-3)))
-            #     for track in c_intersected_tracks:
-            #         track_detections[track].add(detection)
-
-        """ Attempts to do Multi-threading
-        ==================================
-        track_list = list(tracks)
-        track_lists, t_inds = chunks(track_list, 20)
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            # with concurrent.futures.ProcessPoolExecutor() as executor:
-            hypotheses = executor.map(f,
-                                      [(self.hypothesiser, tracks, t_inds[t_ind],
-                                        detections, time)
-                                       for t_ind, tracks in enumerate(track_lists)])
-        hypotheses = dict((track_list[key], d[key]) for hypothesis in hypotheses for d in hypothesis for
-                          key in d)
-
-        with concurrent.futures.ThreadPoolExecutor() as executor:
-            # with concurrent.futures.ProcessPoolExecutor() as executor:
-            hypotheses = executor.map(f2,
-                                      [(self.hypothesiser, track, track_detections[track], time)
-                                       for track in tracks])
-        hypotheses = dict((d, hypothesis[d]) for hypothesis in hypotheses for d in hypothesis)
-
-        num_cores = multiprocessing.cpu_count()
-        executor = Parallel(n_jobs=num_cores, backend="threading")
-        inputs = [(self.hypothesiser, track, track_detections[track], time)
-                                       for track in tracks]
-        tasks = (delayed(f2)(i) for i in inputs)
-        hypotheses = executor(tasks)
-        return hypotheses
-        """
+            # Check for overlapps
+            # Case 1: Track boxes overlap -180 lon line and measurement falls within this region
+            if minlon < -np.pi and float(state_meas[0]) - 2*np.pi + self.window_delta > minlon:
+                state_meas[0] = float(state_meas[0]) - 2*np.pi
+                c_intersected_tracks = self._tree.intersection((
+                    (*state_meas.ravel(), *state_meas.ravel()),
+                    (0, 0) * len(self.pos_mapping),
+                    (det_time, det_time + 1e-3)))
+                for track in c_intersected_tracks:
+                    track_detections[track].add(detection)
+            # Case 2: Track boxes overlap +180 lon line and measurement falls within this region
+            elif maxlon > np.pi and float(state_meas[0]) + 2*np.pi - self.window_delta < maxlon:
+                state_meas[0] = float(state_meas[0]) + 2 * np.pi
+                c_intersected_tracks = self._tree.intersection((
+                    (*state_meas.ravel(), *state_meas.ravel()),
+                    (0, 0) * len(self.pos_mapping),
+                    (det_time, det_time + 1e-3)))
+                for track in c_intersected_tracks:
+                    track_detections[track].add(detection)
 
         print("Hypothesising")
 
