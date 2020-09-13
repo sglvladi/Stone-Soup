@@ -4,6 +4,7 @@ import numpy as np
 import scipy.linalg as la
 from functools import lru_cache
 
+from stonesoup.types.array import StateVector
 from ..base import Property
 from .base import Updater
 from ..types.array import CovarianceMatrix
@@ -219,6 +220,9 @@ class KalmanUpdater(Updater):
         measurement_model = self._check_measurement_model(measurement_model)
 
         pred_meas = measurement_model.function(predicted_state, **kwargs)
+
+        # Preserve state types
+        pred_meas = StateVector([type(s)(v) for (s, v) in zip(predicted_state.state_vector[measurement_model.mapping, :][:, 0], pred_meas[:, 0])])
 
         hh = self._measurement_matrix(predicted_state=predicted_state,
                                       measurement_model=measurement_model,
