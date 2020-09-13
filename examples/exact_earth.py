@@ -24,8 +24,8 @@ pr = profile.Profile()
 pr.disable()
 
 # Stone-Soup imports
-from stonesoup.dataassociator.tree import TPRTreeMixIn
-from stonesoup.feeder.filter import BoundingBoxDetectionReducer
+from stonesoup.dataassociator.tree import TPRTreeMixIn, LongLatTPRTreeMixIn
+from stonesoup.feeder.filter import BoundingBoxReducer
 from stonesoup.models.transition.linear import (
     RandomWalk, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
 from stonesoup.initiator.simple import SimpleMeasurementInitiator
@@ -34,7 +34,7 @@ from stonesoup.dataassociator.neighbour import (
     NearestNeighbour, GlobalNearestNeighbour, GNNWith2DAssignment)
 from stonesoup.hypothesiser.distance import DistanceHypothesiser, DistanceHypothesiserFast
 from stonesoup.measures import Mahalanobis
-from stonesoup.hypothesiser.filtered import FilteredDetectionsHypothesiser
+from stonesoup.gater.filtered import FilteredDetectionsGater
 from stonesoup.types.update import Update
 from stonesoup.updater.kalman import (KalmanUpdater)
 from stonesoup.predictor.kalman import (KalmanPredictor)
@@ -110,7 +110,7 @@ if __name__ == '__main__':
     BACKUP = False
     LOAD_OFFSET = 3
     LIMIT_STATES = False
-    SHOW_MAP = True
+    SHOW_MAP = False
 
     ################################################################################
     # Plotting functions                                                           #
@@ -194,8 +194,8 @@ if __name__ == '__main__':
             if len(states) == 0:
                 continue
             data = np.array(states)
-            lat = data[:, 2]
-            lon = data[:, 0]
+            lat = np.rad2deg(data[:, 2])
+            lon = np.rad2deg(data[:, 0])
             if show_map:
                 x, y = m(lon, lat)
                 m.plot(x, y, 'b-o', linewidth=1, markersize=1)
@@ -236,8 +236,8 @@ if __name__ == '__main__':
         for mmsi in shared_mmsi:
             states = [track.state.state_vector for track in shared_mmsi[mmsi]]
             data = np.array(states)
-            lat = data[:, 2]
-            lon = data[:, 0]
+            lat = np.rad2deg(data[:, 2])
+            lon = np.rad2deg(data[:, 0])
             if show_map:
                 x, y = m(lon, lat)
                 m.plot(x, y, 'y-o', linewidth=0.5, markersize=1)
@@ -259,11 +259,11 @@ if __name__ == '__main__':
     # Transition & Measurement models
     # ===============================
     transition_model = CombinedLinearGaussianTransitionModel(
-        (OrnsteinUhlenbeck(0.00001 ** 2, 2e-3),
-         OrnsteinUhlenbeck(0.00001 ** 2, 2e-3)))
+        (OrnsteinUhlenbeck(np.deg2rad(0.00001 ** 2), 2e-3),
+         OrnsteinUhlenbeck(np.deg2rad(0.00001 ** 2), 2e-3)))
     measurement_model = LinearGaussian(ndim_state=4, mapping=[0, 2],
-                                       noise_covar=np.diag([0.001 ** 2,
-                                                            0.001 ** 2]))
+                                       noise_covar=np.diag([np.deg2rad(0.001 ** 2),
+                                                            np.deg2rad(0.001 ** 2)]))
 
     # Predictor & Updater
     # ===================
@@ -274,11 +274,11 @@ if __name__ == '__main__':
     # ==============================
     #hypothesiser = PDAHypothesiserFast(predictor, updater, 1, 1, 1)
     hypothesiser = DistanceHypothesiserFast(predictor, updater, Mahalanobis(), 20)
-    hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
-                                                  match_missing=False)
+    hypothesiser = FilteredDetectionsGater(hypothesiser, 'MMSI',
+                                           match_missing=False)
 
 
-    class TPRGNN(GNNWith2DAssignment, TPRTreeMixIn):
+    class TPRGNN(GNNWith2DAssignment, LongLatTPRTreeMixIn):
         pass
 
 
@@ -287,8 +287,8 @@ if __name__ == '__main__':
     # Track Initiator
     # ===============
     state_vector = StateVector([[Longitude(0)], [0], [Latitude(0)], [0]])
-    covar = CovarianceMatrix(np.diag([0.0001 ** 2, 0.0003 ** 2,
-                                      0.0001 ** 2, 0.0003 ** 2]))
+    covar = CovarianceMatrix(np.diag([np.deg2rad(0.0001 ** 2), np.deg2rad(0.0003 ** 2),
+                                      np.deg2rad(0.0001 ** 2), np.deg2rad(0.0003 ** 2)]))
     prior_state = GaussianStatePrediction(state_vector, covar)
     initiator = SimpleMeasurementInitiator(prior_state, measurement_model)
 
@@ -355,7 +355,7 @@ if __name__ == '__main__':
                 for i in range(num_dims):
                     min = limits[i][0]
                     max = limits[i][1]
-                    value = state_vector[mapping[i]]
+                    value = np.rad2deg(state_vector[mapping[i]])
                     if value < min or value > max:
                         outlier_detections.add(detection)
                         break
