@@ -149,29 +149,15 @@ class CSVDetectionReader_EE(CSVDetectionReader):
     @BufferedGenerator.generator_method
     def detections_gen(self):
         with self.path.open(encoding=self.encoding, newline='') as csv_file:
-            reader = csv.DictReader(csv_file)
+            detections = set()
+            previous_time = None
+            for row in csv.DictReader(csv_file, **self.csv_options):
 
-            for row in reader:
-                if self.time_field_format is not None:
-                    time_field_value = datetime.strptime(
-                        row[self.time_field], self.time_field_format)
-                elif self.timestamp is True:
-                    time_field_value = datetime.utcfromtimestamp(
-                        int(row[self.time_field]))
-                else:
-                    time_field_value = parse(row[self.time_field])
-
-                if self.metadata_fields is None:
-                    local_metadata = dict(row)
-                    copy_local_metadata = dict(local_metadata)
-                    for (key, value) in copy_local_metadata.items():
-                        if (key == self.time_field) or\
-                                (key in self.state_vector_fields):
-                            del local_metadata[key]
-                else:
-                    local_metadata = {field: row[field]
-                                      for field in self.metadata_fields
-                                      if field in row}
+                time = self._get_time(row)
+                if previous_time is not None and previous_time != time:
+                    yield previous_time, detections
+                    detections = set()
+                previous_time = time
 
                 # Flag dynamic/static detections
                 valid = 0
@@ -179,36 +165,21 @@ class CSVDetectionReader_EE(CSVDetectionReader):
                     if row[col_name] != "":
                         valid += 1
                 if valid == len(self.state_vector_fields):
-                    local_metadata["type"] = "dynamic"
-
-                    # if row["MMSI"] == "341648000":
-                        # detect = Detection(np.array(
-                        #     [[row[col_name]] for col_name in self.state_vector_fields],
-                        #     dtype=np.float32), time_field_value,
-                        #     metadata=local_metadata)
-                    # detect = Detection(np.array(
-                    #     [[np.float64(row["Longitude"])+155.], [np.float64(row["Latitude"])]]), time_field_value,
-                    #     metadata=local_metadata)
+                    longitude = np.float64(row["Longitude"])
+                    latitude = np.float64(row["Latitude"])
                     detect = Detection(np.array(
-                        [[Longitude(np.float64(row["Longitude"]))], [Latitude(np.float64(row["Latitude"]))]]), time_field_value,
-                        metadata=local_metadata)
-                    self._detections = {detect}
-                    # else:
-                    #     detect = None
-                    #     self._detections = set()
-                    #     continue
+                        [[Longitude(longitude)], [Latitude(latitude)]]),
+                        timestamp=time,
+                        metadata=self._get_metadata(row))
+                    detect.metadata['type'] = 'dynamic'
                 elif valid == 0:
-                    local_metadata["type"] = "static"
                     detect = Detection(np.array(
-                        [[0]],dtype=np.float32),
-                        time_field_value,
-                        metadata=local_metadata)
-                    self._detections = {detect}
-                else:
-                    self._detections = set()
+                        [[0]], dtype=np.float32),
+                        timestamp=time,
+                        metadata=self._get_metadata(row))
+                    detect.metadata['type'] = 'static'
 
-                # detect = Detection(np.array(
-                #     [[row[col_name]] for col_name in self.state_vector_fields],
-                #     dtype=np.float32), time_field_value,
-                #     metadata=local_metadata)
-                yield time_field_value, {detect}
+                detections.add(detect)
+
+                # Yield remaining
+                yield previous_time, detections
