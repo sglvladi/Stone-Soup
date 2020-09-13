@@ -28,7 +28,7 @@ from stonesoup.dataassociator.tree import TPRTreeMixIn
 from stonesoup.feeder.filter import BoundingBoxDetectionReducer
 from stonesoup.models.transition.linear import (
     RandomWalk, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
-from stonesoup.initiator.simple import LinearMeasurementInitiator
+from stonesoup.initiator.simple import SimpleMeasurementInitiator
 from stonesoup.deleter.time import UpdateTimeDeleter
 from stonesoup.dataassociator.neighbour import (
     NearestNeighbour, GlobalNearestNeighbour, GNNWith2DAssignment)
@@ -211,16 +211,19 @@ if __name__ == '__main__':
                              str(ind),
                              fontsize=6)
             else:
-                plt.plot(data[:, 0], data[:, 2], '-', label="AIS Tracks")
+                plt.plot(data[:, 0], data[:, 2], 'b-o', linewidth=1, markersize=1, label="AIS Tracks")
+                plt.plot(data[-1, 0], data[-1, 2], 'ro', markersize=1)
                 # if show_error:
-                plot_cov_ellipse(track.state.covar[[0, 2], :][:, [0, 2]],
-                                 track.state.mean[[0, 2], :], edgecolor='r',
-                                 facecolor='none')
+                # plot_cov_ellipse(track.state.covar[[0, 2], :][:, [0, 2]],
+                #                  track.state.mean[[0, 2], :], edgecolor='r',
+                #                  facecolor='none')
 
         shared_mmsi = dict()
+        examined_tracks = set()
         for track in tracks:
-            for track2 in tracks:
-                if track.id != track2.id and track.metadata["MMSI"] == track2.metadata["MMSI"]:
+            examined_tracks.add(track)
+            for track2 in tracks-examined_tracks:
+                if track.metadata["MMSI"] == track2.metadata["MMSI"]:
                     mmsi = track.metadata["MMSI"]
                     if mmsi in shared_mmsi:
                         if track not in shared_mmsi[mmsi]:
@@ -239,7 +242,8 @@ if __name__ == '__main__':
                 x, y = m(lon, lat)
                 m.plot(x, y, 'y-o', linewidth=0.5, markersize=1)
             else:
-                plt.plot(data[:, 0], data[:, 2], '-', label="AIS Tracks")
+                plt.plot(data[:, 0], data[:, 2], 'g-o', label="AIS Tracks")
+                plt.text(data[0, 0], data[0, 2], mmsi, fontsize=12)
 
     def plot_data(detections=None):
         if len(detections) > 0:
@@ -268,6 +272,7 @@ if __name__ == '__main__':
 
     # Hypothesiser & Data Associator
     # ==============================
+    #hypothesiser = PDAHypothesiserFast(predictor, updater, 1, 1, 1)
     hypothesiser = DistanceHypothesiserFast(predictor, updater, Mahalanobis(), 20)
     hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
                                                   match_missing=False)
@@ -285,7 +290,7 @@ if __name__ == '__main__':
     covar = CovarianceMatrix(np.diag([0.0001 ** 2, 0.0003 ** 2,
                                       0.0001 ** 2, 0.0003 ** 2]))
     prior_state = GaussianStatePrediction(state_vector, covar)
-    initiator = LinearMeasurementInitiator(prior_state, measurement_model)
+    initiator = SimpleMeasurementInitiator(prior_state, measurement_model)
 
     # Track Deleter
     # =============

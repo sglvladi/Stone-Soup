@@ -180,14 +180,23 @@ class CSVDetectionReader_EE(CSVDetectionReader):
                         valid += 1
                 if valid == len(self.state_vector_fields):
                     local_metadata["type"] = "dynamic"
+
+                    # if row["MMSI"] == "341648000":
+                        # detect = Detection(np.array(
+                        #     [[row[col_name]] for col_name in self.state_vector_fields],
+                        #     dtype=np.float32), time_field_value,
+                        #     metadata=local_metadata)
                     # detect = Detection(np.array(
-                    #     [[row[col_name]] for col_name in self.state_vector_fields],
-                    #     dtype=np.float32), time_field_value,
+                    #     [[np.float64(row["Longitude"])+155.], [np.float64(row["Latitude"])]]), time_field_value,
                     #     metadata=local_metadata)
                     detect = Detection(np.array(
                         [[Longitude(np.float64(row["Longitude"]))], [Latitude(np.float64(row["Latitude"]))]]), time_field_value,
                         metadata=local_metadata)
                     self._detections = {detect}
+                    # else:
+                    #     detect = None
+                    #     self._detections = set()
+                    #     continue
                 elif valid == 0:
                     local_metadata["type"] = "static"
                     detect = Detection(np.array(
