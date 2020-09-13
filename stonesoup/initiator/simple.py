@@ -107,7 +107,7 @@ class SimpleMeasurementInitiator(GaussianInitiator):
             # prior_state_vector[mapped_dimensions, :] = 0
             prior_covar[mapped_dimensions, :] = 0
 
-			sv = prior_state_vector + state_vector
+            sv = prior_state_vector + state_vector
             sv = [type(s)(v) for (s,v) in zip(prior_state_vector[:, 0],sv[:,0])]
             tracks.add(Track([GaussianStateUpdate(
                 sv,
