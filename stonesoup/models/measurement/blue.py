@@ -7,9 +7,10 @@ from stonesoup.functions import cart2sphere
 
 class SimpleBlueMeasurementModel(MeasurementModel, NonLinearModel, GaussianModel):
     noise_covar: CovarianceMatrix = Property(doc="Noise covariance")
-    sensor1_pos_trans: StateVector = Property(doc='Position of sensor 1 at transmit time')
-    sensor1_pos_rec: StateVector = Property(doc='Position of sensor 1 at receive time')
-    sensor2_pos_rec: StateVector = Property(doc='Position of sensor 2 at receive time')
+    sensor1_pos_trans: StateVector = Property(doc='Position of sensor 1 at transmit time', default=StateVector([0,0,0]))
+    sensor1_pos_rec: StateVector = Property(doc='Position of sensor 1 at receive time', default=StateVector([0,0,0]))
+    sensor2_pos_rec: StateVector = Property(doc='Position of sensor 2 at receive time', default=StateVector([0,0,0]))
+    with_bias: bool = Property(default=True)
 
     @property
     def ndim_meas(self) -> int:
@@ -44,8 +45,10 @@ class SimpleBlueMeasurementModel(MeasurementModel, NonLinearModel, GaussianModel
                 noise = 0
 
         xyz = state.state_vector[[0, 2, 4], :]
-        bias = state.state_vector[6:, :]
-
+        if self.with_bias:
+            bias = state.state_vector[6:, :]
+        else:
+            bias = StateVector([0, 0, 0, 0, 0, 0])
         diff = xyz - self.sensor1_pos_trans
         diff1 = self.sensor1_pos_rec - xyz
         diff2 = self.sensor2_pos_rec - xyz
@@ -54,8 +57,8 @@ class SimpleBlueMeasurementModel(MeasurementModel, NonLinearModel, GaussianModel
         rT, _, _ = cart2sphere(*diff.ravel())
 
         # Get distance, el, az from target to receiving sensors
-        r1, theta1, psi1 = cart2sphere(*diff1.ravel())
-        r2, theta2, psi2 = cart2sphere(*diff2.ravel())
+        r1, psi1, theta1 = cart2sphere(*diff1.ravel())
+        r2, psi2, theta2 = cart2sphere(*diff2.ravel())
 
         # Get unbiased el, az, time delay
         c = 1.4933e+03
