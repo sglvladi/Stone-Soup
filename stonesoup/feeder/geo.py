@@ -7,8 +7,9 @@ import utm
 from pymap3d import geodetic2enu, geodetic2ned
 
 from .base import DetectionFeeder, GroundTruthFeeder
-from ..base import Property
+from ..base import Property, Base
 from ..buffered_generator import BufferedGenerator
+from ..types.array import StateVector
 
 
 class _LLARefConverter(DetectionFeeder, GroundTruthFeeder):
@@ -107,4 +108,16 @@ class LongLatToUTMConverter(DetectionFeeder, GroundTruthFeeder):
                     continue
 
                 state.state_vector[self.mapping, 0] = easting, northing
+            yield time, states
+
+
+class DataTypeModifier(DetectionFeeder, GroundTruthFeeder):
+    types = Property([Base], doc="List of data types")
+
+    @BufferedGenerator.generator_method
+    def data_gen(self):
+        for time, states in self.reader:
+            for state in states:
+                state.state_vector = StateVector([self.types[i](value) for i, value in enumerate(state.state_vector)])
+
             yield time, states
