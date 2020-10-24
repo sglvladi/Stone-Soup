@@ -2,7 +2,8 @@
 from ..base import Property
 from .base import Type
 from .hypothesis import Hypothesis
-from .state import State, GaussianState, ParticleState, SqrtGaussianState
+from .state import State, GaussianState, ParticleState, SqrtGaussianState, WeightedGaussianState, \
+    TaggedWeightedGaussianState
 from .mixture import GaussianMixture
 
 
@@ -40,6 +41,23 @@ class SqrtGaussianStateUpdate(Update, SqrtGaussianState):
     form.
     """
 
+
+class WeightedGaussianStateUpdate(Update, WeightedGaussianState):
+    """ WeightedGaussianStatePrediction type
+
+    This is a simple Gaussian state prediction object, which, as the name
+    suggests, is described by a Gaussian distribution
+    with an associated weight.
+    """
+
+
+class TaggedWeightedGaussianStateUpdate(Update, TaggedWeightedGaussianState):
+    """ TaggedWeightedGaussianStatePrediction type
+
+    This is a simple Gaussian state prediction object, which, as the name
+    suggests, is described by a Gaussian distribution, with an associated
+    weight and unique tag.
+    """
 
 class GaussianMixtureUpdate(Update, GaussianMixture):
     """ GaussianMixtureUpdate type
