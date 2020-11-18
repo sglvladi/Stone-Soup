@@ -1,4 +1,6 @@
 import numpy as np
+import pandas as pd
+
 from scipy.io import loadmat
 from datetime import datetime, timedelta
 from typing import Sequence, Collection, Mapping
@@ -7,7 +9,7 @@ from stonesoup.base import Property
 from stonesoup.reader import DetectionReader
 from stonesoup.reader.file import TextFileReader
 from stonesoup.buffered_generator import BufferedGenerator
-from stonesoup.types.array import StateVector
+from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.types.detection import Detection
 from stonesoup.types.angle import Bearing, Elevation
 from stonesoup.models.measurement.blue import SimpleBlueMeasurementModel
@@ -17,18 +19,19 @@ from stonesoup.wrapper.matlab import MatlabWrapper
 class BlueDetectionReaderMatlab(DetectionReader, MatlabWrapper):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._measdata, self._truthdata = self._read_data(*self.matlab_engine.simulateData(nargout=2))
+        self._scans, self._truthdata, self._params = self._read_data(*self.matlab_engine.simulateData(nargout=3))
 
     @BufferedGenerator.generator_method
     def detections_gen(self):
-        data= self._measdata
 
-        n_timestamps = len(data.transmit_times)
-        R = np.diag(np.concatenate((data.thetaErrorSDs, data.psiErrorSDs, data.timeErrorSDs)) ** 2)
+        n_timestamps = len(self._scans.transmit_times)
+        R = CovarianceMatrix(np.diag(np.concatenate((self._params.thetaErrorSDs,
+                                                     self._params.psiErrorSDs,
+                                                     self._params.timeErrorSDs)) ** 2))
 
         # Estimate the times each pulse hit the target
-        timedelay1 = data.received_times[0, :] - data.transmit_times
-        hit_times_est = data.transmit_times + timedelay1 / 2
+        timedelay1 = np.stack(self._scans.received_times, axis=0)[:, 0] - self._scans.transmit_times.to_numpy()
+        hit_times_est = self._scans.transmit_times.to_numpy() + timedelay1 / 2
 
         # Deal with measurements in the order they were estimated to hit the target
         measOrder = np.argsort(hit_times_est)
@@ -37,16 +40,16 @@ class BlueDetectionReaderMatlab(DetectionReader, MatlabWrapper):
 
         for k in range(n_timestamps):
             measidx = measOrder[k]
-            state_vector = self._get_meas(data, measidx)
+            state_vector = self._get_meas(self._scans, measidx)
             hittime = hit_times_est[measidx]
             timestamp = timestamp_init + timedelta(seconds=hittime)
 
             # Position of sensor 1 at transmit time
-            sensor1_pos_trans = data.sensor1_xyz[:, measidx][:, np.newaxis]
+            sensor1_pos_trans = self._scans.sensor1_xyz[measidx][:, np.newaxis]
 
             # Positions of sensors at receive times
-            sensor1_pos_rec = data.sensor1_xyz_rec[:, measidx][:, np.newaxis]
-            sensor2_pos_rec = data.sensor2_xyz_rec[:, measidx][:, np.newaxis]
+            sensor1_pos_rec = self._scans.sensor1_xyz_rec[measidx][:, np.newaxis]
+            sensor2_pos_rec = self._scans.sensor2_xyz_rec[measidx][:, np.newaxis]
 
             model = SimpleBlueMeasurementModel(ndim_state=12, mapping=[0, 2, 4],
                                                noise_covar=R, sensor1_pos_rec=sensor1_pos_rec,
@@ -57,36 +60,124 @@ class BlueDetectionReaderMatlab(DetectionReader, MatlabWrapper):
             yield timestamp, {detection}
 
     def _get_meas(self, data, k):
-        theta = np.array([Elevation(t) for t in data.received_theta[:, k]])
-        psi = np.array([Bearing(t) for t in data.received_psi[:, k]])
-        times = data.received_times[:, k] - data.transmit_times[k]
+        theta = np.array([Elevation(t) for t in data.received_theta[k]])
+        psi = np.array([Bearing(t) for t in data.received_psi[k]])
+        times = data.received_times[k] - data.transmit_times[k]
         z = StateVector(np.concatenate((theta, psi, times)))
         return z
 
     @staticmethod
-    def _read_data(measdata, truthdata):
-        class MeasData1:
-            def __init__(self, measdata):
-                self.transmit_times = np.array(measdata['transmit_times']).ravel().astype(float)
-                self.received_times = np.array(measdata['received_times']).astype(float)
-                self.sensor1_xyz = np.array(measdata['sensor1_xyz']).astype(float)
-                self.sensor2_xyz = np.array(measdata['sensor2_xyz']).astype(float)
-                self.sensor1_xyz_rec = np.array(measdata['sensor1_xyz_rec']).astype(float)
-                self.sensor2_xyz_rec = np.array(measdata['sensor2_xyz_rec']).astype(float)
-                self.received_theta = np.array(measdata['received_theta']).astype(float)
-                self.received_psi = np.array(measdata['received_psi']).astype(float)
-                self.timeErrorSDs = np.array(measdata['timeErrorSDs']).ravel().astype(float)
-                self.thetaErrorSDs = np.array(measdata['thetaErrorSDs']).ravel().astype(float)
-                self.psiErrorSDs = np.array(measdata['psiErrorSDs']).ravel().astype(float)
-        class TruthData1:
-            def __init__(self, truthdata):
-                self.hit_times = np.array(truthdata['hit_times']).ravel().astype(float)
-                self.target_xyz = np.array(truthdata['target_xyz']).astype(float)
-                self.target_xyz_hit = np.array(truthdata['target_xyz_hit']).astype(float)
-        return MeasData1(measdata), TruthData1(truthdata)
+    def _read_data(measdata, truthdata, params):
+        scans_dict = dict()
+        scans_dict['transmit_times'] = list(np.array(measdata['transmit_times']).ravel().astype(float).T)
+        scans_dict['received_times'] = list(np.array(measdata['received_times']).astype(float).T)
+        scans_dict['sensor1_xyz'] = list(np.array(measdata['sensor1_xyz']).astype(float).T)
+        scans_dict['sensor2_xyz'] = list(np.array(measdata['sensor2_xyz']).astype(float).T)
+        scans_dict['sensor1_xyz_rec'] = list(np.array(measdata['sensor1_xyz_rec']).astype(float).T)
+        scans_dict['sensor2_xyz_rec'] = list(np.array(measdata['sensor2_xyz_rec']).astype(float).T)
+        scans_dict['received_theta'] = list(np.array(measdata['received_theta']).astype(float).T)
+        scans_dict['received_psi'] = list(np.array(measdata['received_psi']).astype(float).T)
+        scans_df = pd.DataFrame(scans_dict)
+
+        params_dict = dict()
+        params_dict['timeErrorSDs'] = np.array(params['timeErrorSDs']).ravel().astype(float)
+        params_dict['thetaErrorSDs'] = np.array(params['thetaErrorSDs']).ravel().astype(float)
+        params_dict['psiErrorSDs'] = np.array(params['psiErrorSDs']).ravel().astype(float)
+        params_df = pd.DataFrame(params_dict)
+
+        truth_dict = dict()
+        truth_dict['hit_times'] = np.array(truthdata['hit_times']).astype(float).ravel().tolist()
+        truth_dict['target_pos'] = np.array(truthdata['target_xyz']).astype(float).T.tolist()
+        truth_dict['target_pos_hit'] = np.array(truthdata['target_xyz_hit']).astype(float).T.tolist()
+        truth_df = pd.DataFrame(truth_dict)
+
+        return scans_df, truth_df, params_df
 
 
 class BlueDetectionReaderFile(DetectionReader, TextFileReader):
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._scans, self._truthdata, self._params = self._read_data(self.path)
+
+    @BufferedGenerator.generator_method
+    def detections_gen(self):
+        n_timestamps = len(self._scans.transmit_times)
+        R = CovarianceMatrix(np.diag(np.concatenate((self._params.thetaErrorSDs,
+                                                     self._params.psiErrorSDs,
+                                                     self._params.timeErrorSDs)) ** 2))
+
+        # Estimate the times each pulse hit the target
+        timedelay1 = np.stack(self._scans.received_times, axis=0)[:, 0] - self._scans.transmit_times.to_numpy()
+        hit_times_est = self._scans.transmit_times.to_numpy() + timedelay1 / 2
+
+        # Deal with measurements in the order they were estimated to hit the target
+        measOrder = np.argsort(hit_times_est)
+
+        timestamp_init = datetime.now()
+
+        for k in range(n_timestamps):
+            measidx = measOrder[k]
+            state_vector = self._get_meas(self._scans, measidx)
+            hittime = hit_times_est[measidx]
+            timestamp = timestamp_init + timedelta(seconds=hittime)
+
+            # Position of sensor 1 at transmit time
+            sensor1_pos_trans = self._scans.sensor1_xyz[measidx][:, np.newaxis]
+
+            # Positions of sensors at receive times
+            sensor1_pos_rec = self._scans.sensor1_xyz_rec[measidx][:, np.newaxis]
+            sensor2_pos_rec = self._scans.sensor2_xyz_rec[measidx][:, np.newaxis]
+
+            model = SimpleBlueMeasurementModel(ndim_state=12, mapping=[0, 2, 4],
+                                               noise_covar=R, sensor1_pos_rec=sensor1_pos_rec,
+                                               sensor1_pos_trans=sensor1_pos_trans, sensor2_pos_rec=sensor2_pos_rec)
+
+            detection = Detection(state_vector, timestamp=timestamp, measurement_model=model)
+
+            yield timestamp, {detection}
+
+    def _get_meas(self, data, k):
+        theta = np.array([Elevation(t) for t in data.received_theta[k]])
+        psi = np.array([Bearing(t) for t in data.received_psi[k]])
+        times = data.received_times[k] - data.transmit_times[k]
+        z = StateVector(np.concatenate((theta, psi, times)))
+        return z
+
+    @staticmethod
+    def _read_data(path):
+        wp = loadmat(path)
+
+        measdata = wp['measdata'][0, 0]
+        scans_dict = dict()
+        scans_dict['transmit_times'] = list(measdata['transmit_times'].ravel().astype(float).T)
+        scans_dict['received_times'] = list(measdata['received_times'].astype(float).T)
+        scans_dict['sensor1_xyz'] = list(measdata['sensor1_xyz'].astype(float).T)
+        scans_dict['sensor2_xyz'] = list(measdata['sensor2_xyz'].astype(float).T)
+        scans_dict['sensor1_xyz_rec'] = list(measdata['sensor1_xyz_rec'].astype(float).T)
+        scans_dict['sensor2_xyz_rec'] = list(measdata['sensor2_xyz_rec'].astype(float).T)
+        scans_dict['received_theta'] = list(measdata['received_theta'].astype(float).T)
+        scans_dict['received_psi'] = list(measdata['received_psi'].astype(float).T)
+        scans_df = pd.DataFrame(scans_dict)
+
+        params = wp['params'][0, 0]
+        params_dict = dict()
+        params_dict['timeErrorSDs'] = params['timeErrorSDs'].ravel().astype(float)
+        params_dict['thetaErrorSDs'] = params['thetaErrorSDs'].ravel().astype(float)
+        params_dict['psiErrorSDs'] = params['psiErrorSDs'].ravel().astype(float)
+        params_df = pd.DataFrame(params_dict)
+
+        truthdata = wp['truthdata'][0, 0]
+        truth_dict = dict()
+        truth_dict['hit_times'] = truthdata['hit_times'].astype(float).ravel().tolist()
+        truth_dict['target_pos'] = truthdata['target_xyz'].astype(float).T.tolist()
+        truth_dict['target_pos_hit'] = truthdata['target_xyz_hit'].astype(float).T.tolist()
+        truth_df = pd.DataFrame(truth_dict)
+
+        return scans_df, truth_df, params_df
+
+
+class BlueMultiDetectionReaderFile(DetectionReader, TextFileReader):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -96,11 +187,14 @@ class BlueDetectionReaderFile(DetectionReader, TextFileReader):
     def detections_gen(self):
         data, self._truthdata = self._read_mat(self.path)
 
+        scans, self._truthdata, params = self._read_mat_pd(self.path)
+
         n_timestamps = len(data.transmit_times)
         R = np.diag(np.concatenate((data.thetaErrorSDs, data.psiErrorSDs, data.timeErrorSDs))**2)
 
         # Estimate the times each pulse hit the target
-        timedelay1 = data.received_times[0,:] - data.transmit_times
+        idx = [i for i in range(0, data.received_times.shape[0], 2)]
+        timedelay1 = data.received_times[idx,:] - data.transmit_times
         hit_times_est = data.transmit_times + timedelay1/2
 
         # Deal with measurements in the order they were estimated to hit the target
@@ -139,24 +233,72 @@ class BlueDetectionReaderFile(DetectionReader, TextFileReader):
     @staticmethod
     def _read_mat(path):
         wp = loadmat(path)
-        class MeasData:
+        class MeasData2:
             def __init__(self, wp):
-                measdata = wp['measdata'][0, 0]
-                self.transmit_times = measdata['transmit_times'].ravel().astype(float)
-                self.received_times = measdata['received_times'].astype(float)
-                self.sensor1_xyz = measdata['sensor1_xyz'].astype(float)
-                self.sensor2_xyz = measdata['sensor2_xyz'].astype(float)
-                self.sensor1_xyz_rec = measdata['sensor1_xyz_rec'].astype(float)
-                self.sensor2_xyz_rec = measdata['sensor2_xyz_rec'].astype(float)
-                self.received_theta = measdata['received_theta'].astype(float)
-                self.received_psi = measdata['received_psi'].astype(float)
-                self.timeErrorSDs = measdata['timeErrorSDs'].ravel().astype(float)
-                self.thetaErrorSDs = measdata['thetaErrorSDs'].ravel().astype(float)
-                self.psiErrorSDs = measdata['psiErrorSDs'].ravel().astype(float)
-        class TruthData:
-            def __init__(self, wp):
-                truthdata = wp['truthdata'][0, 0]
+                measdata = wp['scans']
+                params = wp['params'][0,0]
+                self.transmit_times = measdata[0, :]['transmit_time'].astype(float)
+                self.received_times = np.squeeze(np.dstack(tuple(measdata[0, :]['received_times'])))
+                self.sensor_trans_pos = np.squeeze(np.dstack(tuple(measdata[0, :]['sensor_trans_pos'])))
+                self.sensor_rec_pos = np.dstack(tuple(measdata[0, :]['sensor_rec_pos']))
+                # self.sensor_rec_pos = np.reshape(self.sensor_rec_pos, (3, 2, -1), 'F')
+                self.received_theta = np.squeeze(np.dstack(tuple(measdata[0, :]['received_theta'])))
+                # self.received_theta = np.reshape(self.received_theta, (2, -1),'F')
+                self.received_psi = np.squeeze(np.dstack(tuple(measdata[0, :]['received_psi'])))
+                # self.received_psi = np.reshape(self.received_psi, (2, -1),'F')
+                self.timeErrorSDs = params['timeErrorSDs'].ravel().astype(float)
+                self.thetaErrorSDs = params['thetaErrorSDs'].ravel().astype(float)
+                self.psiErrorSDs = params['psiErrorSDs'].ravel().astype(float)
+
+        class TruthData2:
+            def __init__(self, truthdata):
                 self.hit_times = truthdata['hit_times'].ravel().astype(float)
                 self.target_xyz = truthdata['target_xyz'].astype(float)
                 self.target_xyz_hit = truthdata['target_xyz_hit'].astype(float)
-        return MeasData(wp), TruthData(wp)
+
+        def get_truth(wp):
+            truthdata = wp['truthdata']
+            truths = []
+            for i in range(truthdata.size):
+                truths.append(TruthData2(truthdata[0, i]))
+            return truths
+
+        return MeasData2(wp), get_truth(wp)
+
+    @staticmethod
+    def _read_mat_pd(path):
+        wp = loadmat(path)
+
+        measdata = wp['scans']
+        params = wp['params'][0, 0]
+        scans_dict = dict()
+        scans_dict['transmit_times'] = measdata[0, :]['transmit_time'].astype(float)
+        scans_dict['received_times'] = measdata[0, :]['received_times'].tolist()
+        scans_dict['sensor_trans_pos'] = measdata[0, :]['sensor_trans_pos'].tolist()
+        scans_dict['sensor_rec_pos'] = measdata[0, :]['sensor_rec_pos'].tolist()
+        scans_dict['received_theta'] = measdata[0, :]['received_theta'].tolist()
+        scans_dict['received_psi'] = measdata[0, :]['received_psi'].tolist()
+        scans_df = pd.DataFrame(scans_dict)
+
+        params_dict = dict()
+        params_dict['timeErrorSDs'] = params['timeErrorSDs'].ravel().astype(float)
+        params_dict['thetaErrorSDs'] = params['thetaErrorSDs'].ravel().astype(float)
+        params_dict['psiErrorSDs'] = params['psiErrorSDs'].ravel().astype(float)
+        params_df = pd.DataFrame(params_dict)
+
+        truth_df = []
+        truthdata = wp['truthdata']
+        truth_dict = dict()
+        truth_dict['hit_times'] = truthdata[0, :]['hit_times'].tolist()
+        truth_dict['target_pos'] = truthdata[0, :]['target_xyz'].tolist()
+        truth_dict['target_pos_hit'] = truthdata[0, :]['target_xyz_hit'].tolist()
+        truth_df = pd.DataFrame(truth_dict)
+
+        return scans_df, truth_df, params_df
+
+    @staticmethod
+    def _inteleave_array_cols(arr, num_repeats):
+        arrays = [arr for _ in range(num_repeats)]
+        shape = (arr.shape[0], num_repeats * arr.shape[1])
+        interleaved_array = np.dstack(arrays).reshape(shape)
+        return interleaved_array
