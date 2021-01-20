@@ -181,52 +181,53 @@ class BlueMultiDetectionReaderFile(DetectionReader, TextFileReader):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self._truthdata = None
+        self._scans, self._truthdata, self._params = self._read_data(self.path)
 
     @BufferedGenerator.generator_method
     def detections_gen(self):
-        data, self._truthdata = self._read_mat(self.path)
-
-        scans, self._truthdata, params = self._read_mat_pd(self.path)
-
-        n_timestamps = len(data.transmit_times)
-        R = np.diag(np.concatenate((data.thetaErrorSDs, data.psiErrorSDs, data.timeErrorSDs))**2)
-
-        # Estimate the times each pulse hit the target
-        idx = [i for i in range(0, data.received_times.shape[0], 2)]
-        timedelay1 = data.received_times[idx,:] - data.transmit_times
-        hit_times_est = data.transmit_times + timedelay1/2
-
-        # Deal with measurements in the order they were estimated to hit the target
-        measOrder = np.argsort(hit_times_est)
+        n_timestamps = len(self._scans.transmit_times)
+        R = CovarianceMatrix(np.diag(np.concatenate((self._params.thetaErrorSDs,
+                                                     self._params.psiErrorSDs,
+                                                     self._params.timeErrorSDs)) ** 2))
 
         timestamp_init = datetime.now()
 
         for k in range(n_timestamps):
-            measidx = measOrder[k]
-            state_vector = self._get_meas(data, measidx)
-            hittime = hit_times_est[measidx]
-            timestamp = timestamp_init + timedelta(seconds=hittime)
+            received_times = self._scans.received_times[k].ravel()
+            transmit_time = self._scans.transmit_times[k]
 
-            # Position of sensor 1 at transmit time
-            sensor1_pos_trans = data.sensor1_xyz[:, measidx][:, np.newaxis]
+            # Estimate the times each pulse hit the target
+            timedelays = received_times - transmit_time
+            hittimes = transmit_time + timedelays/2
 
-            # Positions of sensors at receive times
-            sensor1_pos_rec = data.sensor1_xyz_rec[:, measidx][:, np.newaxis]
-            sensor2_pos_rec = data.sensor2_xyz_rec[:, measidx][:, np.newaxis]
+            detections = set()
+            num_targets = int(len(hittimes)/2)
+            for i in range(num_targets):
+                hittime = hittimes[2*i]
+                state_vector = self._get_meas(k, i)
 
-            model = SimpleBlueMeasurementModel(ndim_state=12, mapping=[0, 2, 4],
-                                               noise_covar=R, sensor1_pos_rec=sensor1_pos_rec,
-                                               sensor1_pos_trans=sensor1_pos_trans, sensor2_pos_rec=sensor2_pos_rec)
+                timestamp = timestamp_init + timedelta(seconds=hittime)
 
-            detection = Detection(state_vector, timestamp=timestamp, measurement_model=model)
+                # Position of sensor 1 at transmit time
+                sensor1_pos_trans = self._scans.sensor_trans_pos[k].astype(float)
 
-            yield timestamp, {detection}
+                # Positions of sensors at receive times
+                sensor1_pos_rec = self._scans.sensor_rec_pos[k].astype(float)[:, 2*i][:, np.newaxis]
+                sensor2_pos_rec = self._scans.sensor_rec_pos[k].astype(float)[:, 2*i+1][:, np.newaxis]
 
-    def _get_meas(self, data, k):
-        theta = np.array([Elevation(t) for t in data.received_theta[:, k]])
-        psi = np.array([Bearing(t) for t in data.received_psi[:, k]])
-        times = data.received_times[:, k] - data.transmit_times[k]
+                model = SimpleBlueMeasurementModel(ndim_state=12, mapping=[0, 2, 4],
+                                                   noise_covar=R, sensor1_pos_rec=sensor1_pos_rec,
+                                                   sensor1_pos_trans=sensor1_pos_trans, sensor2_pos_rec=sensor2_pos_rec)
+
+                detection = Detection(state_vector, timestamp=timestamp, measurement_model=model)
+                detections.add(detection)
+
+            yield timestamp, detections
+
+    def _get_meas(self, k, i):
+        theta = np.array([Elevation(t) for t in self._scans.received_theta[k].ravel()[2*i:2*i+2]])
+        psi = np.array([Bearing(t) for t in self._scans.received_psi[k].ravel()[2*i:2*i+2]])
+        times = self._scans.received_times[k].ravel()[2*i:2*i+2] - self._scans.transmit_times[k]
         z = StateVector(np.concatenate((theta, psi, times)))
         return z
 
@@ -266,7 +267,7 @@ class BlueMultiDetectionReaderFile(DetectionReader, TextFileReader):
         return MeasData2(wp), get_truth(wp)
 
     @staticmethod
-    def _read_mat_pd(path):
+    def _read_data(path):
         wp = loadmat(path)
 
         measdata = wp['scans']

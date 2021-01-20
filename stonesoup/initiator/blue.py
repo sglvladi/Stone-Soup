@@ -1,4 +1,5 @@
 import numpy as np
+import scipy.io as sio
 
 from stonesoup.base import Property
 from stonesoup.initiator import Initiator
@@ -8,20 +9,22 @@ from stonesoup.wrapper.matlab import MatlabWrapper
 from stonesoup.types.update import GaussianStateUpdate
 from stonesoup.types.array import StateVector, CovarianceMatrix
 
+
 class SimpleBlueInitiator(Initiator, MatlabWrapper):
 
     with_bias: bool = Property(default=True)
 
     def initiate(self, detections, **kwargs):
         tracks = set()
+
         for detection in detections:
 
             model = detection.measurement_model
 
             prior = dict()
-            prior['xyz_min'] = self.matlab_array(np.array([[0.],[-10000.],[0.]]))
-            prior['xyz_max'] = self.matlab_array(np.array([[20000.],[10000.],[4000.]]))
-            prior['vel_xyz_sd'] = self.matlab_array(np.array([10., 10., 1.]))
+            prior['xyz_min'] = self.matlab_array(np.array([[-10000.],[-10000.],[0.]])) # np.array([[-10000.],[-10000.],[0.]])
+            prior['xyz_max'] =  self.matlab_array(np.array([[0.],[10000.],[4000.]])) # np.array([[0.],[10000.],[4000.]])
+            prior['vel_xyz_sd'] = self.matlab_array(np.array([10., 10., 1.])) # np.array([10., 10., 1.])
             prior['el_bias_sd'] = 0.1
             prior['az_bias_sd'] = 0.01
             prior['dt_bias_sd'] = 0.2
@@ -31,6 +34,16 @@ class SimpleBlueInitiator(Initiator, MatlabWrapper):
             sensor1_xyz_rec = self.matlab_array(model.sensor1_pos_rec)
             sensor2_xyz_rec = self.matlab_array(model.sensor2_pos_rec)
             R = self.matlab_array(model.covar())
+
+            # my_struct = {
+            #     'prior': prior,
+            #     'meas': detection.state_vector.astype(float),
+            #     'sensor1_xyz_trans': model.sensor1_pos_trans,
+            #     'sensor1_xyz_rec': model.sensor1_pos_rec,
+            #     'sensor2_xyz_rec': model.sensor2_pos_rec,
+            #     'R': model.covar()
+            # }
+            # sio.savemat(r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\MATLAB\BLUE\Simulator\TestData\test_data.mat', my_struct)
 
             state_mean, state_cov = self.matlab_engine.getInitialStateDistribution(
                 prior, meas, sensor1_xyz_trans, sensor1_xyz_rec, sensor2_xyz_rec, R, nargout=2)
