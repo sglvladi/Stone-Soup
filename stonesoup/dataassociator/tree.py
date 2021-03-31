@@ -141,11 +141,11 @@ class TPRTreeMixIn(DataAssociator):
     def _track_tree_coordinates(self, track):
         state_vector =track.state_vector[self.pos_mapping, :]
 
-        state_delta = 3 * np.sqrt(
+        state_delta = 10 * np.sqrt(
             np.diag(track.covar)[self.pos_mapping].reshape(-1, 1))
-        meas_delta = 3 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
+        meas_delta = 10 * np.sqrt(np.diag(self.measurement_model.covar()).reshape(-1, 1))
         vel_vector = track.state_vector[self.vel_mapping, :]
-        vel_delta = 3 * np.sqrt(
+        vel_delta = 10 * np.sqrt(
             np.diag(track.covar)[self.vel_mapping].reshape(-1, 1))
 
         min_pos = (state_vector - state_delta - meas_delta).ravel()
@@ -173,21 +173,17 @@ class TPRTreeMixIn(DataAssociator):
             if track not in self._tree:
                 self._coords[track] = self._track_tree_coordinates(track)
                 self._tree.insert(track, self._coords[track])
-                c_time = track.timestamp
+
             elif track not in tracks:
                 c_time = track.timestamp
                 coords = self._coords[track][:-1] \
-                    + ((self._coords[track][-1], c_time.timestamp()),)
+                         + ((self._coords[track][-1] - 1e-3, c_time.timestamp()),)
                 self._tree.delete(track, coords)
                 del self._coords[track]
             elif isinstance(track.state, Update):
                 c_time = track.timestamp
-                if self._coords[track][-1] - c_time.timestamp() >= 0:
-                    coords = self._coords[track][:-1] \
-                        + ((self._coords[track][-1]-1e-3, c_time.timestamp()),)
-                else:
-                    coords = self._coords[track][:-1] \
-                        + ((self._coords[track][-1], c_time.timestamp()),)
+                coords = self._coords[track][:-1] \
+                    + ((self._coords[track][-1]-1e-3, c_time.timestamp()),)
                 self._tree.delete(track, coords)
                 self._coords[track] = self._track_tree_coordinates(track)
                 self._tree.insert(track, self._coords[track])
