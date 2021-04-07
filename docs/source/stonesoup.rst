@@ -32,6 +32,7 @@ Enabling Components
     stonesoup.simulator
     stonesoup.tracker
     stonesoup.writer
+    stonesoup.wrapper
 
 Algorithm Components
 ^^^^^^^^^^^^^^^^^^^^
