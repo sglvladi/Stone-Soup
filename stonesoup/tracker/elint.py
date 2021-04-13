@@ -5,6 +5,10 @@ from stonesoup.tracker.base import Tracker
 from stonesoup.detector.base import Detector
 from stonesoup.wrapper.matlab import MatlabWrapper
 from stonesoup.buffered_generator import BufferedGenerator
+from stonesoup.types.state import WeightedGaussianState
+from stonesoup.types.update import GaussianMixtureUpdate
+from stonesoup.types.hypothesis import SingleHypothesis
+from stonesoup.types.track import Track
 
 class ElintTracker(Tracker, MatlabWrapper):
     detector: Detector = Property(doc='Detector')
@@ -61,16 +65,63 @@ class ElintTracker(Tracker, MatlabWrapper):
             sensor_idx = detection.metadata['sensor_idx']
             meas_num = detection.metadata['meas_num']
 
+            # This is slow since we keep passing the tracks to/from MATLAB
             tracks_matlab, next_track_id = \
                 self.matlab_engine.tracker_single_python(tracks_matlab, this_meas, dt_seconds,
                                                          self._tx_model, sensor_idx, self.detector._sensdata,
                                                          self._prior, self.detector._colors, self._params, meas_num,
                                                          self.detector.num_scans, next_track_id, nargout=2)
-            ASD=2
-            # print(len(tracks_matlab))
-            # print(next_track_id)
+
+            # Ensure empty mmsi cells are char arrays and not doubles
             for i in range(len(tracks_matlab)):
                 for j in range(len(tracks_matlab[i]['mmsis'])):
                     if len(tracks_matlab[i]['mmsis'][j]) == 0:
                         tracks_matlab[i]['mmsis'][j] = ''
-                        a = 2
+
+            # Delete tracks
+            curr_track_ids = [track['id'] for track in tracks_matlab]
+            tracks = [track for track in tracks if track.id in curr_track_ids]
+
+            for track in tracks_matlab:
+                idx = [i for i, track_i in enumerate(tracks) if track['id'] == track_i.id]
+                if not len(idx):
+                    # Add new track
+                    num_components = track['state']['means'].size[1]
+                    components = []
+                    if num_components>1:
+                        for i in range(num_components):
+                            comp = WeightedGaussianState(np.array(track['state']['means'])[:, i],
+                                                         np.array(track['state']['covs'])[:, :, i],
+                                                         timestamp=detection.timestamp,
+                                                         weight=1)
+                            components.append(comp)
+                    else:
+                        comp = WeightedGaussianState(np.array(track['state']['means']),
+                                                     np.array(track['state']['covs']),
+                                                         timestamp=detection.timestamp,
+                                                         weight=1)
+                        components.append(comp)
+                    hyp = SingleHypothesis(None, detection, None)
+                    state = GaussianMixtureUpdate(hyp, components)
+                    new_track = Track(state, track['id'])
+                    tracks.append(new_track)
+                else:
+                    track_i = next(t for t in tracks if track['id'] == t.id)
+                    num_components = track['state']['means'].size[1]
+                    components = []
+                    if num_components > 1:
+                        for i in range(num_components):
+                            comp = WeightedGaussianState(np.array(track['state']['means'])[:, i],
+                                                         np.array(track['state']['covs'])[:, :, i],
+                                                         timestamp=detection.timestamp,
+                                                         weight=1)
+                            components.append(comp)
+                    else:
+                        comp = WeightedGaussianState(np.array(track['state']['means']),
+                                                     np.array(track['state']['covs']),
+                                                     timestamp=detection.timestamp,
+                                                     weight=1)
+                        components.append(comp)
+                    hyp = SingleHypothesis(None, detection, None)
+                    state = GaussianMixtureUpdate(hyp, components)
+                    track_i.append(state)
