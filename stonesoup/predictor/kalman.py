@@ -3,8 +3,9 @@
 import numpy as np
 import scipy.linalg as la
 from functools import partial
+from typing import List
 
-from .base import Predictor
+from .base import Predictor, Base
 from ._utils import predict_lru_cache
 from ..base import Property
 from ..types.prediction import (Prediction, SqrtGaussianStatePrediction,
@@ -467,16 +468,11 @@ class SqrtKalmanPredictor(KalmanPredictor):
 
 
 class IMMPredictor(Base):
-    predictors = Property([Predictor],
-                          doc="A bank of predictors each parameterised with "
-                              "a different model")
-    model_transition_matrix = \
-        Property(np.ndarray,
-                 doc="The square transition probability "
-                     "matrix of size equal to the number of "
-                     "predictors")
+    predictors: List[Predictor] = Property(doc="A bank of predictors each parameterised with a different model")
+    model_transition_matrix: np.ndarray = Property(doc="The square transition probability matrix of size equal to the "
+                                                       "number of predictors")
 
-    @lru_cache()
+    @predict_lru_cache()
     def predict(self, prior, control_input=None, timestamp=None, **kwargs):
         """
         IMM prediction step

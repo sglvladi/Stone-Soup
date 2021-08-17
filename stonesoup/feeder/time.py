@@ -5,7 +5,7 @@ from warnings import warn
 
 from ..base import Property
 from ..buffered_generator import BufferedGenerator
-from .base import DetectionFeeder, GroundTruthFeeder
+from .base import Feeder, DetectionFeeder, GroundTruthFeeder
 
 
 class TimeBufferedFeeder(DetectionFeeder, GroundTruthFeeder):

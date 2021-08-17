@@ -2,6 +2,7 @@
 # -*- coding: utf-8 -*-
 import pymongo
 from datetime import datetime
+from typing import List
 
 import numpy as np
 from dateutil.parser import parse
@@ -33,25 +34,15 @@ class MongoReader(Reader):
 class MongoDetectionReader(DetectionReader):
     """A simple detection reader for MongoDB"""
 
-    host_name = Property(
-        str, doc='MongoDB hostname')
-    host_port = Property(
-        int, doc='MongoDB port')
-    db_name = Property(
-        str, doc='MongoDB database name')
-    collection_name = Property(
-        [str], doc='Collection name to read from')
-    state_vector_fields = Property(
-        [str], doc='List of field names to be used in state vector')
-    time_field = Property(
-        str, doc='Name of field to be used as time field')
-    time_field_format = Property(
-        str, default=None, doc='Optional datetime format')
-    timestamp = Property(
-        bool, default=False, doc='Treat time field as a timestamp from epoch')
-    metadata_fields = Property(
-        [str], default=None, doc='List of columns to be saved as metadata, '
-                                 'default all')
+    host_name: str = Property(doc='MongoDB hostname')
+    host_port: int = Property(doc='MongoDB port')
+    db_name: str = Property(doc='MongoDB database name')
+    collection_name: List[str] = Property(doc='Collection name to read from')
+    state_vector_fields: List[str] = Property(doc='List of field names to be used in state vector')
+    time_field: str = Property(doc='Name of field to be used as time field')
+    time_field_format: str = Property(default=None, doc='Optional datetime format')
+    timestamp: bool = Property(default=False, doc='Treat time field as a timestamp from epoch')
+    metadata_fields: List[str] = Property(default=None, doc='List of columns to be saved as metadata, default all')
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -3,14 +3,15 @@ import warnings
 import numpy as np
 import scipy.linalg as la
 from functools import lru_cache
+from typing import List
 from scipy.stats import multivariate_normal as mvn
 
 from ..base import Property, Base
 from .base import Updater
 from ..types.array import CovarianceMatrix
 from ..types.prediction import (MeasurementPrediction,
-                                WeightedGaussianStatePrediction,
-                                GaussianMixtureStatePrediction)
+                                WeightedGaussianMeasurementPrediction,
+                                GaussianMixtureMeasurementPrediction)
 from ..types.update import (Update,
                             WeightedGaussianStateUpdate,
                             GaussianMixtureStateUpdate)
@@ -639,14 +640,9 @@ class IteratedKalmanUpdater(ExtendedKalmanUpdater):
 
 class IMMUpdater(Base):
 
-    updaters = Property([Updater],
-                        doc="A bank of predictors each parameterised with "
-                            "a different model")
-    model_transition_matrix = \
-        Property(np.ndarray,
-                 doc="The square transition probability "
-                     "matrix of size equal to the number of "
-                     "updaters")
+    updaters: List[Updater] = Property(doc="A bank of predictors each parameterised with a different model")
+    model_transition_matrix: np.ndarray = Property(doc="The square transition probability matrix of size equal to the "
+                                                       "number of updaters")
     @lru_cache()
     def predict_measurement(self, state_prediction, **kwargs):
         """IMM measurement prediction step
@@ -673,7 +669,7 @@ class IMMUpdater(Base):
             pred = WeightedGaussianState(means[:, [i]],
                                          np.squeeze(covars[[i], :, :]),
                                          timestamp=state_prediction.timestamp)
-            meas_prediction = self.updaters[i].get_measurement_prediction(pred)
+            meas_prediction = self.updaters[i].predict_measurement(pred)
             meas_predictions.append(
                 WeightedGaussianMeasurementPrediction(
                     meas_prediction.mean,
@@ -707,7 +703,7 @@ class IMMUpdater(Base):
         posteriors = []
         for i in range(nm):
             pred = hypothesis.prediction.components[i]
-            meas_prediction = self.updaters[i].get_measurement_prediction(pred)
+            meas_prediction = self.updaters[i].predict_measurement(pred)
             hyp = SingleHypothesis(pred, hypothesis.measurement,
                                    meas_prediction)
             posterior = self.updaters[i].update(hyp)

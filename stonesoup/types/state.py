@@ -298,8 +298,7 @@ class TaggedWeightedGaussianState(WeightedGaussianState):
 
 class GaussianMixtureState(Type):
     """Gaussian Mixture state"""
-    components = Property([WeightedGaussianState],
-                          doc='Gaussian Mixture components')
+    components: MutableSequence[WeightedGaussianState]= Property(doc='Gaussian Mixture components')
     @property
     def ndim(self):
         return self.components[0].ndim
@@ -337,6 +336,7 @@ class GaussianMixtureState(Type):
     @property
     def state_vector(self):
         return self.mean
+State.register(GaussianMixtureState)  # noqa: E305
 
 
 class ParticleState(Type):

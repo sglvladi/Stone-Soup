@@ -13,7 +13,7 @@ from ..types.numeric import Probability
 from ..types.particle import Particle
 from ..types.state import State, GaussianState
 from ..types.track import Track
-from ..types.prediction import WeightedGaussianStatePrediction, GaussianMixtureStatePrediction
+from ..types.prediction import GaussianStatePrediction, WeightedGaussianStatePrediction, GaussianMixtureStatePrediction
 from ..types.update import GaussianStateUpdate, ParticleStateUpdate, Update, \
     WeightedGaussianStateUpdate, GaussianMixtureStateUpdate
 from ..updater import Updater
@@ -50,7 +50,7 @@ class SinglePointInitiator(GaussianInitiator):
 
         tracks = set()
         for detection in detections:
-        	self.prior_state.timestamp = detection.timestamp
+            self.prior_state.timestamp = detection.timestamp
             measurement_prediction = updater.predict_measurement(
                 self.prior_state, detection.measurement_model)
             track_state = updater.update(SingleHypothesis(
@@ -135,9 +135,8 @@ class SimpleMeasurementInitiator(GaussianInitiator):
             C0 = inv_model_matrix @ model_covar @ inv_model_matrix.T
             C0 = C0 + prior_covar + np.diag(np.array([self.diag_load] * C0.shape[0]))
 
-			prediction = GaussianStatePrediction(prior_state_vector + state_vector,
-                								 C0,
-                 								 timestamp=detection.timestamp)
+            prediction = GaussianStatePrediction(prior_state_vector + state_vector,
+                                                 C0, timestamp=detection.timestamp)
                 
             tracks.add(Track([GaussianStateUpdate(
                 prior_state_vector + state_vector,
