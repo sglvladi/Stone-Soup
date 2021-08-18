@@ -7,7 +7,7 @@ import numpy as np
 import uuid
 
 from ..base import Property
-from .array import StateVector, CovarianceMatrix, PrecisionMatrix
+from .array import StateVector, CovarianceMatrix, PrecisionMatrix, StateVectors
 from .base import Type
 from .particle import Particles
 from .numeric import Probability
@@ -310,7 +310,7 @@ class GaussianMixtureState(Type):
     @property
     def means(self):
         means = [component.mean for component in self.components]
-        return np.concatenate((means),1)
+        return StateVectors(means)
 
     @property
     def covars(self):
@@ -323,13 +323,13 @@ class GaussianMixtureState(Type):
 
     @property
     def mean(self):
-        means = self.means
-        weights = self.weights
-        return means@weights
+        # Calculate mean
+        return np.average(self.means, axis=1, weights=self.weights.ravel())
 
     @property
     def covar(self):
-        _, covar = gm_reduce_single(self.means.T, self.covars,
+        covars = np.stack([covar for covar in self.covars], axis=2)
+        _, covar = gm_reduce_single(self.means, covars,
                                     self.weights.ravel())
         return covar
 
