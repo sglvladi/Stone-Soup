@@ -17,6 +17,7 @@ from ..models.transition.linear import LinearGaussianTransitionModel
 from ..models.control import ControlModel
 from ..models.control.linear import LinearControlModel
 from ..functions import gauss2sigma, unscented_transform, imm_merge
+from ..types.array import StateVector
 from ..types.state import (State, GaussianMixtureState, GaussianState,
                            WeightedGaussianState)
 
@@ -192,6 +193,9 @@ class KalmanPredictor(Predictor):
         x_pred = self._transition_function(
             prior, time_interval=predict_over_interval, **kwargs) \
             + self.control_model.control_input()
+
+        # Preserve states types
+        x_pred = StateVector([type(s)(v) for (s, v) in zip(prior.state_vector[:, 0], x_pred[:, 0])])
 
         # Prediction of the covariance
         p_pred = self._predicted_covariance(prior, predict_over_interval)

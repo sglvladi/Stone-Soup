@@ -8,7 +8,7 @@ from scipy.stats import multivariate_normal as mvn
 
 from ..base import Property, Base
 from .base import Updater
-from ..types.array import CovarianceMatrix
+from ..types.array import CovarianceMatrix, StateVector
 from ..types.prediction import (MeasurementPrediction,
                                 WeightedGaussianMeasurementPrediction,
                                 GaussianMixtureMeasurementPrediction)
@@ -199,6 +199,11 @@ class KalmanUpdater(Updater):
 
         pred_meas = measurement_model.function(predicted_state, **kwargs)
 
+        # Preserve state types
+        pred_meas = StateVector([type(s)(v) for (s, v) in
+                                 zip(predicted_state.state_vector[measurement_model.mapping, :][:, 0],
+                                     pred_meas[:, 0])])
+
         hh = self._measurement_matrix(predicted_state=predicted_state,
                                       measurement_model=measurement_model,
                                       **kwargs)
@@ -255,6 +260,9 @@ class KalmanUpdater(Updater):
         posterior_mean = predicted_state.state_vector + \
             kalman_gain@(hypothesis.measurement.state_vector -
                          hypothesis.measurement_prediction.state_vector)
+
+        # Preserve state types
+        posterior_mean = [type(s)(v) for (s, v) in zip(predicted_state.state_vector[:, 0], posterior_mean[:, 0])]
 
         if self.force_symmetric_covariance:
             posterior_covariance = \

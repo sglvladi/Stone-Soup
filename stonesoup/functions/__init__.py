@@ -584,12 +584,15 @@ def imm_merge(means, covars, weights):
     for i, (f, w) in enumerate(zip(filters, weights.T)):
         x = np.zeros((nx,1))
         for kf, wj in zip(filters, w):
-            x += kf.x * wj
+            x += kf.x.astype(float) * wj
+        # Preserve states types
+        x = np.array([[type(s)(v)] for (s, v) in zip(kf.x[:, 0], x[:, 0])])
         xs.append(x)
 
         P = np.zeros((nx,nx))
         for kf, wj in zip(filters, w):
             y = kf.x - x
+            y = y.astype(float)
             P += wj * (np.outer(y, y) + kf.P)
         Ps.append(P)
     return np.concatenate((xs),1), np.array(Ps)
