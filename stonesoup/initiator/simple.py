@@ -130,16 +130,20 @@ class SimpleMeasurementInitiator(GaussianInitiator):
 
             mapped_dimensions = measurement_model.mapping
 
-            prior_state_vector[mapped_dimensions, :] = 0
+            # prior_state_vector[mapped_dimensions, :] = 0
             prior_covar[mapped_dimensions, :] = 0
             C0 = inv_model_matrix @ model_covar @ inv_model_matrix.T
             C0 = C0 + prior_covar + np.diag(np.array([self.diag_load] * C0.shape[0]))
 
-            prediction = GaussianStatePrediction(prior_state_vector + state_vector,
+            # Preserve state types
+            sv = prior_state_vector + state_vector
+            sv = [type(s)(v) for (s, v) in zip(prior_state_vector[:, 0], sv[:, 0])]
+
+            prediction = GaussianStatePrediction(sv,
                                                  C0, timestamp=detection.timestamp)
                 
             tracks.add(Track([GaussianStateUpdate(
-                prior_state_vector + state_vector,
+                sv,
                 C0,
                 SingleHypothesis(prediction, detection),
                 timestamp=detection.timestamp)
@@ -170,20 +174,26 @@ class LinearMeasurementInitiatorMixture(GaussianInitiator):
         # Zero out elements of prior state that will be replaced by measurement
         mapped_dimensions, _ = np.nonzero(
             model_matrix.T@np.ones((model_matrix.shape[0], 1)))
-        prior_state_vector[mapped_dimensions, :] = 0
+        # prior_state_vector[mapped_dimensions, :] = 0
         prior_covar[mapped_dimensions, :] = 0
 
         inv_model_matrix = np.linalg.pinv(model_matrix)
 
         for detection in detections:
+            state_vector = inv_model_matrix @ detection.state_vector
+
+            # Preserve state types
+            sv = prior_state_vector + state_vector
+            sv = [type(s)(v) for (s, v) in zip(prior_state_vector[:, 0], sv[:, 0])]
+
             prediction1 = WeightedGaussianStatePrediction(
-                prior_state_vector + inv_model_matrix @ detection.state_vector,
+                sv,
                 prior_covar + inv_model_matrix @ model_covar @ model_matrix.astype(
                     bool),
                 timestamp=detection.timestamp,
                 weight=0.5)
             update1 = WeightedGaussianStateUpdate(
-                prior_state_vector + inv_model_matrix @ detection.state_vector,
+                sv,
                 prior_covar
                 + inv_model_matrix @ model_covar @ model_matrix.astype(bool),
                 SingleHypothesis(prediction1, detection),
