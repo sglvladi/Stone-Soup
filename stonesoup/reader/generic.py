@@ -20,6 +20,7 @@ from ..base import Property
 from ..buffered_generator import BufferedGenerator
 from ..types.detection import Detection
 from ..types.groundtruth import GroundTruthPath, GroundTruthState
+from ..types.angle import Longitude, Latitude
 
 
 class _CSVReader(TextFileReader):
@@ -145,27 +146,18 @@ class CSVDetectionReader_EE(CSVDetectionReader):
     either "static" or "dynamic"
     """
 
-	@BufferedGenerator.generator_method
+    @BufferedGenerator.generator_method
     def detections_gen(self):
         with self.path.open(encoding=self.encoding, newline='') as csv_file:
-            reader = csv.DictReader(csv_file)
-            sortedlist = sorted(reader, key=lambda row: row[self.time_field],
-                                reverse=False)
+            detections = set()
+            previous_time = None
+            for row in csv.DictReader(csv_file, **self.csv_options):
 
-            for row in sortedlist:
-                time_field_value = self._get_time(row)
-
-                if self.metadata_fields is None:
-                    local_metadata = dict(row)
-                    copy_local_metadata = dict(local_metadata)
-                    for (key, value) in copy_local_metadata.items():
-                        if (key == self.time_field) or\
-                                (key in self.state_vector_fields):
-                            del local_metadata[key]
-                else:
-                    local_metadata = {field: row[field]
-                                      for field in self.metadata_fields
-                                      if field in row}
+                time = self._get_time(row)
+                if previous_time is not None and previous_time != time:
+                    yield previous_time, detections
+                    detections = set()
+                previous_time = time
 
                 # Flag dynamic/static detections
                 valid = 0
@@ -173,20 +165,21 @@ class CSVDetectionReader_EE(CSVDetectionReader):
                     if row[col_name] != "":
                         valid += 1
                 if valid == len(self.state_vector_fields):
-                    local_metadata["type"] = "dynamic"
+                    longitude = np.float64(row["Longitude"])
+                    latitude = np.float64(row["Latitude"])
                     detect = Detection(np.array(
-                        [[row[col_name]] for col_name in self.state_vector_fields],
-                        dtype=np.float32), time_field_value,
-                        metadata=local_metadata)
-                    self._detections = {detect}
+                        [[Longitude(np.deg2rad(longitude))], [Latitude(np.deg2rad(latitude))]]),
+                        timestamp=time,
+                        metadata=self._get_metadata(row))
+                    detect.metadata['type'] = 'dynamic'
                 elif valid == 0:
-                    local_metadata["type"] = "static"
                     detect = Detection(np.array(
-                        [[0]],dtype=np.float32),
-                        time_field_value,
-                        metadata=local_metadata)
-                    self._detections = {detect}
-                else:
-                    self._detections = set()
+                        [[0]], dtype=np.float32),
+                        timestamp=time,
+                        metadata=self._get_metadata(row))
+                    detect.metadata['type'] = 'static'
 
-                yield time_field_value, self.detections
+                detections.add(detect)
+
+                # Yield remaining
+                yield previous_time, detections
