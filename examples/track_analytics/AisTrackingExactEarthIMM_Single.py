@@ -22,34 +22,22 @@ from copy import copy
 # Stone-Soup imports
 from stonesoup.models.transition.linear import (
     RandomWalk, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
-from stonesoup.initiator.simple import SinglePointInitiator, \
-    LinearMeasurementInitiator, LinearMeasurementInitiatorMixture
-from stonesoup.deleter.error import CovarianceBasedDeleter
-from stonesoup.deleter.time import UpdateTimeStepsDeleter, UpdateTimeDeleter
-from stonesoup.dataassociator.neighbour import (
-    NearestNeighbour, GlobalNearestNeighbour)
+from stonesoup.initiator.simple import LinearMeasurementInitiatorMixture
+from stonesoup.deleter.time import UpdateTimeDeleter
+from stonesoup.dataassociator.neighbour import (GlobalNearestNeighbour, GNNWith2DAssignment)
 from stonesoup.hypothesiser.distance import DistanceHypothesiser
 from stonesoup.measures import Mahalanobis
-from stonesoup.hypothesiser.probability import PDAHypothesiser
-from stonesoup.hypothesiser.filtered import FilteredDetectionsHypothesiser
+from stonesoup.gater.filtered import FilteredDetectionsGater
 from stonesoup.updater.kalman import (KalmanUpdater,
-                                      IMMUpdater,
-                                      UnscentedKalmanUpdater,
-                                      ExtendedKalmanUpdater)
+                                      IMMUpdater)
 from stonesoup.predictor.kalman import (KalmanPredictor,
-                                        IMMPredictor,
-                                        UnscentedKalmanPredictor,
-                                        ExtendedKalmanPredictor)
+                                        IMMPredictor)
 from stonesoup.models.measurement.linear import LinearGaussian
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.types.prediction import GaussianStatePrediction
-from stonesoup.types.update import Update
-from stonesoup.types.state import GaussianState
 from stonesoup.writer.csv import CSV_Writer_EE_MMSI
 from stonesoup.reader.generic import CSVDetectionReader_EE
-from stonesoup.reader.mongo import MongoDetectionReader
-from stonesoup.feeder.time import TimeSyncFeeder, TimeWindowReducer
-from stonesoup.feeder.filter import BoundingBoxReducer
+from stonesoup.feeder.time import TimeSyncFeeder
 
 if __name__ == '__main__':
     ##############################################################################
@@ -179,8 +167,7 @@ if __name__ == '__main__':
 
         # Width and height are "full" widths, not radius
         width, height = 2 * nstd * np.sqrt(vals)
-        ellip = Ellipse(xy=pos, width=width, height=height, angle=theta,
-                        **kwargs)
+        ellip = Ellipse(xy=pos, width=width, height=height, angle=theta, **kwargs)
 
         ax.add_artist(ellip)
         return ellip
@@ -262,9 +249,10 @@ if __name__ == '__main__':
     # Hypothesiser & Data Associator
     # ==============================
     hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 20)
-    hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI',
+    hypothesiser = FilteredDetectionsGater(hypothesiser, 'MMSI',
                                                   match_missing=False)
-    associator = GlobalNearestNeighbour(hypothesiser)
+    # associator = GlobalNearestNeighbour(hypothesiser)
+    associator = GNNWith2DAssignment(hypothesiser)
 
     # Track Initiator
     # ===============
@@ -282,13 +270,11 @@ if __name__ == '__main__':
     ################################################################################
     # Main Tracking process                                                        #
     ################################################################################
-    from stonesoup.types.sets import TrackSet
 
     # Possible parallelisation point
     #   - e.g. Run each file in a separate thread
     for file_path in glob.iglob(
-            os.path.join('C:/Users/sglvladi/Documents/TrackAnalytics/data'
-                         '/exact_earth/mmsi/', r'*.csv')):
+            os.path.join(r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\Stone-Soup\examples\track_analytics\data\exact_earth\mmsi', r'*.csv')):
 
         # Detection readers
         # ================
@@ -305,11 +291,10 @@ if __name__ == '__main__':
         filename = os.path.basename(file_path)
         mmsi = filename.replace(".csv","")
         writer = CSV_Writer_EE_MMSI(
-            'C:/Users/sglvladi/Documents/TrackAnalytics/output/exact_earth'
-            '/per_mmsi', mmsi)
+            r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\Stone-Soup\examples\track_analytics\output\exact_earth\per_mmsi', mmsi)
         collections = ["Live_SS_Tracks", "Live_SS_Points"]
 
-        tracks = TrackSet()  # Main set of tracks
+        tracks = set()  # Main set of tracks
 
         # We process each scan sequentially
         date = datetime.now().date()
@@ -348,8 +333,7 @@ if __name__ == '__main__':
                     if detection.metadata["MMSI"] == track.metadata["MMSI"]:
                         static_fields = ['Vessel_Name', 'Ship_Type',
                                          'Destination', 'IMO']
-                        track._metadata.update({x: detection.metadata[x] for
-                                                x in static_fields})
+                        track.metadata.update({x: detection.metadata[x] for x in static_fields})
 
             # Perform data association
             print("Tracking.... NumTracks: {}".format(str(len(tracks))))
@@ -368,10 +352,10 @@ if __name__ == '__main__':
                     track.states = track.states[-10:]
 
             # Write data
-            print("Writing....")
-            writer.write(tracks,
-                         detections,
-                         timestamp=scan_time)
+            # print("Writing....")
+            # writer.write(tracks,
+            #              detections,
+            #              timestamp=scan_time)
 
             # Initiate new tracks
             unassociated_detections = detections - associated_detections
