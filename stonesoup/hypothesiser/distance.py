@@ -8,6 +8,7 @@ from ..types.prediction import Prediction
 from ..types.hypothesis import SingleDistanceHypothesis
 from ..types.multihypothesis import MultipleHypothesis
 from ..updater import Updater
+from copy import copy
 
 
 class DistanceHypothesiser(Hypothesiser):
@@ -29,7 +30,7 @@ class DistanceHypothesiser(Hypothesiser):
         default=False,
         doc="If `True`, hypotheses beyond missed distance will be returned. Default `False`")
 
-    def hypothesise(self, track, detections, timestamp, **kwargs):
+    def hypothesise(self, track, detections, timestamp, missed_detection=None, mult=None, **kwargs):
         """ Evaluate and return all track association hypotheses.
 
         For a given track and a set of N available detections, return a
@@ -55,6 +56,9 @@ class DistanceHypothesiser(Hypothesiser):
 
         """
         hypotheses = list()
+
+        if missed_detection is None:
+            missed_detection = MissedDetection(timestamp=timestamp)
 
         # Common state & measurement prediction
         mmsis = [detection.metadata["MMSI"] for detection in detections]
@@ -117,4 +121,6 @@ class DistanceHypothesiser(Hypothesiser):
         #                 distance,
         #                 measurement_prediction))
 
-        return MultipleHypothesis(sorted(hypotheses, reverse=True))
+        mult2 = copy(mult)
+        mult2.single_hypotheses = sorted(hypotheses, reverse=True)
+        return mult2  # MultipleHypothesis(sorted(hypotheses, reverse=True))
