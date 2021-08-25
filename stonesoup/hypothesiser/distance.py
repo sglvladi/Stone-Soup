@@ -60,19 +60,19 @@ class DistanceHypothesiser(Hypothesiser):
         if missed_detection is None:
             missed_detection = MissedDetection(timestamp=timestamp)
 
-        # Common state & measurement prediction
-        mmsis = [detection.metadata["MMSI"] for detection in detections]
-        if track.metadata["MMSI"] in mmsis:
-            prediction = self.predictor.predict(track, timestamp=timestamp, **kwargs)
-            measurement_prediction = self.updater.predict_measurement(prediction, **kwargs)
+        prediction = self.predictor.predict(track, timestamp=timestamp, **kwargs)
 
-            # Missed detection hypothesis with distance as 'missed_distance'
-            hypotheses.append(
-                SingleDistanceHypothesis(
-                    prediction,
-                    MissedDetection(timestamp=timestamp),
-                    self.missed_distance
-                    ))
+        # Missed detection hypothesis with distance as 'missed_distance'
+        hypotheses.append(
+            SingleDistanceHypothesis(
+                prediction,
+                missed_detection,
+                self.missed_distance
+            ))
+
+        # Only Hypothesise tracks whose mmsi appears in the detections
+        if len(detections):
+            measurement_prediction = self.updater.predict_measurement(prediction, **kwargs)
 
             # True detection hypotheses
             distances = {detection: self.measure(measurement_prediction, detection)
@@ -84,32 +84,34 @@ class DistanceHypothesiser(Hypothesiser):
                                 measurement_prediction) for detection in detections
                                 if self.include_all
                                    or distances[detection] < self.missed_distance]
-        else:
-            # Missed detection hypothesis with distance as 'missed_distance'
-            if isinstance(track.state, Prediction):
-                prediction = track.state
-                hypotheses.append(
-                    SingleDistanceHypothesis(
-                        prediction,
-                        MissedDetection(timestamp=prediction.timestamp),
-                        self.missed_distance))
-            else:
-                prediction = self.predictor.predict(track.state,
-                                                    timestamp=timestamp)
-                hypotheses.append(
-                    SingleDistanceHypothesis(
-                        prediction,
-                        MissedDetection(timestamp=timestamp),
-                        self.missed_distance))
+
+        mult2 = copy(mult)
+        mult2.single_hypotheses = sorted(hypotheses, reverse=True)
+        return mult2  # MultipleHypothesis(sorted(hypotheses, reverse=True))
+
+        # hypotheses = list()
+        #
+        # if missed_detection is None:
+        #     missed_detection = MissedDetection(timestamp=timestamp)
+        #
+        # # Common state & measurement prediction
+        # prediction = self.predictor.predict(track, timestamp=timestamp)
+        # # Missed detection hypothesis with distance as 'missed_distance'
+        # hypotheses.append(
+        #     SingleDistanceHypothesis(
+        #         prediction,
+        #         missed_detection,  # MissedDetection(timestamp=timestamp),
+        #         self.missed_distance))
+        #
+        # # True detection hypotheses
         # for detection in detections:
         #
         #     # Re-evaluate prediction
         #     prediction = self.predictor.predict(
-        #         track, timestamp=detection.timestamp, **kwargs)
+        #         track, timestamp=detection.timestamp)
         #
         #     # Compute measurement prediction and distance measure
-        #     measurement_prediction = self.updater.predict_measurement(
-        #         prediction, detection.measurement_model, **kwargs)
+        #     measurement_prediction = self.updater.predict_measurement(prediction)
         #     distance = self.measure(measurement_prediction, detection)
         #
         #     if self.include_all or distance < self.missed_distance:
@@ -120,7 +122,7 @@ class DistanceHypothesiser(Hypothesiser):
         #                 detection,
         #                 distance,
         #                 measurement_prediction))
-
-        mult2 = copy(mult)
-        mult2.single_hypotheses = sorted(hypotheses, reverse=True)
-        return mult2  # MultipleHypothesis(sorted(hypotheses, reverse=True))
+        # mult2 = copy(mult)
+        # mult2.single_hypotheses = sorted(hypotheses, reverse=True)
+        # return mult2
+        # return MultipleHypothesis(sorted(hypotheses, reverse=True))
