@@ -231,7 +231,7 @@ class LongLatTPRTreeMixIn(TPRTreeMixIn):
         max_vel = (vel_vector + vel_delta).ravel()
 
         return ((*min_pos, *max_pos), (*min_vel, *max_vel),
-                track.timestamp.timestamp())
+                track.timestamp.astimezone(datetime.timezone.utc).timestamp())
 
     def _get_min_max(self):
         minlons = [self._coords[key][0][0] for key in self._coords]
