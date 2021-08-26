@@ -14,6 +14,7 @@ import csv
 from ..functions import mod_bearing
 from ..functions import cart2pol
 # from ..models.measurement.nonlinear import RangeBearingGaussianToCartesian
+from ..types.prediction import StatePrediction
 
 
 class MongoWriter(Writer):
@@ -224,6 +225,7 @@ class MongoWriter(Writer):
             # Handle date values of '9999-12-31 23:59:59.000' or None
             return None
 
+
 class MongoWriter_EE(MongoWriter):
 
     def __init__(self):
@@ -280,12 +282,12 @@ class MongoWriter_EE(MongoWriter):
                            'spare4', 'InvalidLonLat', 'ZeroZeroLonLat',
                            'ModifiedLonLat', 'type']
         self.fields = self.main_fields + self.new_fields
-        with open('ss_tracks_live_ee2.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=self.fields)
-            writer.writeheader()
-        with open('ss_points_live_ee2.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=self.fields)
-            writer.writeheader()
+        # with open('ss_tracks_live_ee2.csv', 'a', newline='') as f:
+        #     writer = csv.DictWriter(f, fieldnames=self.fields)
+        #     writer.writeheader()
+        # with open('ss_points_live_ee2.csv', 'a', newline='') as f:
+        #     writer = csv.DictWriter(f, fieldnames=self.fields)
+        #     writer.writeheader()
 
     def write(self, tracks, detections, host_name, host_port, db_name,
               collection_name, drop=False, timestamp=None):
@@ -304,15 +306,16 @@ class MongoWriter_EE(MongoWriter):
         track_documents = []
         point_documents = []
         for track in tracks:
-            if timestamp is not None and track.last_update.timestamp != \
-                    timestamp:
+            # if timestamp is not None and track.last_update.timestamp != \
+            #         timestamp:
+            #     continue
+            if isinstance(track.state, StatePrediction):
                 continue
             metadata = track.metadata
-            positions = [{'Longitude': float(state.state_vector[0, 0]),
-                          'Latitude': float(state.state_vector[2, 0])}
-                         for state in track.states]
-            latest_position = positions[-1]
-
+            latest_position = {
+                'Longitude': float(state.state_vector[0, 0]),
+                'Latitude': float(state.state_vector[2, 0])}
+            stopped_prob = track.state.weights[1, 0]
             speed = float(metadata['SOG']) \
                 if (metadata['SOG'] and not metadata['SOG'] == 'None')\
                 else 0
@@ -356,30 +359,29 @@ class MongoWriter_EE(MongoWriter):
                 'DataType': 'fused',
                 'Speed': speed,
                 'Heading': heading,
-                'LRIMOShipNo': int(metadata['IMO']) if metadata['IMO'] else -1,
+                'LRIMOShipNo': int(metadata['IMO']) if ('IMO' in metadata and metadata['IMO']) else -1,
                 'MMSI': int(metadata.get('MMSI')),
-                'ShipName': metadata['ShipName'],
-                'ShipType': metadata['ShipType'],
+                'ShipName': metadata['Vessel_Name'] if 'Vessel_Name' in metadata else '',
+                'ShipType': metadata['Ship_Type'] if 'Ship_Type' in metadata else '',
                 'AdditionalInfo': '',
-                'DetectionHistory': detection_history,
-                'CallSign': metadata['Call_sign'],
-                'Draught': float(metadata['Draught']) if metadata['Draught']
-                                                        else -1,
-                'Destination': metadata['Destination'],
+                'CallSign': metadata['Call_sign'] if 'Call_sign' in metadata else '',
+                'Draught': float(metadata['Draught']) if ('Draught' in metadata and metadata['Draught']) else -1,
+                'Destination': metadata['Destination'] if 'Destination' in metadata else '',
                 'Location': {
                     'type': "Point",
                     'coordinates': latest_position
-                }
+                },
+                'StoppedProbability': stopped_prob
             }
             for field in self.new_fields:
                 dicts = {field: track.metadata.get(field)}
                 doc.update(dicts)
             point_documents.append(copy(doc))
             track_documents.append(copy(doc))
-        # tracks_collection.insert_many(track_documents)
-        with open('ss_tracks_live_ee2.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=self.fields)
-            writer.writerows(track_documents)
+        tracks_collection.insert_many(track_documents)
+        # with open('ss_tracks_live_ee2.csv', 'a', newline='') as f:
+        #     writer = csv.DictWriter(f, fieldnames=self.fields)
+        #     writer.writerows(track_documents)
 
         # Detections
         for detection in detections:
@@ -417,15 +419,14 @@ class MongoWriter_EE(MongoWriter):
                 'DataType': 'self_reported',
                 'Speed': speed,
                 'Heading': heading,
-                 'LRIMOShipNo': int(metadata['IMO']) if metadata['IMO'] else -1,
+                'LRIMOShipNo': int(metadata['IMO']) if 'IMO' in metadata and metadata['IMO'] else -1,
                 'MMSI': int(metadata.get('MMSI')),
-                'ShipName': metadata['ShipName'],
-                'ShipType': metadata['ShipType'],
+                'ShipName': metadata['Vessel_Name'] if 'Vessel_Name' in metadata else '',
+                'ShipType': metadata['Ship_Type'] if 'Ship_Type' in metadata else '',
                 'AdditionalInfo': '',
                 'CallSign': metadata['Call_sign'],
-                'Draught': float(metadata['Draught'])
-                            if metadata['Draught'] else -1,
-                'Destination': metadata['Destination'],
+                'Draught': float(metadata['Draught']) if 'Draught' in metadata and metadata['Draught'] else -1,
+                'Destination': metadata['Destination'] if 'Destination' in metadata else '',
                 'Location': {
                     'type': "Point",
                     'coordinates': position
@@ -437,7 +438,7 @@ class MongoWriter_EE(MongoWriter):
             # values_list.append(values)
             # Insert values into Mongo
             point_documents.append(doc)
-        # points_collection.insert_many(point_documents)
-        with open('ss_points_live_ee2.csv', 'a', newline='') as f:
-            writer = csv.DictWriter(f, fieldnames=self.fields)
-            writer.writerows(point_documents)
+        points_collection.insert_many(point_documents)
+        # with open('ss_points_live_ee2.csv', 'a', newline='') as f:
+        #     writer = csv.DictWriter(f, fieldnames=self.fields)
+        #     writer.writerows(point_documents)
