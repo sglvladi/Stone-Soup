@@ -173,8 +173,8 @@ if __name__ == '__main__':
                                       np.deg2rad(0.0001 ** 2), np.deg2rad(0.0003 ** 2)]))
     prior_state = GaussianStatePrediction(state_vector, covar)
     initiator = LinearMeasurementInitiatorMixture(prior_state, measurement_model)
-    initiator = StatesLengthLimiter(initiator, max_length=10)
     # initiator = SimpleMeasurementInitiator(prior_state, measurement_model)
+    initiator = StatesLengthLimiter(initiator, max_length=10)
 
     # Track Deleter
     # =============
@@ -270,8 +270,6 @@ if __name__ == '__main__':
             for track in tracks:
                 for detection in static_detections:
                     if detection.metadata["MMSI"] == track.metadata["MMSI"]:
-                        static_fields = ['Vessel_Name', 'Ship_Type',
-                                         'Destination', 'IMO']
                         track.metadata.update({x: detection.metadata[x] for x in static_fields})
 
             # Perform data association
