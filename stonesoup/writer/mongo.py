@@ -313,8 +313,8 @@ class MongoWriter_EE(MongoWriter):
                 continue
             metadata = track.metadata
             latest_position = {
-                'Longitude': float(state.state_vector[0, 0]),
-                'Latitude': float(state.state_vector[2, 0])}
+                'Longitude': float(track.state.state_vector[0, 0]),
+                'Latitude': float(track.state.state_vector[2, 0])}
             stopped_prob = track.state.weights[1, 0]
             speed = float(metadata['SOG']) \
                 if (metadata['SOG'] and not metadata['SOG'] == 'None')\
@@ -359,7 +359,7 @@ class MongoWriter_EE(MongoWriter):
                 'DataType': 'fused',
                 'Speed': speed,
                 'Heading': heading,
-                'LRIMOShipNo': int(metadata['IMO']) if ('IMO' in metadata and metadata['IMO']) else -1,
+                'LRIMOShipNo': int(float(metadata['IMO'])) if ('IMO' in metadata and metadata['IMO']) else -1,
                 'MMSI': int(metadata.get('MMSI')),
                 'ShipName': metadata['Vessel_Name'] if 'Vessel_Name' in metadata else '',
                 'ShipType': metadata['Ship_Type'] if 'Ship_Type' in metadata else '',
@@ -410,8 +410,10 @@ class MongoWriter_EE(MongoWriter):
             # movement_epoch_in_ms = self.epoch_in_ms_from_date(movement_date)
 
             # Prepare values to insert
+
             doc = {
-                'ID': metadata["_id"],
+                # 'ID': metadata["_id"],
+                'ID': metadata["ID"],
                 'Latitude': position.get('Latitude'),
                 'Longitude': position.get('Longitude'),
                 'ReceivedTime': received_epoch_in_ms,
@@ -424,7 +426,7 @@ class MongoWriter_EE(MongoWriter):
                 'ShipName': metadata['Vessel_Name'] if 'Vessel_Name' in metadata else '',
                 'ShipType': metadata['Ship_Type'] if 'Ship_Type' in metadata else '',
                 'AdditionalInfo': '',
-                'CallSign': metadata['Call_sign'],
+                'CallSign': metadata['Call_sign'] if 'Call_sign' in metadata else '',
                 'Draught': float(metadata['Draught']) if 'Draught' in metadata and metadata['Draught'] else -1,
                 'Destination': metadata['Destination'] if 'Destination' in metadata else '',
                 'Location': {
