@@ -139,7 +139,7 @@ if __name__ == '__main__':
                                       np.deg2rad(0.0001 ** 2), np.deg2rad(0.0003 ** 2)]))
     prior_state = GaussianStatePrediction(state_vector, covar)
     initiator = LinearMeasurementInitiatorMixture(prior_state, measurement_model)
-    initiator = StatesLengthLimiter(initiator, max_length=10)
+    initiator = StatesLengthLimiter(initiator, max_length=2)
 
     # Track Deleter
     # =============
