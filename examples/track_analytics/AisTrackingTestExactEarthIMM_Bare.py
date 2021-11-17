@@ -37,7 +37,7 @@ if __name__ == '__main__':
     ##############################################################################
     # TRACKING LIMIT SELECTION                                                   #
     ##############################################################################
-    TARGET = "GREECE"
+    TARGET = "FULL"
     LIMITS = {
         "TEST": {
             "LON_MIN": -62.,
@@ -181,7 +181,7 @@ if __name__ == '__main__':
                                   if detection.metadata["type"] == "dynamic"]
             for detection in dynamic_detections:
                 for field in static_fields:
-                    del detection.metadata[field]
+                    detection.metadata.pop(field, None)
             static_detections = [detection for detection in detections
                                  if detection.metadata["type"] == "static"]
             detections = set(dynamic_detections)
@@ -226,12 +226,14 @@ if __name__ == '__main__':
             print("Measurements: " + str(len(detections)) + " - Time: " + scan_time.strftime('%H:%M:%S %d/%m/%Y'))
 
             # Process static AIS
+            static_fields = set(['Vessel_Name', 'Ship_Type',
+                                 'Destination', 'IMO'])
             for track in tracks:
                 for detection in static_detections:
                     if detection.metadata["MMSI"] == track.metadata["MMSI"]:
-                        static_fields = ['Vessel_Name', 'Ship_Type',
-                                         'Destination', 'IMO']
-                        track.metadata.update({x: detection.metadata[x] for x in static_fields})
+                        metadata_fields = set(detection.metadata)
+                        fields_to_update = static_fields.intersection(metadata_fields)
+                        track.metadata.update({x: detection.metadata[x] for x in fields_to_update})
 
             # Perform data association
             print("Tracking.... NumTracks: {}".format(str(len(tracks))))
