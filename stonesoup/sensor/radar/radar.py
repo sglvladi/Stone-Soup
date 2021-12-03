@@ -16,7 +16,7 @@ from ...models.measurement.nonlinear import \
      CartesianToBearingRangeRate, CartesianToElevationBearingRangeRate)
 from ...sensor.sensor import Sensor
 from ...types.array import CovarianceMatrix
-from ...types.detection import TrueDetection
+from ...types.detection import TrueDetection, Clutter, Detection
 from ...types.groundtruth import GroundTruthState
 from ...types.numeric import Probability
 from ...types.state import State, StateVector
@@ -63,6 +63,49 @@ class RadarBearingRange(Sensor):
                                       groundtruth_path=truth)
             detections.add(detection)
 
+        return detections
+
+
+class RadarBearingRangeWithClutter(RadarBearingRange):
+    """A simple radar sensor that generates measurements of targets, using a
+    :class:`~.CartesianToBearingRange` model, relative to its position.
+
+    Note
+    ----
+    The current implementation of this class assumes a 3D Cartesian plane.
+
+    """
+
+    clutter_rate: float = Property(doc='')
+    max_range: float = Property(doc='')
+    prob_detect: Probability = Property(doc='')
+
+    def measure(self, ground_truths: Set[GroundTruthState], noise: Union[np.ndarray, bool] = True,
+                timestamp=None, **kwargs) -> Set[Detection]:
+
+        measurement_model = CartesianToBearingRange(
+            ndim_state=self.ndim_state,
+            mapping=self.position_mapping,
+            noise_covar=self.noise_covar,
+            translation_offset=self.position,
+            rotation_offset=self.orientation)
+
+        detections = set()
+        for truth in ground_truths:
+            if np.random.rand() < self.prob_detect:
+                measurement_vector = measurement_model.function(truth, noise=noise, **kwargs)
+                detection = TrueDetection(measurement_vector,
+                                          measurement_model=measurement_model,
+                                          timestamp=truth.timestamp,
+                                          groundtruth_path=truth)
+                detections.add(detection)
+        for _ in range(np.random.poisson(self.clutter_rate)):
+            rhi = np.random.uniform(self.max_range)
+            phi = np.random.uniform(-np.pi, np.pi)
+            detection = Clutter(StateVector([phi, rhi]),
+                                measurement_model=measurement_model,
+                                timestamp=timestamp)
+            detections.add(detection)
         return detections
 
 
