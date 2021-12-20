@@ -25,3 +25,8 @@ Gaussian Mixture
 .. automodule:: stonesoup.hypothesiser.gaussianmixture
     :show-inheritance:
 
+Multi-Frame Assignment
+----------------------
+
+.. automodule:: stonesoup.hypothesiser.mfa
+    :show-inheritance:

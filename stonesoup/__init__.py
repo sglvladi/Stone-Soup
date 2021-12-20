@@ -13,5 +13,6 @@ __copyright__ = '''\
 © Crown Copyright 2017-2021 Defence Science and Technology Laboratory UK
 © Crown Copyright 2018-2021 Defence Research and Development Canada / Recherche et développement pour la défense Canada
 © Copyright 2018-2021 University of Liverpool UK
+© Copyright 2021 Roke Manor Research Ltd UK
 '''  # noqa: E501
 __license__ = 'MIT'
