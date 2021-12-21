@@ -1,9 +1,10 @@
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
+from matplotlib.patches import Ellipse
+
 from stonesoup.dataassociator.neighbour import GNNWith2DAssignment
 from stonesoup.hypothesiser.distance import DistanceHypothesiser
-
 from stonesoup.types.state import State
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.platform.base import MovingPlatform
@@ -27,6 +28,44 @@ from stonesoup.measures import Mahalanobis
 from stonesoup.types.state import GaussianState
 from stonesoup.tracker.simple import MultiTargetMixtureTracker
 
+def plot_covar(cov, pos, nstd=1, ax=None, **kwargs):
+    """
+    Plots an `nstd` sigma error ellipse based on the specified covariance
+    matrix (`cov`). Additional keyword arguments are passed on to the
+    ellipse patch artist.
+    Parameters
+    ----------
+        cov : The 2x2 covariance matrix to base the ellipse on
+        pos : The location of the center of the ellipse. Expects a 2-element
+            sequence of [x0, y0].
+        nstd : The radius of the ellipse in numbers of standard deviations.
+            Defaults to 2 standard deviations.
+        ax : The axis that the ellipse will be plotted on. Defaults to the
+            current axis.
+        Additional keyword arguments are pass on to the ellipse patch.
+    Returns
+    -------
+        A matplotlib ellipse artist
+    """
+
+    def eigsorted(cov):
+        vals, vecs = np.linalg.eigh(cov)
+        order = vals.argsort()[::-1]
+        return vals[order], vecs[:, order]
+
+    if ax is None:
+        ax = plt.gca()
+
+    vals, vecs = eigsorted(cov)
+    theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+
+    # Width and height are "full" widths, not radius
+    width, height = 2 * nstd * np.sqrt(vals)
+    ellip = Ellipse(xy=pos, width=width, height=height, angle=theta,
+                    alpha=0.4, **kwargs)
+
+    ax.add_artist(ellip)
+    return ellip
 
 # Parameters
 clutter_rate = 5                                    # Mean number of clutter points per scan
@@ -164,6 +203,9 @@ for (timestamp, ctracks1), (_, ctracks2), (_, ctracks3) in zip(*trackers):
         for track in tracks:
             data = np.array([state.state_vector for state in track])
             plt.plot(data[:, 0], data[:, 2], f'-{color}')
+            plot_covar(track.state.covar[[0, 2], :][:, [0, 2]],
+                       track.state.mean[[0, 2], :],
+                       ax=plt.gca())
 
     # Add legend info
     for i, color in enumerate(colors):
