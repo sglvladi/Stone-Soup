@@ -10,7 +10,7 @@ from ..initiator import Initiator
 from ..updater import Updater
 from ..types.array import StateVectors
 from ..types.prediction import GaussianStatePrediction
-from ..types.update import GaussianStateUpdate
+from ..types.update import GaussianStateUpdate, GaussianMixtureUpdate
 from ..functions import gm_reduce_single
 from stonesoup.buffered_generator import BufferedGenerator
 
@@ -198,6 +198,58 @@ class MultiTargetMixtureTracker(Tracker):
                     if hyp.weight > missed_detection_weight:
                         if hyp.measurement in unassociated_detections:
                             unassociated_detections.remove(hyp.measurement)
+
+            tracks -= self.deleter.delete_tracks(tracks)
+            tracks |= self.initiator.initiate(unassociated_detections, time)
+
+            yield time, tracks
+
+
+class MultiTargetMultiMixtureTracker(Tracker):
+    """A simple multi target tracker that receives associations from a
+    (Gaussian) Mixture associator.
+
+    Track multiple objects using Stone Soup components. The tracker works by
+    first calling the :attr:`data_associator` with the active tracks, and then
+    either updating the track state with the result of the
+    :attr:`data_associator` that reduces the (Gaussian) Mixture of all
+    possible track-detection associations, or with the prediction if no
+    detection is associated to the track. Tracks are then checked for deletion
+    by the :attr:`deleter`, and remaining unassociated detections are passed
+    to the :attr:`initiator` to generate new tracks.
+
+    Parameters
+    ----------
+    """
+    initiator: Initiator = Property(doc="Initiator used to initialise the track.")
+    deleter: Deleter = Property(doc="Initiator used to initialise the track.")
+    detector: DetectionReader = Property(doc="Detector used to generate detection objects.")
+    data_associator: DataAssociator = Property(
+        doc="Association algorithm to pair predictions to detections")
+    updater: Updater = Property(doc="Updater used to update the track object to the new state.")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+    @BufferedGenerator.generator_method
+    def tracks_gen(self):
+        tracks = set()
+
+        for time, detections in self.detector:
+
+            associations = self.data_associator.associate(
+                tracks, detections, time)
+            unassociated_detections = set(detections)
+            for track, multihypothesis in associations.items():
+                components = []
+                for hypothesis in multihypothesis:
+                    if not hypothesis:
+                        components.append(hypothesis.prediction)
+                    else:
+                        unassociated_detections -= {hypothesis.measurement}
+                        update = self.updater.update(hypothesis)
+                        components.append(update)
+                track.append(GaussianMixtureUpdate(components=components, hypothesis=multihypothesis))
 
             tracks -= self.deleter.delete_tracks(tracks)
             tracks |= self.initiator.initiate(unassociated_detections, time)
