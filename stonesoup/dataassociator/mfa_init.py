@@ -41,7 +41,7 @@ class Hyp:
     def create(trackID: int, cost: float, measHistory: Sequence[int], slide_window: int):
         if len(measHistory) < slide_window:
             padding = (0,) * (slide_window - len(measHistory))
-            measHistorySlideWindow = np.concatenate((padding, measHistory), dtype=np.int32)
+            measHistorySlideWindow = np.concatenate((padding, measHistory))
         else:
             measHistorySlideWindow = np.array(measHistory[-slide_window:], dtype=np.int32)
         return Hyp(cost, trackID, measHistory, measHistorySlideWindow, False)

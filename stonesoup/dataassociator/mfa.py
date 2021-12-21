@@ -16,6 +16,8 @@ class MFADataAssociator(DataAssociator):
     slide_window: int = Property(doc='Length of MFA slide window')
 
     def associate(self, tracks, detections, timestamp, **kwargs):
+        if not len(tracks):
+            return dict()
         # Generate a set of hypotheses for each track on each detection
         tracks_list = list(tracks)
         hypotheses = [
