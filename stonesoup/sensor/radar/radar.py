@@ -90,12 +90,20 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
             translation_offset=self.position,
             rotation_offset=self.orientation)
 
+        m_model = CartesianToBearingRange(
+            ndim_state=4,
+            mapping=self.position_mapping[0:2],
+            noise_covar=self.noise_covar,
+            translation_offset=self.position[0:2],
+            rotation_offset=self.orientation)
+
         detections = set()
         for truth in ground_truths:
             if np.random.rand() < self.prob_detect:
                 measurement_vector = measurement_model.function(truth, noise=noise, **kwargs)
+
                 detection = TrueDetection(measurement_vector,
-                                          measurement_model=measurement_model,
+                                          measurement_model=m_model,
                                           timestamp=truth.timestamp,
                                           groundtruth_path=truth)
                 detections.add(detection)
@@ -103,7 +111,7 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
             rhi = np.random.uniform(self.max_range)
             phi = np.random.uniform(-np.pi, np.pi)
             detection = Clutter(StateVector([phi, rhi]),
-                                measurement_model=measurement_model,
+                                measurement_model=m_model,
                                 timestamp=timestamp)
             detections.add(detection)
         return detections
