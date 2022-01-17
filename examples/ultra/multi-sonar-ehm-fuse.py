@@ -2,14 +2,11 @@ import numpy as np
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
-import pickle
-import sys
-sys.setrecursionlimit(10000000)
 
 from stonesoup.dataassociator.neighbour import GNNWith2DAssignment
 from stonesoup.hypothesiser.distance import DistanceHypothesiser
 from stonesoup.types.numeric import Probability
-from stonesoup.types.state import State
+from stonesoup.types.state import State, GaussianState
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.platform.base import MovingPlatform
 from stonesoup.models.transition.linear import (CombinedLinearGaussianTransitionModel,
@@ -29,10 +26,10 @@ from stonesoup.deleter.time import UpdateTimeStepsDeleter
 from stonesoup.deleter.error import CovarianceBasedDeleter
 from stonesoup.deleter.multi import CompositeDeleter
 from stonesoup.measures import Mahalanobis
-from stonesoup.types.state import GaussianState
 from stonesoup.tracker.simple import MultiTargetMixtureTracker
 from stonesoup.predictor.twostate import TwoStatePredictor
 from stonesoup.updater.twostate import TwoStateKalmanUpdater
+from stonesoup.reader.track import TrackReader
 from stonesoup.reader.tracklet import TrackletExtractor, PseudoMeasExtractor
 from stonesoup.tracker.fuse import FuseTracker
 
@@ -96,8 +93,8 @@ clutter_rate = 5                                    # Mean number of clutter poi
 max_range = 100                                     # Max range of sensor (meters)
 surveillance_area = np.pi*max_range**2              # Surveillance region area
 clutter_density = clutter_rate/surveillance_area    # Mean number of clutter points per unit area
-prob_detect = 0.99                                  # Probability of Detection
-num_timesteps = 100                                 # Number of simulation timesteps
+prob_detect = 0.9                                   # Probability of Detection
+num_timesteps = 101                                 # Number of simulation timesteps
 PLOT = True
 
 # Simulation start time
@@ -198,13 +195,14 @@ for detector in detectors:
 
 
 # Fusion Tracker
-tracklet_extractor = TrackletExtractor(trackers, transition_model, fuse_interval=timedelta(seconds=3))
+track_readers = [TrackReader(t, run_async=False) for t in trackers]
+tracklet_extractor = TrackletExtractor(track_readers, transition_model, fuse_interval=timedelta(seconds=3))
 detector = PseudoMeasExtractor(tracklet_extractor)
 two_state_predictor = TwoStatePredictor(transition_model)
 two_state_updater = TwoStateKalmanUpdater(None, True)
 hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,
                                             updater=two_state_updater,
-                                            clutter_spatial_density=Probability(-70, log_value=True),
+                                            clutter_spatial_density=Probability(-80, log_value=True),
                                             prob_detect=Probability(prob_detect),
                                             prob_gate=Probability(0.99))
 fuse_associator = GNNWith2DAssignment(hypothesiser1)
@@ -214,6 +212,7 @@ fuse_tracker = FuseTracker(detector, prior, two_state_predictor, two_state_updat
 
 tracks = set()
 for i, (timestamp, ctracks) in enumerate(fuse_tracker):
+    print(f'{timestamp-start_time} - No. Tracks: {len(ctracks)}')
     tracks.update(ctracks)
     # Plot
     if PLOT:
@@ -236,12 +235,11 @@ for i, (timestamp, ctracks) in enumerate(fuse_tracker):
             idx = [4, 6]
             for tracklet in tracklets:
                 data = np.array([s.mean for s in tracklet.posteriors])
-                plt.plot(data[:, 0], data[:, 2], f':{color}')
+                plt.plot(data[:, 4], data[:, 6], f':{color}')
 
         for track in tracks:
             data = np.array([state.state_vector for state in track])
-            plt.plot(data[:, 0], data[:, 2], '-*m')
-
+            plt.plot(data[:, 4], data[:, 6], '-*m')
 
         # Add legend info
         for i, color in enumerate(colors):
