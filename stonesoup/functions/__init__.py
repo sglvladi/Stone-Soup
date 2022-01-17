@@ -3,6 +3,7 @@
 import copy
 
 import numpy as np
+from scipy.linalg import block_diag
 
 from ..types.numeric import Probability
 from ..types.array import StateVector, StateVectors, CovarianceMatrix
@@ -675,3 +676,12 @@ def sde_euler_maruyama_integration(fun, t_values, state_x0):
         a, b = fun(state_x, t)
         state_x.state_vector = state_x.state_vector + a*delta_t + b@delta_w
     return state_x.state_vector
+
+
+def predict_state_to_two_state(old_mean, old_cov, tx_model, dt):
+    A = tx_model.matrix(time_interval=dt)
+    Q = tx_model.covar(time_interval=dt)
+    statedim = A.shape[0]
+    AA = np.concatenate((np.eye(statedim), A))
+    QQ = block_diag(np.zeros((statedim, statedim)), Q)
+    return AA @ old_mean, AA @ old_cov @ AA.T + QQ

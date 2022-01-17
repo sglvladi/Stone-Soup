@@ -5,7 +5,7 @@ from ..base import Property
 from .base import Type
 from .hypothesis import Hypothesis
 from .state import State, GaussianState, ParticleState, SqrtGaussianState, \
-    WeightedGaussianState, TaggedWeightedGaussianState, InformationState
+    WeightedGaussianState, TaggedWeightedGaussianState, InformationState, TwoStateGaussianState
 from .mixture import GaussianMixture
 
 
@@ -58,6 +58,11 @@ class TaggedWeightedGaussianStateUpdate(Update, TaggedWeightedGaussianState):
     This is a simple Gaussian state update object, which, as the name suggests, is described
     by a Gaussian distribution, with an associated weight and unique tag.
     """
+
+
+class TwoStateGaussianStateUpdate(Update, TwoStateGaussianState):
+    """ A Gaussian state object representing the predicted distribution
+    :math:`p(x_{k+T}, x_{k} | Y)` """
 
 
 class GaussianMixtureUpdate(Update, GaussianMixture):

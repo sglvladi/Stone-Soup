@@ -1,3 +1,4 @@
+import numpy as np
 from scipy.stats import multivariate_normal as mn
 
 from .base import Hypothesiser
@@ -132,6 +133,58 @@ class PDAHypothesiser(Hypothesiser):
             pdf = Probability(log_pdf, log_value=True)
             probability = (pdf * self.prob_detect)/self.clutter_spatial_density
 
+            # True detection hypothesis
+            hypotheses.append(
+                SingleProbabilityHypothesis(
+                    prediction,
+                    detection,
+                    probability,
+                    measurement_prediction))
+
+        return MultipleHypothesis(hypotheses, normalise=True, total_weight=1)
+
+
+class PDAHypothesiserNoPrediction(PDAHypothesiser):
+    """Same as PDAHypothesiser, but without the prediction step and a new target probability"""
+
+    prob_new_targets: Probability = Property(doc='New target probability',
+                                             default=Probability(0.01))
+
+    def hypothesise(self, track, detections, timestamp, **kwargs):
+
+        hypotheses = list()
+
+        # Common state & measurement prediction
+        prediction = track.states[-1]
+        # Missed detection hypothesis
+        probability = self.prob_new_targets * Probability(1 - self.prob_detect * self.prob_gate)
+        hypotheses.append(
+            SingleProbabilityHypothesis(
+                prediction,
+                MissedDetection(timestamp=timestamp),
+                probability
+            ))
+
+        # True detection hypotheses
+        pdfs = [probability]
+        for detection in detections:
+            # Compute measurement prediction and probability measure
+            measurement_prediction = self.updater.predict_measurement(
+                prediction, detection.measurement_model, **kwargs)
+            # Calculate difference before to handle custom types (mean defaults to zero)
+            # This is required as log pdf coverts arrays to floats
+            try:
+                log_pdf = mn.logpdf(
+                    (detection.state_vector - measurement_prediction.state_vector).ravel(),
+                    cov=measurement_prediction.covar)
+            except np.linalg.LinAlgError:
+                print('Had to allow singular when evaluating likelihood!!!')
+                log_pdf = mn.logpdf(
+                    (detection.state_vector - measurement_prediction.state_vector).ravel(),
+                    cov=measurement_prediction.covar, allow_singular=True)
+            pdf = Probability(log_pdf, log_value=True)
+            probability = (pdf * self.prob_detect) / self.clutter_spatial_density
+            pdfs.append(pdf)
             # True detection hypothesis
             hypotheses.append(
                 SingleProbabilityHypothesis(

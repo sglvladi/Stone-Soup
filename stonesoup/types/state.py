@@ -426,6 +426,17 @@ class TaggedWeightedGaussianState(WeightedGaussianState):
             self.tag = str(uuid.uuid4())
 
 
+class TwoStateGaussianState(GaussianState):
+    """ A Gaussian state object representing the distribution :math:`p(x_{k+T}, x_{k} | Y)` """
+    start_time: datetime.datetime = Property(doc='Timestamp at t_k')
+    end_time: datetime.datetime = Property(doc='Timestamp at t_{k+T}')
+    # scan_id: int = Property(doc='The scan id')
+
+    @property
+    def timestamp(self):
+        return self.end_time
+
+
 class ParticleState(Type):
     """Particle State type
 

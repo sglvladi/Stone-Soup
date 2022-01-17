@@ -5,7 +5,7 @@ from ..base import Property
 from .array import CovarianceMatrix
 from .base import Type
 from .state import (State, GaussianState, ParticleState, SqrtGaussianState, InformationState,
-                    TaggedWeightedGaussianState, WeightedGaussianState)
+                    TaggedWeightedGaussianState, WeightedGaussianState, TwoStateGaussianState)
 from ..models.transition.base import TransitionModel
 
 
@@ -78,6 +78,11 @@ class TaggedWeightedGaussianStatePrediction(Prediction,
     suggests, is described by a Gaussian distribution, with an associated
     weight and unique tag.
     """
+
+
+class TwoStateGaussianStatePrediction(Prediction, TwoStateGaussianState):
+    """ A Gaussian state object representing the predicted distribution
+    :math:`p(x_{k+T}, x_{k} | Y)` """
 
 
 class GaussianMeasurementPrediction(MeasurementPrediction, GaussianState):
