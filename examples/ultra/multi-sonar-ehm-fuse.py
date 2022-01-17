@@ -3,6 +3,8 @@ from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 import pickle
+import sys
+sys.setrecursionlimit(10000000)
 
 from stonesoup.dataassociator.neighbour import GNNWith2DAssignment
 from stonesoup.hypothesiser.distance import DistanceHypothesiser
@@ -30,7 +32,8 @@ from stonesoup.measures import Mahalanobis
 from stonesoup.types.state import GaussianState
 from stonesoup.tracker.simple import MultiTargetMixtureTracker
 
-from tracklet import TrackletExtractor, TwoStatePredictor, CustomPDAHypothesiser, FuseTracker
+from tracklet_v2 import TwoStatePredictor, CustomPDAHypothesiser, FuseTracker, SensorTracks, \
+    TrackletExtractor, PseudoMeasExtractor, TwoStateKalmanUpdater
 
 
 def plot_covar(cov, pos, nstd=1, ax=None, **kwargs):
@@ -72,6 +75,7 @@ def plot_covar(cov, pos, nstd=1, ax=None, **kwargs):
     ax.add_artist(ellip)
     return ellip
 
+
 def plot_tracklets(all_tracklets):
     colors = ['r', 'g', 'b']
     idx = [4, 6]
@@ -84,6 +88,7 @@ def plot_tracklets(all_tracklets):
                            tracklet.twoStatePostMeans[idx, j],
                            ax=plt.gca())
 
+
 # Parameters
 np.random.seed(1000)
 clutter_rate = 5                                    # Mean number of clutter points per scan
@@ -91,7 +96,7 @@ max_range = 100                                     # Max range of sensor (meter
 surveillance_area = np.pi*max_range**2              # Surveillance region area
 clutter_density = clutter_rate/surveillance_area    # Mean number of clutter points per unit area
 prob_detect = 0.99                                  # Probability of Detection
-num_timesteps = 50                                 # Number of simulation timesteps
+num_timesteps = 100                                 # Number of simulation timesteps
 PLOT = True
 
 # Simulation start time
@@ -190,20 +195,26 @@ for detector in detectors:
     tracker = MultiTargetMixtureTracker(initiator, deleter, detector, data_associator, updater)
     trackers.append(tracker)
 
+# tracklet_extractor = TrackletExtractor(transition_model)
+# pseudomeas_extractor = PseudoMeasExtractor()
 
-# Generate tracks and plot
-tracks1 = set()
-tracks2 = set()
-tracks3 = set()
-for (timestamp, ctracks1), (_, ctracks2), (_, ctracks3) in zip(*trackers):
-    tracks1.update(ctracks1)
-    tracks2.update(ctracks2)
-    tracks3.update(ctracks3)
 
+tracklet_extractor = TrackletExtractor(trackers, transition_model, fuse_interval=timedelta(seconds=3))
+detector = PseudoMeasExtractor(tracklet_extractor)
+predictor1 = TwoStatePredictor(transition_model)
+updater1 = TwoStateKalmanUpdater(None, True)
+hypothesiser1 = CustomPDAHypothesiser(predictor1, updater1, Probability(-70, log_value=True),
+                                      Probability(0.9),
+                                      Probability(0.99))
+associator1 = GNNWith2DAssignment(hypothesiser1)
+fuse_tracker = FuseTracker(detector, prior, predictor1, updater1, associator1, 1e-4, 0.9, 0.1)
+
+tracks = set()
+for i, (timestamp, ctracks) in enumerate(fuse_tracker):
+    tracks.update(ctracks)
     # Plot
     if PLOT:
         plt.clf()
-        all_tracks = [tracks1, tracks2, tracks3]
         all_detections = [tracker.detector.detections for tracker in trackers]
         colors = ['r', 'g', 'b']
         data = np.array([state.state_vector for state in target])
@@ -218,39 +229,30 @@ for (timestamp, ctracks1), (_, ctracks2), (_, ctracks3) in zip(*trackers):
                 x, y = detection.measurement_model.inverse_function(detection)[[0, 2]]
                 plt.plot(x, y, f'{color}x')
 
-        for i, (tracks, color) in enumerate(zip(all_tracks, colors)):
-            for track in tracks:
-                data = np.array([state.state_vector for state in track])
-                plt.plot(data[:, 0], data[:, 2], f'-{color}')
-                plot_covar(track.state.covar[[0, 2], :][:, [0, 2]],
-                           track.state.mean[[0, 2], :],
-                           ax=plt.gca())
+        for track in tracks:
+            data = np.array([state.state_vector for state in track])
+            plt.plot(data[:, 0], data[:, 2], '-')
+
+        for i, (tracklets, color) in enumerate(zip(tracklet_extractor.current[1], colors)):
+            idx = [4, 6]
+            for tracklet in tracklets:
+                data = np.array([s.mean for s in tracklet.posteriors])
+                plt.plot(data[:, 0], data[:, 2], f'-*{color}')
+                # for j in range(tracklet.twoStatePostMeans.shape[1]):
+                #     plot_covar(tracklet.twoStatePostCovs[idx, :, j][:, idx],
+                #                tracklet.twoStatePostMeans[idx, j],
+                #                ax=plt.gca())
+
+
 
         # Add legend info
         for i, color in enumerate(colors):
             plt.plot([], [], f'--{color}', label=f'Groundtruth (Sensor {i + 1})')
-            plt.plot([], [], f'-{color}', label=f'Tracks (Sensor {i+1})')
+            plt.plot([], [], f'-{color}', label=f'Tracks (Sensor {i + 1})')
             plt.plot([], [], f'x{color}', label=f'Detections (Sensor {i + 1})')
 
         plt.legend(loc='upper right')
         plt.xlim((-100, 100))
         plt.ylim((-100, 100))
         plt.pause(0.01)
-
-all_tracks = [tracks1, tracks2, tracks3]
-# pickle.dump([timestamps, all_tracks], open('tracks-ehm.pickle', 'wb'))
-fuse_times = np.array([t+timedelta(seconds=0.2) for t in timestamps])
-
-predictor1 = TwoStatePredictor(transition_model)
-updater1 = KalmanUpdater(None, True)
-hypothesiser1 = CustomPDAHypothesiser(predictor1, updater1, Probability(-70, log_value=True),
-                                      Probability(0.9),
-                                      Probability(0.99))
-associator1 = GNNWith2DAssignment(hypothesiser1)
-tracker = FuseTracker(prior, predictor1, updater1, associator1, 1e-4, 0.9, 0.1)
-fused_tracks = tracker.run_batch(all_tracks, fuse_times)
-for track in fused_tracks:
-    data = np.array([state.state_vector for state in track])
-    plt.plot(data[:, 0], data[:, 2], '*-')
-plt.show()
 
