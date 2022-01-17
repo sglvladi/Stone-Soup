@@ -2,6 +2,7 @@
 
 from abc import abstractmethod
 from collections import UserDict
+from typing import List
 import numpy as np
 
 from .base import Type
@@ -37,6 +38,14 @@ class SingleHypothesis(Hypothesis):
     def __bool__(self):
         return (not isinstance(self.measurement, MissedDetection)) and \
                (self.measurement is not None)
+
+
+class MultiHypothesis(Hypothesis):
+    """A hypothesis based on multiple measurements. """
+    prediction: Prediction = Property(doc="Predicted track state")
+    measurements: List[Detection] = Property(doc="Detection used for hypothesis and updating")
+    measurement_prediction: MeasurementPrediction = Property(
+        default=None, doc="Optional track prediction in measurement space")
 
 
 class SingleDistanceHypothesis(SingleHypothesis):
