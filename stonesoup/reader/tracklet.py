@@ -21,6 +21,8 @@ class TrackletExtractor(Base, BufferedGenerator):
     trackers: List[Tracker] = Property(doc='List of trackers from which to extract tracks')
     transition_model: TransitionModel = Property(doc='Transition model')
     fuse_interval: datetime.timedelta = Property(doc='Fusion interval')
+    real_time: bool = Property(doc='Flag indicating whether the extractor should report '
+                                   'real time', default=False)
 
     def __init__(self, *args, **kwargs):
         super(TrackletExtractor, self).__init__(*args, **kwargs)
@@ -45,12 +47,14 @@ class TrackletExtractor(Base, BufferedGenerator):
         for (timestamp, ctracks1), (_, ctracks2), (_, ctracks3) in zip(*self.trackers):
             alltracks = [SensorTracks(ctracks1, 0), SensorTracks(ctracks2, 1),
                          SensorTracks(ctracks3, 2)]
+            if self.real_time:
+                timestamp = datetime.datetime.now()
             if not len(self._fuse_times) or timestamp - self._fuse_times[-1] >= self.fuse_interval:
+                # Append current fuse time to fuse times
+                self._fuse_times.append(timestamp)
                 yield timestamp, self.get_tracklets_seq(alltracks, timestamp)
 
     def get_tracklets_seq(self, alltracks, timestamp):
-        # Append current fuse time to fuse times
-        self._fuse_times.append(timestamp)
         # Iterate over the local tracks of each sensor
         for sensor_tracks in alltracks:
             sensor_id = sensor_tracks.sensor_id
