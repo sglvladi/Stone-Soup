@@ -1,23 +1,24 @@
 import numpy as np
 from datetime import datetime, timedelta
+from copy import deepcopy, copy
 import matplotlib.pyplot as plt
 from matplotlib.patches import Ellipse
 
 from stonesoup.dataassociator.neighbour import GNNWith2DAssignment
 from stonesoup.hypothesiser.distance import DistanceHypothesiser
+from stonesoup.initiator.twostate import TwoStateInitiator
 from stonesoup.types.numeric import Probability
 from stonesoup.types.state import State, GaussianState
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.platform.base import MovingPlatform
 from stonesoup.models.transition.linear import (CombinedLinearGaussianTransitionModel,
                                                 ConstantVelocity, ConstantTurn)
-from stonesoup.models.measurement.linear import LinearGaussian
 from stonesoup.sensor.radar import RadarBearingRangeWithClutter
 from stonesoup.platform.base import MultiTransitionMovingPlatform
 from stonesoup.simulator.simple import DummyGroundTruthSimulator
 from stonesoup.simulator.platform import PlatformTargetDetectionSimulator
 from stonesoup.predictor.kalman import ExtendedKalmanPredictor
-from stonesoup.updater.kalman import ExtendedKalmanUpdater, KalmanUpdater
+from stonesoup.updater.kalman import ExtendedKalmanUpdater
 from stonesoup.hypothesiser.probability import PDAHypothesiser, PDAHypothesiserNoPrediction
 from stonesoup.gater.distance import DistanceGater
 from stonesoup.plugins.pyehm import JPDAWithEHM2
@@ -30,7 +31,8 @@ from stonesoup.tracker.simple import MultiTargetMixtureTracker
 from stonesoup.predictor.twostate import TwoStatePredictor
 from stonesoup.updater.twostate import TwoStateKalmanUpdater
 from stonesoup.reader.track import TrackReader
-from stonesoup.reader.tracklet import TrackletExtractor, PseudoMeasExtractor
+from stonesoup.reader.tracklet import TrackletExtractor, PseudoMeasExtractor, \
+    TrackletExtractorWithTracker
 from stonesoup.tracker.fuse import FuseTracker
 
 
@@ -72,19 +74,6 @@ def plot_covar(cov, pos, nstd=1, ax=None, **kwargs):
 
     ax.add_artist(ellip)
     return ellip
-
-
-def plot_tracklets(all_tracklets):
-    colors = ['r', 'g', 'b']
-    idx = [4, 6]
-    for i, (tracklets, color) in enumerate(zip(all_tracklets, colors)):
-        for tracklet in tracklets:
-            data = tracklet.twoStatePostMeans[[0, 2], :]
-            plt.plot(data[0, :], data[1, :], f'-*{color}')
-            for j in range(tracklet.twoStatePostMeans.shape[1]):
-                plot_covar(tracklet.twoStatePostCovs[idx, :, j][:, idx],
-                           tracklet.twoStatePostMeans[idx, j],
-                           ax=plt.gca())
 
 
 # Parameters
@@ -161,42 +150,43 @@ detector3 = PlatformTargetDetectionSimulator(groundtruth=gnd_simulator, platform
 detectors = [detector1, detector2, detector3]
 
 # Multi-Target Trackers (1 per platform)
+transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
+                                                              ConstantVelocity(0.05)])
+predictor = ExtendedKalmanPredictor(transition_model)
+updater = ExtendedKalmanUpdater(None, True)
+
+# Initiator components
+hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
+data_associator_init = GNNWith2DAssignment(hypothesiser_init)
+prior = GaussianState(StateVector([0, 0, 0, 0]),
+                      CovarianceMatrix(np.diag([50, 5, 50, 5])))
+deleter_init1 = UpdateTimeStepsDeleter(2)
+deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
+deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
+
+# Tracker components
+# MofN initiator
+initiator = MultiMeasurementInitiator(prior, None, deleter_init,
+                                      data_associator_init, updater, 10)
+deleter1 = UpdateTimeStepsDeleter(10)
+deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
+deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
+hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
+hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
+data_associator = JPDAWithEHM2(hypothesiser)
+core_tracker = MultiTargetMixtureTracker(initiator, deleter, None, data_associator, updater)
 trackers = []
 for detector in detectors:
-    transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                              ConstantVelocity(0.05)])
-    # This is a dummy measurement model and will not be used because detections carry their own
-    measurement_model = LinearGaussian(ndim_state=4, mapping=[0, 2],
-                                       noise_covar=CovarianceMatrix(np.diag([1., 1.])))
-    predictor = ExtendedKalmanPredictor(transition_model)
-    updater = ExtendedKalmanUpdater(measurement_model, True)
-
-    # Initiator components
-    hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
-    data_associator_init = GNNWith2DAssignment(hypothesiser_init)
-    prior = GaussianState(StateVector([0, 0, 0, 0]),
-                          CovarianceMatrix(np.diag([50, 5, 50, 5])))
-    deleter_init1 = UpdateTimeStepsDeleter(2)
-    deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
-    deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
-
-    # Tracker components
-    # MofN initiator
-    initiator = MultiMeasurementInitiator(prior, measurement_model, deleter_init,
-                                          data_associator_init, updater, 10)
-    deleter1 = UpdateTimeStepsDeleter(10)
-    deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
-    deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
-    hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
-    hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
-    data_associator = JPDAWithEHM2(hypothesiser)
-    tracker = MultiTargetMixtureTracker(initiator, deleter, detector, data_associator, updater)
+    tracker = deepcopy(core_tracker)
+    tracker.detector = detector
     trackers.append(tracker)
 
 
 # Fusion Tracker
 track_readers = [TrackReader(t, run_async=False) for t in trackers]
 tracklet_extractor = TrackletExtractor(track_readers, transition_model, fuse_interval=timedelta(seconds=3))
+# tracklet_extractor = TrackletExtractorWithTracker([], transition_model, fuse_interval=timedelta(seconds=3),
+#                                                   detectors=detectors, core_tracker=core_tracker)
 detector = PseudoMeasExtractor(tracklet_extractor)
 two_state_predictor = TwoStatePredictor(transition_model)
 two_state_updater = TwoStateKalmanUpdater(None, True)
@@ -206,7 +196,8 @@ hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,
                                             prob_detect=Probability(prob_detect),
                                             prob_gate=Probability(0.99))
 fuse_associator = GNNWith2DAssignment(hypothesiser1)
-fuse_tracker = FuseTracker(detector, prior, two_state_predictor, two_state_updater,
+initiator1 = TwoStateInitiator(prior, transition_model, two_state_updater)
+fuse_tracker = FuseTracker(detector, initiator1, two_state_predictor, two_state_updater,
                            fuse_associator, death_rate=1e-4, prob_detect=Probability(prob_detect),
                            delete_thresh=Probability(0.1))
 

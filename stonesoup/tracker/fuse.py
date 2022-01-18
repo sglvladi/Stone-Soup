@@ -14,13 +14,14 @@ from ..types.array import StateVector, CovarianceMatrix
 from ..types.update import Update
 from ..types.hypothesis import SingleHypothesis, MultiHypothesis
 from ..types.track import Track
+from ..initiator import Initiator
 
 from ..functions import predict_state_to_two_state
 
 
 class FuseTracker(Tracker):
     detector: PseudoMeasExtractor = Property(doc='The pseudo-measurement extractor')
-    prior: GaussianState = Property(doc='The prior used to initiate fused tracks')
+    initiator: Initiator = Property(doc='The initiator used to initiate fused tracks')
     predictor: Predictor = Property(doc='Predictor used to predict fused tracks')
     updater: Updater = Property(doc='Updater used to update fused tracks')
     associator: DataAssociator = Property(doc='Associator used to associate fused tracks with'
@@ -76,8 +77,8 @@ class FuseTracker(Tracker):
                 assoc_detections = set(
                     [hyp.measurement for hyp in associations.values() if hyp])
                 unassoc_detections = set(detections) - assoc_detections
-                tracks |= self.init_tracks(unassoc_detections, current_start_time,
-                                           current_end_time)
+                tracks |= self.initiator.initiate(unassoc_detections, current_start_time,
+                                                  current_end_time)
 
             tracks -= self.delete_tracks(tracks)
             yield timestamp, tracks
@@ -136,26 +137,6 @@ class FuseTracker(Tracker):
             non_exist_weight = 1 - track.exist_prob
             non_det_weight = (1 - self.prob_detect) * track.exist_prob
             track.exist_prob = non_det_weight / (non_exist_weight + non_det_weight)
-
-    def init_tracks(self, detections, start_time, end_time):
-        init_mean = self.prior.mean
-        init_cov = self.prior.covar
-        init_mean, init_cov = predict_state_to_two_state(init_mean, init_cov,
-                                                         self.transition_model,
-                                                         end_time - start_time)
-
-        prior = TwoStateGaussianState(init_mean, init_cov, start_time=start_time,
-                                      end_time=end_time)
-        new_tracks = set()
-        for detection in detections:
-            hyp = SingleHypothesis(prediction=prior, measurement=detection)
-            state = self.updater.update(hyp)
-            track = Track([state], id=self._max_track_id)
-            track.exist_prob = Probability(1)
-            self._max_track_id += 1
-            new_tracks.add(track)
-
-        return new_tracks
 
     def delete_tracks(self, tracks):
         del_tracks = set([track for track in tracks if track.exist_prob < self.delete_thresh])
