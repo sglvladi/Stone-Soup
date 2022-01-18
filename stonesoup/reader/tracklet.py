@@ -44,9 +44,9 @@ class TrackletExtractor(Base, BufferedGenerator):
         : set of :class:`~.Detection`
             Detections generate in the time step
         """
-        for (timestamp, ctracks1), (_, ctracks2), (_, ctracks3) in zip(*self.trackers):
-            alltracks = [SensorTracks(ctracks1, 0), SensorTracks(ctracks2, 1),
-                         SensorTracks(ctracks3, 2)]
+        for data in zip(*self.trackers):
+            timestamp = data[0][0]
+            alltracks = [SensorTracks(d[1], i) for i, d in enumerate(data)]
             if self.real_time:
                 timestamp = datetime.datetime.now()
             if not len(self._fuse_times) or timestamp - self._fuse_times[-1] >= self.fuse_interval:
@@ -258,6 +258,7 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
         """
         for timestamp, tracklets in self.tracklet_extractor:
             scans = self.get_scans_from_tracklets(tracklets, timestamp)
+            # yield timestamp, scans
             for scan in scans:
                 yield timestamp, scan
 
@@ -301,9 +302,8 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
             thesescans = [measdata[j] for j in idx2[i]]
             if not len(thesescans):
                 continue
-            scan = Scan()
-            scan.start_time = true_times[idx[i], 1]  # end_start_times[i, 1]
-            scan.end_time = true_times[idx[i], 0]
+            start_time = true_times[idx[i], 1]  # end_start_times[i, 1]
+            end_time = true_times[idx[i], 0]
             sens_ids = [m.metadata['sensor_id'] for m in thesescans]
             sens_ids, sidx = np.unique(sens_ids, return_index=True)
             sidx2 = []
@@ -312,11 +312,10 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
             else:
                 sidx2.append([i for i in range(sidx[-1], len(thesescans))])
             nsensscans = len(sidx)
-
-            scan.sensor_scans = []
+            scan = Scan(start_time, end_time, [])
             for s in range(nsensscans):
-                sscan = SensorScan()
-                sscan.sensor_id = sens_ids[s]
+                sensor_id = sens_ids[s]
+                sscan = SensorScan(sensor_id, [])
                 sscan.detections = [thesescans[j] for j in sidx2[s]]
                 for detection in sscan.detections:
                     detection.metadata['scan_id'] = scan.id
