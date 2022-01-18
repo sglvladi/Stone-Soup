@@ -195,7 +195,9 @@ hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,
                                             clutter_spatial_density=Probability(-80, log_value=True),
                                             prob_detect=Probability(prob_detect),
                                             prob_gate=Probability(0.99))
-fuse_associator = GNNWith2DAssignment(hypothesiser1)
+hypothesiser1 = DistanceGater(hypothesiser1, Mahalanobis(), 10)   # Uncomment to use JPDA+EHM2
+fuse_associator = JPDAWithEHM2(hypothesiser1)                     # in Fuse tracker
+# fuse_associator = GNNWith2DAssignment(hypothesiser1)          # Uncomment for GNN in Fuse Tracker
 initiator1 = TwoStateInitiator(prior, transition_model, two_state_updater)
 fuse_tracker = FuseTracker(detector, initiator1, two_state_predictor, two_state_updater,
                            fuse_associator, death_rate=1e-4, prob_detect=Probability(prob_detect),
