@@ -1,8 +1,8 @@
 from ..types.update import Update
-from .kalman import KalmanUpdater
+from .kalman import KalmanUpdater, ExtendedKalmanUpdater
 
 
-class TwoStateKalmanUpdater(KalmanUpdater):
+class TwoStateKalmanUpdater(ExtendedKalmanUpdater):
 
     def update(self, hypothesis, **kwargs):
         r"""The Kalman update method. Given a hypothesised association between
