@@ -148,7 +148,7 @@ class PDAHypothesiserNoPrediction(PDAHypothesiser):
     """Same as PDAHypothesiser, but without the prediction step and a new target probability"""
 
     prob_new_targets: Probability = Property(doc='New target probability',
-                                             default=Probability(0.01))
+                                             default=Probability(0.001))
 
     def hypothesise(self, track, detections, timestamp, **kwargs):
 
@@ -183,7 +183,12 @@ class PDAHypothesiserNoPrediction(PDAHypothesiser):
                     (detection.state_vector - measurement_prediction.state_vector).ravel(),
                     cov=measurement_prediction.covar, allow_singular=True)
             pdf = Probability(log_pdf, log_value=True)
-            probability = (pdf * self.prob_detect) / self.clutter_spatial_density
+            try:
+                clutter_density = detection.metadata['clutter_density']
+            except KeyError:
+                print('Using default CSD')
+                clutter_density = self.clutter_spatial_density
+            probability = (pdf * self.prob_detect) / clutter_density
             pdfs.append(pdf)
             # True detection hypothesis
             hypotheses.append(
