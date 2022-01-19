@@ -18,6 +18,7 @@ from stonesoup.platform.base import MultiTransitionMovingPlatform
 from stonesoup.simulator.simple import DummyGroundTruthSimulator
 from stonesoup.simulator.platform import PlatformTargetDetectionSimulator
 from stonesoup.predictor.kalman import ExtendedKalmanPredictor
+from stonesoup.types.update import Update
 from stonesoup.updater.kalman import ExtendedKalmanUpdater
 from stonesoup.hypothesiser.probability import PDAHypothesiser, PDAHypothesiserNoPrediction
 from stonesoup.gater.distance import DistanceGater
@@ -199,8 +200,10 @@ hypothesiser1 = DistanceGater(hypothesiser1, Mahalanobis(), 10)   # Uncomment to
 fuse_associator = JPDAWithEHM2(hypothesiser1)                     # in Fuse tracker
 # fuse_associator = GNNWith2DAssignment(hypothesiser1)          # Uncomment for GNN in Fuse Tracker
 initiator1 = TwoStateInitiator(prior, transition_model, two_state_updater)
-fuse_tracker = FuseTracker(detector, initiator1, two_state_predictor, two_state_updater,
-                           fuse_associator, death_rate=1e-4, prob_detect=Probability(prob_detect),
+fuse_tracker = FuseTracker(initiator=initiator1, predictor=two_state_predictor,
+                           updater=two_state_updater, associator=fuse_associator,
+                           detector=detector, death_rate=1e-4,
+                           prob_detect=Probability(prob_detect),
                            delete_thresh=Probability(0.1))
 
 tracks = set()
@@ -227,7 +230,7 @@ for i, (timestamp, ctracks) in enumerate(fuse_tracker):
         for i, (tracklets, color) in enumerate(zip(tracklet_extractor.current[1], colors)):
             idx = [4, 6]
             for tracklet in tracklets:
-                data = np.array([s.mean for s in tracklet.posteriors])
+                data = np.array([s.mean for s in tracklet.states if isinstance(s, Update)])
                 plt.plot(data[:, 4], data[:, 6], f':{color}')
 
         for track in tracks:
