@@ -2,6 +2,7 @@
 import uuid
 from typing import MutableSequence, MutableMapping
 
+from .hypothesis import MultiHypothesis
 from .multihypothesis import MultipleHypothesis
 from .state import State, StateMutableSequence
 from .update import Update
@@ -128,6 +129,10 @@ class Track(StateMutableSequence):
                     if hypothesis \
                             and hypothesis.measurement.metadata is not None:
                         self.metadata.update(hypothesis.measurement.metadata)
+            elif isinstance(state.hypothesis, MultiHypothesis):
+                hypothesis = state.hypothesis
+                for measurement in hypothesis.measurements:
+                    self.metadata.update(measurement.metadata)
             else:
                 hypothesis = state.hypothesis
                 if hypothesis and hypothesis.measurement.metadata is not None:
