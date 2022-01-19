@@ -1,20 +1,26 @@
 from typing import List
 import datetime
+from copy import deepcopy
 
 import numpy as np
 from scipy.linalg import block_diag, inv
 
+from .track import TrackReader
 from ..base import Base, Property
 from ..buffered_generator import BufferedGenerator
+from ..detector import Detector
 from ..models.transition.base import TransitionModel
 from ..models.measurement.linear import LinearGaussianPredefinedH
 from ..tracker.base import Tracker
+from ..types.numeric import Probability
+from ..types.prediction import TwoStateGaussianStatePrediction, Prediction
 from ..types.tracklet import Tracklet, SensorTracks, SensorTracklets, Scan, SensorScan
 from ..types.state import TwoStateGaussianState
 from ..types.array import StateVector
 from ..types.detection import Detection
 from ..functions import predict_state_to_two_state
 from ..predictor.kalman import ExtendedKalmanPredictor
+from ..types.update import TwoStateGaussianStateUpdate, Update
 
 
 class TrackletExtractor(Base, BufferedGenerator):
@@ -106,7 +112,7 @@ class TrackletExtractor(Base, BufferedGenerator):
         filtered_covs = np.stack([s.covar for s in track], 2)
         filtered_times = np.array([s.timestamp for s in track])
 
-        start_time = tracklet.posteriors[-1].timestamp
+        start_time = tracklet.states[-1].timestamp
         end_time = timestamp
         nupd = np.sum(np.logical_and(track_times > start_time, track_times <= end_time))
         if nupd > 0:
@@ -123,12 +129,15 @@ class TrackletExtractor(Base, BufferedGenerator):
             post_mean, post_cov, prior_mean, prior_cov = \
                 self.get_interval_dist(means, covs, times, end_states,
                                        self.transition_model, start_time, end_time)
-            prior = TwoStateGaussianState(prior_mean, prior_cov, start_time=start_time,
-                                          end_time=end_time)
-            posterior = TwoStateGaussianState(post_mean, post_cov, start_time=start_time,
-                                              end_time=end_time)
-            tracklet.priors.append(prior)
-            tracklet.posteriors.append(posterior)
+            prior = TwoStateGaussianStatePrediction(prior_mean, prior_cov,
+                                                    start_time=start_time,
+                                                    end_time=end_time)
+            posterior = TwoStateGaussianStateUpdate(post_mean, post_cov,
+                                                    hypothesis=None,
+                                                    start_time=start_time,
+                                                    end_time=end_time)
+            tracklet.states.append(prior)
+            tracklet.states.append(posterior)
 
     @classmethod
     def init_tracklet(cls, track, tx_model, fuse_times, sensor_id=None):
@@ -142,8 +151,7 @@ class TrackletExtractor(Base, BufferedGenerator):
             idx0 = idx0[0]
             idx1 = idx1[-1]
 
-        priors = []
-        posteriors = []
+        states = []
 
         filtered_means = np.concatenate([s.mean for s in track], 1)
         filtered_covs = np.stack([s.covar for s in track], 2)
@@ -170,17 +178,21 @@ class TrackletExtractor(Base, BufferedGenerator):
                     cls.get_interval_dist(means, covs, times, end_states,
                                           tx_model, start_time, end_time)
 
-                prior = TwoStateGaussianState(prior_mean, prior_cov, start_time=start_time,
-                                              end_time=end_time)
-                posterior = TwoStateGaussianState(post_mean, post_cov, start_time=start_time,
-                                                  end_time=end_time)
-                priors.append(prior)
-                posteriors.append(posterior)
+                prior = TwoStateGaussianStatePrediction(prior_mean, prior_cov,
+                                                        start_time=start_time,
+                                                        end_time=end_time)
+                posterior = TwoStateGaussianStateUpdate(post_mean, post_cov,
+                                                        hypothesis=None,
+                                                        start_time=start_time,
+                                                        end_time=end_time)
+
+                states.append(prior)
+                states.append(posterior)
 
         if not cnt:
             return None
 
-        tracklet = Tracklet(id=track.id, priors=priors, posteriors=posteriors, sensor_id=sensor_id)
+        tracklet = Tracklet(id=track.id, states=states, init_metadata={'sensor_id': sensor_id})
 
         return tracklet
 
@@ -234,6 +246,23 @@ class TrackletExtractor(Base, BufferedGenerator):
         return joint_smoothed_mean, joint_smoothed_cov
 
 
+class TrackletExtractorWithTracker(TrackletExtractor):
+    detectors: List[Detector] = Property(doc='List of detectors')
+    core_tracker: Tracker = Property(doc='Core tracker used for each detector')
+    run_async: bool = Property(
+        doc="If set to ``True``, the reader will read tracks from the tracker asynchronously "
+            "and only yield the latest set of tracks when iterated."
+            "Defaults to ``False``",
+        default=False)
+
+    def __init__(self, *args, **kwargs):
+        super(TrackletExtractorWithTracker, self).__init__(*args, **kwargs)
+        for detector in self.detectors:
+            tracker = deepcopy(self.core_tracker)
+            tracker.detector = detector
+            self.trackers.append(TrackReader(tracker, run_async=self.run_async))
+
+
 class PseudoMeasExtractor(Base, BufferedGenerator):
     tracklet_extractor: TrackletExtractor = Property(doc='The tracket extractor')
 
@@ -258,9 +287,9 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
         """
         for timestamp, tracklets in self.tracklet_extractor:
             scans = self.get_scans_from_tracklets(tracklets, timestamp)
-            # yield timestamp, scans
-            for scan in scans:
-                yield timestamp, scan
+            yield timestamp, scans
+            # for scan in scans:
+            #     yield timestamp, scan
 
     def get_scans_from_tracklets(self, tracklets, timestamp):
         measdata = self.get_pseudomeas(tracklets)
@@ -320,24 +349,29 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
                 for detection in sscan.detections:
                     detection.metadata['scan_id'] = scan.id
                     detection.metadata['sensor_scan_id'] = sscan.id
+                    detection.metadata['clutter_density'] = Probability(-70, log_value=True)
                 scan.sensor_scans.append(sscan)
             scans.append(scan)
         return scans
 
     @classmethod
     def get_pseudomeas_from_tracklet(cls, tracklet, sensor_id, last_scan=None):
+
+        priors = [s for s in tracklet.states if isinstance(s, Prediction)]
+        posteriors = [s for s in tracklet.states if isinstance(s, Update)]
+
         if last_scan is None:
-            inds = [i for i in range(len(tracklet.posteriors))]
+            inds = [i for i in range(len(posteriors))]
         else:
-            inds = [i for i, p in enumerate(tracklet.posteriors) if p.timestamp > last_scan]
+            inds = [i for i, p in enumerate(posteriors) if p.timestamp > last_scan]
 
         measdata = []
 
         for k in inds:
-            post_mean = tracklet.posteriors[k].mean
-            post_cov = tracklet.posteriors[k].covar
-            prior_mean = tracklet.priors[k].mean
-            prior_cov = tracklet.priors[k].covar
+            post_mean = posteriors[k].mean
+            post_cov = posteriors[k].covar
+            prior_mean = priors[k].mean
+            prior_cov = priors[k].covar
 
             H, z, R, _ = cls.get_pseudomeasurement(post_mean, post_cov, prior_mean, prior_cov)
 
@@ -345,10 +379,10 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
                 meas_model = LinearGaussianPredefinedH(h_matrix=H, noise_covar=R,
                                                        mapping=[i for i in range(H.shape[0])])
                 detection = Detection(state_vector=StateVector(z), measurement_model=meas_model,
-                                      timestamp=tracklet.posteriors[k].timestamp,
-                                      metadata={'sensor_id': tracklet.sensor_id})
-                detection.start_time = tracklet.posteriors[k].start_time
-                detection.end_time = tracklet.posteriors[k].end_time
+                                      timestamp=posteriors[k].timestamp,
+                                      metadata=tracklet.metadata)
+                detection.start_time = posteriors[k].start_time
+                detection.end_time = posteriors[k].end_time
                 measdata.append(detection)
 
         return measdata
