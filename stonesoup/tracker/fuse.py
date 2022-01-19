@@ -1,6 +1,6 @@
 import numpy as np
 
-from ..base import Property
+from ..base import Base, Property
 from ..buffered_generator import BufferedGenerator
 from ..dataassociator.probability import JPDA
 from ..tracker import Tracker
@@ -17,8 +17,7 @@ from ..initiator import Initiator
 from ..functions import gm_reduce_single
 
 
-class FuseTracker(Tracker):
-    detector: PseudoMeasExtractor = Property(doc='The pseudo-measurement extractor')
+class _BaseFuseTracker(Base):
     initiator: Initiator = Property(doc='The initiator used to initiate fused tracks')
     predictor: Predictor = Property(doc='Predictor used to predict fused tracks')
     updater: Updater = Property(doc='Updater used to update fused tracks')
@@ -31,59 +30,61 @@ class FuseTracker(Tracker):
                                           default=0.1)
 
     def __init__(self, *args, **kwargs):
-        super(FuseTracker, self).__init__(*args, **kwargs)
+        super(_BaseFuseTracker, self).__init__(*args, **kwargs)
         self._max_track_id = 0
         self.transition_model = self.predictor.transition_model
 
-    @BufferedGenerator.generator_method
-    def tracks_gen(self):
-        """Returns a generator of tracks for each time step.
+    def process_scan(self, scan, tracks, current_end_time):
+        new_start_time = scan.start_time
+        new_end_time = scan.end_time
+        if current_end_time and new_start_time < current_end_time:
+            print('Scans out of order! Skipping a scan...')
+            return tracks, current_end_time
 
-        Yields
-        ------
-        : :class:`datetime.datetime`
-            Datetime of current time step
-        : set of :class:`~.Track`
-            Tracks existing in the time step
-        """
-        tracks = set()
-        current_end_time = None
-        for timestamp, scan in self.detector:
-            new_start_time = scan.start_time
-            new_end_time = scan.end_time
-            if current_end_time and new_start_time < current_end_time:
-                print('Skipping a scan')
-                continue
-            # Predict two-state tracks forward
+        if hasattr(self.initiator, 'predict'):
+            self.initiator.predict(new_start_time, new_end_time)
+            self.initiator.current_end_time = new_end_time
+
+        # Predict two-state tracks forward
+        for track in tracks:
+            self.predict_track(track, current_end_time, new_start_time, new_end_time,
+                               self.death_rate)
+
+        current_start_time = new_start_time
+        current_end_time = new_end_time
+
+        for sensor_scan in scan.sensor_scans:
+            detections = set(sensor_scan.detections)
+
+            # Perform data association
+            associations = self.associator.associate(tracks, detections,
+                                                     timestamp=current_end_time)
+            # Update tracks
             for track in tracks:
-                self.predict_track(track, current_end_time, new_start_time, new_end_time,
-                                   self.death_rate)
-            current_start_time = new_start_time
-            current_end_time = new_end_time
+                self.update_track(track, associations[track], scan.id)
 
-            for sensor_scan in scan.sensor_scans:
-                detections = set(sensor_scan.detections)
-
-                # Perform data association
-                associations = self.associator.associate(tracks, detections,
-                                                         timestamp=current_end_time)
-                # Update tracks
-                for track in tracks:
-                    self.update_track(track, associations[track])
-
-                # Initiate new tracks on unassociated detections
-                if isinstance(self.associator, JPDA):
-                    assoc_detections = set(
-                        [h.measurement for hyp in associations.values() for h in hyp if h])
-                else:
-                    assoc_detections = set(
-                        [hyp.measurement for hyp in associations.values() if hyp])
-                unassoc_detections = set(detections) - assoc_detections
+            # Initiate new tracks on unassociated detections
+            if isinstance(self.associator, JPDA):
+                assoc_detections = set(
+                    [h.measurement for hyp in associations.values() for h in hyp if h])
+            else:
+                assoc_detections = set(
+                    [hyp.measurement for hyp in associations.values() if hyp])
+            unassoc_detections = set(detections) - assoc_detections
+            if isinstance(sensor_scan.sensor_id, str):
+                tracks |= self.initiator.initiate(unassoc_detections, sensor_scan.timestamp,
+                                                  sensor_scan.timestamp,
+                                                  sensor_id=sensor_scan.sensor_id)
+            else:
                 tracks |= self.initiator.initiate(unassoc_detections, current_start_time,
-                                                  current_end_time)
+                                                  current_end_time, sensor_id=sensor_scan.sensor_id)
+        try:
+            self.initiator.current_end_time = current_end_time
+        except AttributeError:
+            pass
 
-            tracks -= self.delete_tracks(tracks)
-            yield timestamp, tracks
+        tracks -= self.delete_tracks(tracks)
+        return tracks, current_end_time
 
     def predict_track(self, track, current_end_time, new_start_time, new_end_time,
                       death_rate=0.):
@@ -100,7 +101,7 @@ class FuseTracker(Tracker):
         # Append prediction to track history
         track.append(prediction)
 
-    def update_track(self, track, hypothesis, time=None):
+    def update_track(self, track, hypothesis, scan_id):
         last_state = track.states[-1]
         if isinstance(self.associator, JPDA):
             # calculate each Track's state as a Gaussian Mixture of
@@ -132,8 +133,8 @@ class FuseTracker(Tracker):
             non_exist_weight = 1 - track.exist_prob
             non_det_weight = (1 - self.prob_detect) * track.exist_prob
             null_exist_weight = non_det_weight / (non_exist_weight + non_det_weight)
-            exist_probs = np.array([null_exist_weight, *[1. for i in range(len(weights)-1)]])
-            track.exist_prob = Probability.sum(exist_probs*weights)
+            exist_probs = np.array([null_exist_weight, *[1. for i in range(len(weights) - 1)]])
+            track.exist_prob = Probability.sum(exist_probs * weights)
         else:
             if hypothesis:
                 # Perform update using the hypothesis
@@ -148,10 +149,12 @@ class FuseTracker(Tracker):
                         hyp.measurements.append(hypothesis.measurement)
                     except AttributeError:
                         hyp = MultiHypothesis(prediction=hypothesis.prediction,
-                                              measurements=[hyp.measurement, hypothesis.measurement])
+                                              measurements=[hyp.measurement,
+                                                            hypothesis.measurement])
                     update.hypothesis = hyp  # Update the hypothesis
                     track.states[-1] = update  # Replace the last state
-                elif isinstance(last_state, Prediction) and last_state.timestamp == update.timestamp:
+                elif isinstance(last_state,
+                                Prediction) and last_state.timestamp == update.timestamp:
                     # If the last state was a prediction with the same timestamp, it means that the
                     # state was created by a sensor scan in the same overall scan, due to the track not
                     # having been associated to any measurement. Therefore, we replace the prediction
@@ -176,3 +179,28 @@ class FuseTracker(Tracker):
     def delete_tracks(self, tracks):
         del_tracks = set([track for track in tracks if track.exist_prob < self.delete_thresh])
         return del_tracks
+
+
+class FuseTracker(Tracker, _BaseFuseTracker):
+
+    detector: PseudoMeasExtractor = Property(doc='The pseudo-measurement extractor')
+
+    @BufferedGenerator.generator_method
+    def tracks_gen(self):
+        """Returns a generator of tracks for each time step.
+
+        Yields
+        ------
+        : :class:`datetime.datetime`
+            Datetime of current time step
+        : set of :class:`~.Track`
+            Tracks existing in the time step
+        """
+        tracks = set()
+        current_end_time = None
+        for timestamp, scans in self.detector:
+            for scan in scans:
+                tracks, current_end_time = self.process_scan(scan, tracks, current_end_time)
+            yield timestamp, tracks
+
+
