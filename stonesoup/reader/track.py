@@ -1,93 +1,23 @@
-import datetime
+import uuid
 import threading
 from copy import copy
 from queue import Queue
 from typing import List
-import uuid
-import time
 
 import numpy as np
 
 from ..base import Property
-from ..buffered_generator import BufferedGenerator
 from ..reader.base import Reader
 from ..tracker.base import Tracker
 from ..types.tracklet import SensorScan, Scan
-
-
-class DetectionReplayer(Reader):
-    scans: List[tuple] = Property(doc='The scans to be replayed')
-    run_async: bool = Property(
-        doc="If set to ``True``, the reader will read tracks from the tracker asynchronously "
-            "and only yield the latest set of tracks when iterated."
-            "Defaults to ``False``",
-        default=False)
-    buffer_size: int = Property(doc='The size of the buffer used to store scans', default=20)
-    start_time: datetime.datetime = Property(doc='The simulation start time', default=None)
-    auto_start: bool = Property(doc='Whether to auto start the replay, when object is initialised',
-                                default=False)
-    sleep_interval: datetime.timedelta = Property(doc='Interval for thread to sleep while waiting '
-                                                      'for new data', default=None)
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        # Variables used in async mode
-        if self.run_async:
-            self._buffer = Queue(maxsize=self.buffer_size)
-            # Initialise frame capture thread
-            self._capture_thread = threading.Thread(target=self._capture)
-            self._capture_thread.daemon = True
-            self._thread_lock = threading.Lock()
-            if self.sleep_interval is None:
-                self.sleep_interval = datetime.timedelta(seconds=0)
-            if self.auto_start:
-                if self.start_time is None:
-                    self.start_time = datetime.datetime.now()
-                self._capture_thread.start()
-
-    @property
-    def detections(self):
-        return self.current[1]
-
-    @BufferedGenerator.generator_method
-    def scans_gen(self):
-        if self.run_async:
-            yield from self._scans_gen_async()
-        else:
-            yield from self._scans_gen()
-
-    def start(self, start_time=False):
-        if start_time:
-            self.start_time = datetime.datetime.now()
-        self._capture_thread.start()
-
-    def _capture(self):
-        for dt, detections in self.scans:
-            while datetime.datetime.now()-self.start_time < dt:
-                # Adding a sleep here (even for 0 sec) allows matplotlib to plot
-                # TODO: investigate why!
-                time.sleep(self.sleep_interval.total_seconds())
-                pass
-            with self._thread_lock:
-                timestamp = self.start_time + dt
-                self._buffer.put((timestamp, detections))
-
-    def _scans_gen(self):
-        for timestamp, detections in self.scans:
-            yield timestamp, detections
-
-    def _scans_gen_async(self):
-        while self._capture_thread.is_alive():
-            scan = self._buffer.get()
-            yield scan
+from ..buffered_generator import BufferedGenerator
 
 
 class TrackReader(Reader):
     tracker: Tracker = Property(doc='Tracker from which to read tracks')
     run_async: bool = Property(
         doc="If set to ``True``, the reader will read tracks from the tracker asynchronously "
-            "and only yield the latest set of tracks when iterated."
-            "Defaults to ``False``",
+            "and only yield the latest set of tracks when iterated. Defaults to ``False``",
         default=False)
 
     def __init__(self, *args, **kwargs):
@@ -191,7 +121,7 @@ class SensorScanReader(Reader):
 
 
 class ScanReader(Reader):
-    detectors: List[SensorScanReader] = Property(doc='Detector from which to read detections')
+    detectors: List[SensorScanReader] = Property(doc='Detectors from which to read detections')
     buffer_size: int = Property(doc='The size of the buffer used to store scans', default=20)
     sensor_id: str = Property(doc='The sensor id', default=None)
     run_async: bool = Property(
@@ -265,7 +195,7 @@ class ScanReader(Reader):
 
 
 class ScanAggregator(Reader):
-    main_reader: Reader = Property(doc='The reader that sets to clock')
+    main_reader: Reader = Property(doc='The reader that sets the clock')
     readers: List[Reader] = Property(doc='The other readers')
 
     def __init__(self, *args, **kwargs):

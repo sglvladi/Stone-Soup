@@ -6,8 +6,11 @@ of data that is in common formats.
 """
 
 import csv
+import time
+import threading
+from queue import Queue
 from datetime import datetime, timedelta
-from typing import Sequence, Collection, Mapping
+from typing import Sequence, Collection, Mapping, List
 
 from math import modf
 
@@ -136,3 +139,95 @@ class CSVDetectionReader(DetectionReader, _CSVReader):
 
             # Yield remaining
             yield previous_time, detections
+
+
+class DetectionReplayer(DetectionReader):
+    """A simple detection reader that replays detections from a list of scans.
+
+    The scans are expected to be in the format of a list of tuples, whose first element is a
+    :class:`datetime.timedelta` object, representing the time elapsed since the ``start_time``,
+    and the second element is a set of detections.
+    """
+    scans: List[tuple] = Property(
+        doc='The scans to be replayed in the form of a list of tuples, whose first element is a '
+            ':class:`datetime.timedelta` object, representing the time elapsed since the '
+            ':attr:`start_time`, and the second element is a set of detections')
+    start_time: datetime = Property(
+        doc='The simulation start time. The default is ``None`` in which case it will be set to '
+            'the current time when the replay is started via one of the following ways: i) on '
+            'instantiation if :attr:`real_time` and :attr:`auto_start` are `True`; ii) when the '
+            'object is first iterated; iii) replay is explicitly started via the :meth:`start()` '
+            'method', default=None)
+    real_time: bool = Property(
+        doc='If set to ``True``, the reader will replay the scans in real time, according to the '
+            'scan time intervals. Defaults to ``False``',
+        default=False)
+    buffer_size: int = Property(
+        doc='The size of the buffer used to store scans. When the buffer fills up, older data is '
+            'discarded in favour of more recent. Takes effect only when :attr:`real_time` is '
+            '``True``. Default is 20', default=20)
+    auto_start: bool = Property(
+        doc='Whether to auto start the replay at object instantiation. Takes effect only when '
+            ':attr:`real_time` is ``True``. Defaults to ``False``', default=False)
+    sleep_interval: timedelta = Property(
+        doc='Interval for thread to sleep while waiting for new data. Takes effect only when '
+            ':attr:`real_time` is ``True``. Defaults to None', default=None)
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._started = False
+        # Variables used in async mode
+        if self.real_time:
+            self._buffer = Queue(maxsize=self.buffer_size)
+            # Initialise frame capture thread
+            self._capture_thread = threading.Thread(target=self._capture)
+            self._capture_thread.daemon = True
+            self._thread_lock = threading.Lock()
+            if self.sleep_interval is None:
+                self.sleep_interval = timedelta(seconds=0)
+            if self.auto_start:
+                self.start()
+
+    @property
+    def detections(self):
+        return self.current[1]
+
+    @BufferedGenerator.generator_method
+    def detections_gen(self):
+        self.start()
+        if self.real_time:
+            yield from self._scans_gen_async()
+        else:
+            yield from self._scans_gen()
+
+    def start(self):
+        """ Start the replay, if not already started and set :attr:`start_time` if it is `None`.
+
+         When :attr:`real_time` is ``True`` this method will start the thread that reads and adds
+         scans to the buffer in real time.
+         """
+        if self.start_time is None:
+            self.start_time = datetime.now()
+        if self.real_time and not self._started:
+            self._capture_thread.start()
+        self._started = True
+
+    def _capture(self):
+        for dt, detections in self.scans:
+            while datetime.now()-self.start_time < dt:
+                # Adding a sleep here (even for 0 sec) allows matplotlib to plot
+                # TODO: investigate why!
+                time.sleep(self.sleep_interval.total_seconds())
+                pass
+            with self._thread_lock:
+                timestamp = self.start_time + dt
+                self._buffer.put((timestamp, detections))
+
+    def _scans_gen(self):
+        for timestamp, detections in self.scans:
+            yield timestamp, detections
+
+    def _scans_gen_async(self):
+        while self._capture_thread.is_alive():
+            scan = self._buffer.get()
+            yield scan
