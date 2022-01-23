@@ -10,7 +10,7 @@ from stonesoup.types.array import StateVector
 
 from shapely.geometry import LineString
 from shapely.geometry import Point
-import sympy
+# import sympy
 
 class CustomDiGraph(nx.DiGraph):
     def edges_by_idx(self, idx):
@@ -57,6 +57,47 @@ def dict_to_graph(S):
         G.add_edge(*edge, weight=S['Edges']['Weight'][i])
 
     return G
+
+
+def graph_to_dict(G):
+
+    weights = nx.get_edge_attributes(G, 'weight')
+    S = dict()
+    S['Edges'] = dict()
+    S['Edges']['EndNodes'] = []
+    S['Edges']['Weight'] = []
+    for edge in G.edges:
+        S['Edges']['EndNodes'].append([edge[0], edge[1]])
+        S['Edges']['Weight'].append(weights[edge])
+
+    pos = nx.get_node_attributes(G, 'pos')
+    S['Nodes'] = dict()
+    S['Nodes']['Longitude'] = []
+    S['Nodes']['Latitude'] = []
+    for node in G.nodes:
+        S['Nodes']['Longitude'].append(pos[node][0])
+        S['Nodes']['Latitude'].append(pos[node][1])
+
+    S['Edges']['Weight'] = np.array(S['Edges']['Weight'])
+    S['Edges']['EndNodes'] = np.array(S['Edges']['EndNodes'])
+    S['Nodes']['Longitude'] = np.array(S['Nodes']['Longitude'])
+    S['Nodes']['Latitude'] = np.array(S['Nodes']['Latitude'])
+    return S
+
+
+def nxdigraph_to_customdigraph(G):
+    adj = nx.adjacency_matrix(G).todense()
+    G2 = nx.from_numpy_matrix(adj, create_using=CustomDiGraph)
+
+    pos = nx.get_node_attributes(G, 'pos')
+    weight = nx.get_edge_attributes(G, 'edge')
+    for key, value in pos.items():
+        pos[key] = {'pos': value}
+
+    nx.set_node_attributes(G2, pos)
+    nx.set_edge_attributes(G2, name='weight', values=weight)
+
+    return G2
 
 
 def shortest_path(G, sources=None, targets=None, cache_filepath=None):
@@ -300,6 +341,11 @@ def normalise_re(r_i, e_i, d_i, s_i, spaths, G):
                     # limits, the set its range to 0.
                     r_i = 0
                     break
+    else:
+        if r_i > edge_len:
+            r_i = edge_len
+        elif r_i < 0:
+            r_i = 0
 
     return r_i, e_i, d_i, s_i
 
