@@ -89,7 +89,7 @@ class DestinationMeasurementModel(NonLinearGaussianMeasurement):
             path = self.spaths[(s[i], d[i])]
             idx = np.where(path == e[i])[0]
             if len(idx) == 0:
-                likelihood[i] = 1
+                likelihood[i] = -np.inf
 
         return [Probability(likelihood[i], log_value=True) for i in range(num_particles)]
 
