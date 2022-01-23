@@ -1,3 +1,4 @@
+import pickle
 import numpy as np
 import networkx as nx
 import matplotlib.pyplot as plt
@@ -35,10 +36,16 @@ num_particles = 1000
 source = 519
 destination = 115
 speed = 0.1
+LOAD = True
 
-
-# Simulate ground-truth
-gnd_path, gnd_route_n, gnd_route_e = simulate(G, source, destination, speed)
+if LOAD:
+    gnd_path, gnd_route_n, gnd_route_e = \
+        pickle.load(open(f'./data/single_track_{source}_{destination}.pickle', 'rb'))
+else:
+    # Simulate ground-truth
+    gnd_path, gnd_route_n, gnd_route_e = simulate(G, source, destination, speed)
+    pickle.dump([gnd_path, gnd_route_n, gnd_route_e],
+                open(f'./data/single_track_{source}_{destination}.pickle', 'wb'))
 
 # Pre-compute short_paths
 feed = [destination]
@@ -48,7 +55,7 @@ short_paths_n = dict()
 short_paths_e = dict()
 for i in range(num_destinations):
     dest = destinations[i]
-    short_paths_n[dest], short_paths_e[dest] = shortest_path(G, source, dest)
+    short_paths_n[(source, dest)], short_paths_e[(source, dest)] = shortest_path(G, source, dest)
 
 # Transition model
 transition_model = DestinationTransitionModel(0.001, S, short_paths_e)
@@ -75,12 +82,13 @@ prior_r = np.zeros((num_particles,))
 prior_speed = mvn.rvs(0, speed, (num_particles,))
 prior_e = np.ones((num_particles,))*gnd_route_e[0]
 prior_destinations = np.random.choice(destinations, (num_particles,))
+prior_source = np.ones((num_particles,))*gnd_route_n[0]
 prior_particles = []
-prior_particle_sv = np.zeros((4,num_particles))
-for i, sv in enumerate(zip(prior_r, prior_speed, prior_e, prior_destinations)):
+prior_particle_sv = np.zeros((5,num_particles))
+for i, sv in enumerate(zip(prior_r, prior_speed, prior_e, prior_destinations, prior_source)):
     particle = Particle(StateVector(list(sv)), 1.0/num_particles)
     prior_particles.append(particle)
-    prior_particle_sv[:,i] = np.array(sv)
+    prior_particle_sv[:, i] = np.array(sv)
 prior_state = ParticleState(particles=prior_particles, timestamp=timestamp_init)
 prior_state2 = ParticleState2(particles=prior_particle_sv, timestamp=timestamp_init)
 
