@@ -12,7 +12,7 @@ from stonesoup.types.state import State, GaussianState
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.platform.base import MovingPlatform
 from stonesoup.models.transition.linear import (CombinedLinearGaussianTransitionModel,
-                                                ConstantVelocity, ConstantTurn)
+                                                ConstantVelocity, ConstantTurn, NthDerivativeDecay)
 from stonesoup.sensor.radar import RadarBearingRangeWithClutter
 from stonesoup.platform.base import MultiTransitionMovingPlatform
 from stonesoup.simulator.simple import DummyGroundTruthSimulator
@@ -85,6 +85,7 @@ surveillance_area = np.pi*max_range**2              # Surveillance region area
 clutter_density = clutter_rate/surveillance_area    # Mean number of clutter points per unit area
 prob_detect = 0.9                                   # Probability of Detection
 num_timesteps = 101                                 # Number of simulation timesteps
+bias_tracker_idx = [0, 2]                           # Indices of trackers that run with bias model
 PLOT = True
 
 # Simulation start time
@@ -100,7 +101,7 @@ init_states = [State(StateVector([-50, 0, -25, 1, 0, 0]), start_time),
                State(StateVector([50, 0, -25, 1, 0, 0]), start_time),
                State(StateVector([-25, 1, 50, 0, 0, 0]), start_time)]
 platforms = []
-for init_state in init_states:
+for i, init_state in enumerate(init_states):
     # Platform
     platform = MovingPlatform(states=init_state,
                                 position_mapping=(0, 2, 4),
@@ -108,6 +109,7 @@ for init_state in init_states:
                                 transition_model=platform_transition_model)
 
     # Sensor
+    with_bias = i in bias_tracker_idx
     radar_noise_covar = CovarianceMatrix(np.diag([np.deg2rad(.1), .5]))
     sensor = RadarBearingRangeWithClutter(ndim_state=6,
                                           position_mapping=(0, 2, 4),
@@ -116,7 +118,8 @@ for init_state in init_states:
                                           rotation_offset= StateVector([0, 0, 0]),
                                           clutter_rate=clutter_rate,
                                           max_range=max_range,
-                                          prob_detect=prob_detect)
+                                          prob_detect=prob_detect,
+                                          model_with_bias=with_bias)
     platform.add_sensor(sensor)
     platforms.append(platform)
 
@@ -151,45 +154,57 @@ detector3 = PlatformTargetDetectionSimulator(groundtruth=gnd_simulator, platform
 detectors = [detector1, detector2, detector3]
 
 # Multi-Target Trackers (1 per platform)
-transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                              ConstantVelocity(0.05)])
-predictor = ExtendedKalmanPredictor(transition_model)
-updater = ExtendedKalmanUpdater(None, True)
-
-# Initiator components
-hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
-data_associator_init = GNNWith2DAssignment(hypothesiser_init)
-prior = GaussianState(StateVector([0, 0, 0, 0]),
-                      CovarianceMatrix(np.diag([50, 5, 50, 5])))
-deleter_init1 = UpdateTimeStepsDeleter(2)
-deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
-deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
-
-# Tracker components
-# MofN initiator
-initiator = MultiMeasurementInitiator(prior, None, deleter_init,
-                                      data_associator_init, updater, 10)
-deleter1 = UpdateTimeStepsDeleter(10)
-deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
-deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
-hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
-hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
-data_associator = JPDAWithEHM2(hypothesiser)
-core_tracker = MultiTargetMixtureTracker(initiator, deleter, None, data_associator, updater)
 trackers = []
-for detector in detectors:
-    tracker = deepcopy(core_tracker)
-    tracker.detector = detector
+track_readers = []
+for i, detector in enumerate(detectors):
+    # Bias trackers place the biases for azimuth and range in the 5-th and 6-th state index, resp.
+    # Therefore, a different prior and transition model are required
+    if i in bias_tracker_idx:
+        transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
+                                                                  ConstantVelocity(0.05),
+                                                                  NthDerivativeDecay(0, 1e-6, 5),
+                                                                  NthDerivativeDecay(0, 1e-4, 5)])
+        prior = GaussianState(StateVector([0, 0, 0, 0, 0, 0]),
+                              CovarianceMatrix(np.diag([50, 5, 50, 5, np.pi/6, 5])))
+    else:
+        transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
+                                                                  ConstantVelocity(0.05)])
+        prior = GaussianState(StateVector([0, 0, 0, 0]),
+                              CovarianceMatrix(np.diag([50, 5, 50, 5])))
+    predictor = ExtendedKalmanPredictor(transition_model)
+    updater = ExtendedKalmanUpdater(None, True)
+
+    # Initiator components
+    hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
+    data_associator_init = GNNWith2DAssignment(hypothesiser_init)
+    deleter_init1 = UpdateTimeStepsDeleter(2)
+    deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
+    deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
+
+    # Tracker components
+    # MofN initiator
+    initiator = MultiMeasurementInitiator(prior, None, deleter_init,
+                                          data_associator_init, updater, 10)
+    deleter1 = UpdateTimeStepsDeleter(10)
+    deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
+    deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
+    hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
+    hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
+    data_associator = JPDAWithEHM2(hypothesiser)
+    tracker = MultiTargetMixtureTracker(initiator, deleter, detector, data_associator, updater)
     trackers.append(tracker)
+    track_readers.append(TrackReader(tracker, run_async=False, transition_model=transition_model,
+                                     sensor_id=i))
 
 
 # Fusion Tracker
-track_readers = [TrackReader(t, run_async=False, transition_model=transition_model, sensor_id=i)
-                 for i, t in enumerate(trackers)]
-tracklet_extractor = TrackletExtractor(track_readers, transition_model, fuse_interval=timedelta(seconds=3))
-# tracklet_extractor = TrackletExtractorWithTracker([], transition_model, fuse_interval=timedelta(seconds=3),
-#                                                   detectors=detectors, core_tracker=core_tracker)
-detector = PseudoMeasExtractor(tracklet_extractor)
+transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
+                                                          ConstantVelocity(0.05)])
+prior = GaussianState(StateVector([0, 0, 0, 0]),
+                      CovarianceMatrix(np.diag([50, 5, 50, 5])))
+tracklet_extractor = TrackletExtractor(track_readers, transition_model,
+                                       fuse_interval=timedelta(seconds=3))
+detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3])
 two_state_predictor = TwoStatePredictor(transition_model)
 two_state_updater = TwoStateKalmanUpdater(None, True)
 hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,
@@ -229,10 +244,13 @@ for i, (timestamp, ctracks) in enumerate(fuse_tracker):
                 plt.plot(x, y, f'{color}x')
 
         for i, (tracklets, color) in enumerate(zip(tracklet_extractor.current[1], colors)):
-            idx = [4, 6]
+            if i in bias_tracker_idx:
+                idx = [6, 8]
+            else:
+                idx = [4, 6]
             for tracklet in tracklets:
                 data = np.array([s.mean for s in tracklet.states if isinstance(s, Update)])
-                plt.plot(data[:, 4], data[:, 6], f':{color}')
+                plt.plot(data[:, idx[0]], data[:, idx[1]], f':{color}')
 
         for track in tracks:
             data = np.array([state.state_vector for state in track])
