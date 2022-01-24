@@ -1,24 +1,34 @@
 import datetime
 import uuid
 from typing import Set, List
+import collections.abc
 
 from ..base import Property
 from .base import Type
 from .track import Track
 from .detection import Detection
+from ..models.transition import TransitionModel
 
 
 class Tracklet(Track):
     pass
 
 
-class SensorTracks(Type):
+class SensorTracks(Type, collections.abc.Set):
     """ A container object for tracks relating to a particular sensor """
     tracks: Set[Track] = Property(doc='A list of tracks', default=None)
     sensor_id: str = Property(doc='The id of the sensor', default=None)
+    transition_model: TransitionModel = Property(doc='Transition model used by the tracker',
+                                                 default=None)
 
     def __iter__(self):
         return (t for t in self.tracks)
+
+    def __len__(self):
+        return self.tracks.__len__()
+
+    def __contains__(self, item):
+        return self.tracks.__contains__(item)
 
 
 class SensorTracklets(SensorTracks):
