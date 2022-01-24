@@ -3,6 +3,7 @@ build/
 dist/
 *.egg-info
 __pycache__/
+.eggs/
 
 # Version from setuptools_scm
 stonesoup/_version.py
@@ -17,3 +18,6 @@ htmlcov/
 
 # pytest
 .pytest_cache/
+
+#PyCharm
+.idea/
