@@ -70,17 +70,21 @@ class TrackletExtractor(Base, BufferedGenerator):
             sensor_tracklets = self._tracklets[idx] if idx is not None else []
             # Temporary tracklet list
             tracklets_tmp = []
+            # Transition model
+            transition_model = self.transition_model
+            if sensor_tracks.transition_model is not None:
+                transition_model = sensor_tracks.transition_model
             # For each local track
             for track in sensor_tracks:
                 tracklet = next((t for t in sensor_tracklets if track.id == t.id), None)
                 # If the tracklet doesn't already exist
                 if tracklet is None and len(self._fuse_times) > 1:
                     # Create it
-                    tracklet = self.init_tracklet(track, self.transition_model,
+                    tracklet = self.init_tracklet(track, transition_model,
                                                   np.array(self._fuse_times), sensor_id)
                 elif tracklet is not None:
                     # Else simply augment
-                    self.augment_tracklet(tracklet, track, timestamp)
+                    self.augment_tracklet(tracklet, track, transition_model, timestamp)
                 # Append tracklet to temporary tracklets
                 if tracklet:
                     tracklets_tmp.append(tracklet)
@@ -98,14 +102,18 @@ class TrackletExtractor(Base, BufferedGenerator):
         tracklets = []
         for tracks in alltracks:
             tracklets_tmp = []
+            # Transition model
+            transition_model = self.transition_model
+            if tracks.transition_model is not None:
+                transition_model = tracks.transition_model
             for track in tracks:
-                tracklet = self.init_tracklet(track, self.transition_model, fuse_times)
+                tracklet = self.init_tracklet(track, transition_model, fuse_times)
                 if tracklet:
                     tracklets_tmp.append(tracklet)
             tracklets.append(tracklets_tmp)
         return tracklets
 
-    def augment_tracklet(self, tracklet, track, timestamp):
+    def augment_tracklet(self, tracklet, track, transition_model, timestamp):
         track_times = np.array([s.timestamp for s in track])
 
         filtered_means = np.concatenate([s.mean for s in track], 1)
@@ -128,7 +136,7 @@ class TrackletExtractor(Base, BufferedGenerator):
             # Compute interval distribution
             post_mean, post_cov, prior_mean, prior_cov = \
                 self.get_interval_dist(means, covs, times, end_states,
-                                       self.transition_model, start_time, end_time)
+                                       transition_model, start_time, end_time)
             prior = TwoStateGaussianStatePrediction(prior_mean, prior_cov,
                                                     start_time=start_time,
                                                     end_time=end_time)
