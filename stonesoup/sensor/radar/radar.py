@@ -13,7 +13,8 @@ from ...functions import cart2sphere, rotx, roty, rotz, mod_bearing
 from ...models.measurement.base import MeasurementModel
 from ...models.measurement.nonlinear import \
     (CartesianToBearingRange, CartesianToElevationBearingRange,
-     CartesianToBearingRangeRate, CartesianToElevationBearingRangeRate)
+     CartesianToBearingRangeRate, CartesianToElevationBearingRangeRate,
+     CartesianToBearingRangeBias)
 from ...sensor.sensor import Sensor
 from ...types.array import CovarianceMatrix
 from ...types.detection import TrueDetection, Clutter, Detection
@@ -67,18 +68,16 @@ class RadarBearingRange(Sensor):
 
 
 class RadarBearingRangeWithClutter(RadarBearingRange):
-    """A simple radar sensor that generates measurements of targets, using a
-    :class:`~.CartesianToBearingRange` model, relative to its position.
-
-    Note
-    ----
-    The current implementation of this class assumes a 3D Cartesian plane.
-
+    """Same as RadarBearingRange, but also produces clutter, missed detections and has a max
+    range.
     """
 
-    clutter_rate: float = Property(doc='')
-    max_range: float = Property(doc='')
-    prob_detect: Probability = Property(doc='')
+    clutter_rate: float = Property(doc='The mean of the Poisson distributed number of clutter'
+                                       'measurements per scan.')
+    max_range: float = Property(doc='The max range of the sensor')
+    prob_detect: Probability = Property(doc='The sensor probability of detection')
+    model_with_bias: bool = Property(doc='Whether to attach bias model to measurements',
+                                     default=False)
 
     def measure(self, ground_truths: Set[GroundTruthState], noise: Union[np.ndarray, bool] = True,
                 timestamp=None, **kwargs) -> Set[Detection]:
@@ -90,12 +89,20 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
             translation_offset=self.position,
             rotation_offset=self.orientation)
 
-        m_model = CartesianToBearingRange(
-            ndim_state=4,
-            mapping=self.position_mapping[0:2],
-            noise_covar=self.noise_covar,
-            translation_offset=self.position[0:2],
-            rotation_offset=self.orientation)
+        if not self.model_with_bias:
+            m_model = CartesianToBearingRange(
+                ndim_state=4,
+                mapping=self.position_mapping[0:2],
+                noise_covar=self.noise_covar,
+                translation_offset=self.position[0:2],
+                rotation_offset=self.orientation)
+        else:
+            m_model = CartesianToBearingRangeBias(
+                ndim_state=6,
+                mapping=self.position_mapping[0:2],
+                noise_covar=self.noise_covar,
+                translation_offset=self.position[0:2],
+                rotation_offset=self.orientation)
 
         detections = set()
         for truth in ground_truths:
