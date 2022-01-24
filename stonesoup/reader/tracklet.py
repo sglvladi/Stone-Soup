@@ -265,9 +265,10 @@ class TrackletExtractorWithTracker(TrackletExtractor):
 
 class PseudoMeasExtractor(Base, BufferedGenerator):
     tracklet_extractor: TrackletExtractor = Property(doc='The tracket extractor')
+    target_state_dim: int = Property(doc='The target state dim', default=None)
 
-    def __init__(self, tracklet_extractor, **kwargs):
-        super(PseudoMeasExtractor, self).__init__(tracklet_extractor, **kwargs)
+    def __init__(self, *args, **kwargs):
+        super(PseudoMeasExtractor, self).__init__(*args, **kwargs)
         self._last_scan = None
 
     @property
@@ -354,8 +355,7 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
             scans.append(scan)
         return scans
 
-    @classmethod
-    def get_pseudomeas_from_tracklet(cls, tracklet, sensor_id, last_scan=None):
+    def get_pseudomeas_from_tracklet(self, tracklet, sensor_id, last_scan=None):
 
         priors = [s for s in tracklet.states if isinstance(s, Prediction)]
         posteriors = [s for s in tracklet.states if isinstance(s, Update)]
@@ -373,9 +373,18 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
             prior_mean = priors[k].mean
             prior_cov = priors[k].covar
 
-            H, z, R, _ = cls.get_pseudomeasurement(post_mean, post_cov, prior_mean, prior_cov)
+            H, z, R, _ = self.get_pseudomeasurement(post_mean, post_cov, prior_mean, prior_cov)
 
             if len(H):
+                num_rows, num_cols = H.shape
+                if self.target_state_dim is not None:
+                    # Add zero columns for bias state indices
+                    col_diff = (self.target_state_dim-num_cols)//2
+                    H1 = H[:, :num_cols//2]
+                    H2 = H[:, num_cols//2:]
+                    H1 = np.append(H1, np.zeros((H.shape[0], col_diff)), axis=1)
+                    H2 = np.append(H2, np.zeros((H.shape[0], col_diff)), axis=1)
+                    H = np.append(H1, H2, axis=1)
                 meas_model = LinearGaussianPredefinedH(h_matrix=H, noise_covar=R,
                                                        mapping=[i for i in range(H.shape[0])])
                 detection = Detection(state_vector=StateVector(z), measurement_model=meas_model,

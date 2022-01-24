@@ -7,6 +7,7 @@ from typing import List
 import numpy as np
 
 from ..base import Property
+from ..models.measurement.nonlinear import CartesianToBearingRangeBias
 from ..reader.base import Reader
 from ..tracker.base import Tracker
 from ..types.tracklet import SensorScan, Scan
@@ -123,6 +124,8 @@ class SensorScanReader(Reader):
 class ScanAggregator(Reader):
     main_reader: Reader = Property(doc='The reader that sets the clock')
     readers: List[Reader] = Property(doc='The other readers')
+    with_bias: bool = Property(doc='Whether to modify detections measurement model to consider '
+                                   'bias', default=False)
 
     def __init__(self, *args, **kwargs):
         super(ScanAggregator, self).__init__(*args, **kwargs)
@@ -151,8 +154,18 @@ class ScanAggregator(Reader):
             scans_tmp.sort(key=lambda x: x.timestamp)
             for scan in scans_tmp:
                 for detection in scan.detections:
-                    detection.measurement_model.ndim_state = 8
-                    detection.measurement_model.mapping = (4,6)
+                    if self.with_bias:
+                        meas_model = CartesianToBearingRangeBias(
+                            ndim_state=12,
+                            mapping=(6, 8),
+                            noise_covar=detection.measurement_model.noise_covar,
+                            translation_offset=detection.measurement_model.translation_offset,
+                            rotation_offset=detection.measurement_model.rotation_offset
+                        )
+                        detection.measurement_model = meas_model
+                    else:
+                        detection.measurement_model.ndim_state = 8
+                        detection.measurement_model.mapping = (4, 6)
             scan_ts = np.array([scan.timestamp for scan in scans_tmp])
             idx = []
             if len(main_scans):
