@@ -436,6 +436,53 @@ class CartesianToBearingRange(NonLinearGaussianMeasurement, ReversibleModel):
         return out
 
 
+class CartesianToBearingRangeBias(CartesianToBearingRange):
+    bias_mapping: Sequence[int] = Property(doc="State indices where biases are located",
+                                           default=None)
+
+    def function(self, state, noise=False, **kwargs) -> StateVector:
+        r"""Model function :math:`h(\vec{x}_t,\vec{v}_t)`
+
+        Parameters
+        ----------
+        state: :class:`~.State`
+            An input state
+        noise: :class:`numpy.ndarray` or bool
+            An externally generated random process noise sample (the default is
+            `False`, in which case no noise will be added
+            if 'True', the output of :meth:`~.Model.rvs` is added)
+
+        Returns
+        -------
+        :class:`numpy.ndarray` of shape (:py:attr:`~ndim_meas`, 1)
+            The model function evaluated given the provided time interval.
+        """
+
+        if isinstance(noise, bool) or noise is None:
+            if noise:
+                noise = self.rvs()
+            else:
+                noise = 0
+
+        # Account for origin offset
+        xyz = np.array([state.state_vector[self.mapping[0], :] - self.translation_offset[0, 0],
+                        state.state_vector[self.mapping[1], :] - self.translation_offset[1, 0],
+                        [0] * state.state_vector.shape[1]])
+
+        # Rotate coordinates
+        xyz_rot = self._rotation_matrix @ xyz
+
+        if self.bias_mapping is None:
+            bias = state.state_vector[-2:]
+        else:
+            bias = state.state_vector[self.bias_mapping]
+
+        # Covert to polar
+        rho, phi = cart2pol(*xyz_rot[:2, :])
+        bearings = [Bearing(i) for i in phi]
+        return StateVectors([bearings, rho]) + bias + noise
+
+
 class CartesianToElevationBearing(NonLinearGaussianMeasurement):
     r"""This is a class implementation of a time-invariant measurement model, \
     where measurements are assumed to be received in the form of bearing \
