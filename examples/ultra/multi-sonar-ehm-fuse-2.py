@@ -225,7 +225,8 @@ for detector in detectors:
 
 
 # Fusion Tracker
-track_readers = [TrackReader(t, run_async=False) for t in trackers]
+track_readers = [TrackReader(t, run_async=False, transition_model=transition_model, sensor_id=i)
+                 for i, t in enumerate(trackers)]
 tracklet_extractor = TrackletExtractor(track_readers, transition_model, fuse_interval=timedelta(seconds=3))
 sensor_scan_reader = SensorScanReader(detector3)
 detector = ScanAggregator(PseudoMeasExtractor(tracklet_extractor), [sensor_scan_reader])

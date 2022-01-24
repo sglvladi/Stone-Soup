@@ -8,9 +8,10 @@ import numpy as np
 
 from ..base import Property
 from ..models.measurement.nonlinear import CartesianToBearingRangeBias
+from ..models.transition import TransitionModel
 from ..reader.base import Reader
 from ..tracker.base import Tracker
-from ..types.tracklet import SensorScan, Scan
+from ..types.tracklet import SensorTracks, SensorScan, Scan
 from ..buffered_generator import BufferedGenerator
 
 
@@ -20,6 +21,9 @@ class TrackReader(Reader):
         doc="If set to ``True``, the reader will read tracks from the tracker asynchronously "
             "and only yield the latest set of tracks when iterated. Defaults to ``False``",
         default=False)
+    transition_model: TransitionModel = Property(doc='Transition model used by the tracker',
+                                                 default=None)
+    sensor_id: str = Property(doc='The id of the sensor', default=None)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -46,12 +50,12 @@ class TrackReader(Reader):
     def _capture(self):
         for timestamp, tracks in self.tracker:
             self._thread_lock.acquire()
-            self._buffer = (timestamp, tracks)
+            self._buffer = (timestamp, SensorTracks(tracks, self.sensor_id, self.transition_model))
             self._thread_lock.release()
 
     def _tracks_gen(self):
         for timestamp, tracks in self.tracker:
-            yield timestamp, tracks
+            yield timestamp, SensorTracks(tracks, self.sensor_id, self.transition_model)
 
     def _tracks_gen_async(self):
         while self._capture_thread.is_alive():

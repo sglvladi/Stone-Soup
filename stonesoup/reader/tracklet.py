@@ -52,7 +52,7 @@ class TrackletExtractor(Base, BufferedGenerator):
         """
         for data in zip(*self.trackers):
             timestamp = data[0][0]
-            alltracks = [SensorTracks(d[1], i) for i, d in enumerate(data)]
+            alltracks = [d[1] for d in data]
             if self.real_time:
                 timestamp = datetime.datetime.now()
             if not len(self._fuse_times) or timestamp - self._fuse_times[-1] >= self.fuse_interval:

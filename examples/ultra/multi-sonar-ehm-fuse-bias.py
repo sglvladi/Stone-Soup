@@ -177,7 +177,8 @@ transition_model_bias = CombinedLinearGaussianTransitionModel([ConstantVelocity(
                                                                ConstantVelocity(0.05),
                                                                NthDerivativeDecay(0, 1e-6, 5),
                                                                NthDerivativeDecay(0, 1e-4, 5)])
-track_readers = [TrackReader(t, run_async=False) for t in trackers]
+track_readers = [TrackReader(t, run_async=False, transition_model=transition_model, sensor_id=i)
+                 for i, t in enumerate(trackers)]
 tracklet_extractor = TrackletExtractor(track_readers, transition_model, fuse_interval=timedelta(seconds=3))
 sensor_scan_reader = SensorScanReader(detector3)
 detector = ScanAggregator(PseudoMeasExtractor(tracklet_extractor, target_state_dim=12),
