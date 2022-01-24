@@ -32,7 +32,6 @@ class _BaseFuseTracker(Base):
     def __init__(self, *args, **kwargs):
         super(_BaseFuseTracker, self).__init__(*args, **kwargs)
         self._max_track_id = 0
-        self.transition_model = self.predictor.transition_model
 
     def process_scan(self, scan, tracks, current_end_time):
         new_start_time = scan.start_time
