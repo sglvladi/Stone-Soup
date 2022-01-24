@@ -274,6 +274,8 @@ class TrackletExtractorWithTracker(TrackletExtractor):
 class PseudoMeasExtractor(Base, BufferedGenerator):
     tracklet_extractor: TrackletExtractor = Property(doc='The tracket extractor')
     target_state_dim: int = Property(doc='The target state dim', default=None)
+    state_idx_to_use: List[int] = Property(doc='The indices of the state corresponding to pos/vel',
+                                           default=None)
 
     def __init__(self, *args, **kwargs):
         super(PseudoMeasExtractor, self).__init__(*args, **kwargs)
@@ -375,11 +377,20 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
 
         measdata = []
 
+        state_dim = posteriors[-1].state_vector.shape[0]
+        if self.state_idx_to_use is not None:
+            state_idx = list(self.state_idx_to_use)
+            offset = state_dim//2
+            for i in self.state_idx_to_use:
+                state_idx.append(offset+i)
+        else:
+            state_idx = [i for i in range(state_dim)]
+
         for k in inds:
-            post_mean = posteriors[k].mean
-            post_cov = posteriors[k].covar
-            prior_mean = priors[k].mean
-            prior_cov = priors[k].covar
+            post_mean = posteriors[k].mean[state_idx, :]
+            post_cov = posteriors[k].covar[state_idx, :][:, state_idx]
+            prior_mean = priors[k].mean[state_idx, :]
+            prior_cov = priors[k].covar[state_idx, :][:, state_idx]
 
             H, z, R, _ = self.get_pseudomeasurement(post_mean, post_cov, prior_mean, prior_cov)
 
