@@ -1,3 +1,21 @@
+"""
+multi-sonar-ehm-fuse.py
+
+This example script simulates 3 moving platforms, each equipped with a single active sonar sensor 
+(StoneSoup does not have an implementation of an active sonar so a radar is used instead), and 1 
+target. Each sensor generates detections of all other objects (excluding itself).
+
+The tracking configuration is as follows:
+- For each sensor whose index in the 'all_detectors' list is not in 'bias_tracker_idx', a
+  local tracker is configured that acts like a contact follower and generates Track objects. The
+  outputs of these trackers are the fed into the Fusion engine.
+- For all other sensors, their data is fed directly into the Fusion engine. Note that the
+  TrackletExtractorWithTracker is used here, meaning that a (local) bias estimation tracker is run
+  on the data read from each sensor, before it is fed into the main Fuse Tracker (i.e. the
+  component of the Fusion Engine that produces the fused tracks).
+- The data association algorithm used for both the local and fuse trackers is JPDA with EHM.
+
+"""
 import numpy as np
 from datetime import datetime, timedelta
 from copy import deepcopy, copy
@@ -74,8 +92,8 @@ for i, init_state in enumerate(init_states):
     sensor = RadarBearingRangeWithClutter(ndim_state=6,
                                           position_mapping=(0, 2, 4),
                                           noise_covar=radar_noise_covar,
-                                          mounting_offset= StateVector([0, 0, 0]),
-                                          rotation_offset= StateVector([0, 0, 0]),
+                                          mounting_offset=StateVector([0, 0, 0]),
+                                          rotation_offset=StateVector([0, 0, 0]),
                                           clutter_rate=clutter_rate,
                                           max_range=max_range,
                                           prob_detect=prob_detect,

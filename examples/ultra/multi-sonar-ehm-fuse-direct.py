@@ -1,3 +1,20 @@
+"""
+multi-sonar-ehm-fuse-direct.py
+
+This example script simulates 3 moving platforms, each equipped with a single active sonar sensor
+(StoneSoup does not have an implementation of an active sonar so a radar is used instead), and 1
+target. Each sensor generates detections of all other objects (excluding itself).
+
+The tracking configuration is as follows:
+- For sensors 1 and 2 (i.e. detector1, detector2), a local tracker is configured that acts like a
+  contact follower and generates Track objects. The outputs of these trackers are the fed into the
+  Fusion engine.
+- The data from sensor 3 (i.e. detector3) is fed directly into the Fuse Tracker, without being
+  pre-processed by any additional local trackers.
+- Bias estimation is NOT performed in this script.
+- The data association algorithm used for both the local and fuse trackers is JPDA with EHM.
+"""
+
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt

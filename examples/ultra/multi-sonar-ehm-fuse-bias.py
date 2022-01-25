@@ -1,3 +1,18 @@
+"""
+multi-sonar-ehm-fuse-bias.py
+
+This example script simulates 3 moving platforms, each equipped with a single active sonar sensor
+(StoneSoup does not have an implementation of an active sonar so a radar is used instead), and 1
+target. Each sensor generates detections of all other objects (excluding itself).
+
+The tracking configuration is as follows:
+- The configuration is the same as in multi-sonar-ehm-fuse-direct.py, but with the addition of
+  bias estimation for sensor 3 (the only sensor whose data is fed directly into the Fuse Tracker).
+- The Fuse Tracker is configured to include 2 additional elements in the state vector of each
+  track, representing the estimated bias in bearing and range respectively.
+
+"""
+
 import numpy as np
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
@@ -196,7 +211,7 @@ fuse_associator = JPDAWithEHM2(hypothesiser1)                     # in Fuse trac
 # fuse_associator = GNNWith2DAssignment(hypothesiser1)          # Uncomment for GNN in Fuse Tracker
 
 prior1 = GaussianState(StateVector([0, 0, 0, 0, 0, 0]),
-                      CovarianceMatrix(np.diag([50, 5, 50, 5, np.pi/6, 5])))
+                       CovarianceMatrix(np.diag([50, 5, 50, 5, np.pi/6, 5])))
 initiator1 = TwoStateMeasurementInitiator(prior1, transition_model_bias, two_state_updater)
 
 fuse_initiator = FuseTrackerInitiator(initiator=initiator1, predictor=two_state_predictor,
