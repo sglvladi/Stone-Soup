@@ -37,46 +37,6 @@ from stonesoup.reader.tracklet import TrackletExtractor, PseudoMeasExtractor, \
 from stonesoup.tracker.fuse import FuseTracker
 
 
-def plot_covar(cov, pos, nstd=1, ax=None, **kwargs):
-    """
-    Plots an `nstd` sigma error ellipse based on the specified covariance
-    matrix (`cov`). Additional keyword arguments are passed on to the
-    ellipse patch artist.
-    Parameters
-    ----------
-        cov : The 2x2 covariance matrix to base the ellipse on
-        pos : The location of the center of the ellipse. Expects a 2-element
-            sequence of [x0, y0].
-        nstd : The radius of the ellipse in numbers of standard deviations.
-            Defaults to 2 standard deviations.
-        ax : The axis that the ellipse will be plotted on. Defaults to the
-            current axis.
-        Additional keyword arguments are pass on to the ellipse patch.
-    Returns
-    -------
-        A matplotlib ellipse artist
-    """
-
-    def eigsorted(cov):
-        vals, vecs = np.linalg.eigh(cov)
-        order = vals.argsort()[::-1]
-        return vals[order], vecs[:, order]
-
-    if ax is None:
-        ax = plt.gca()
-
-    vals, vecs = eigsorted(cov)
-    theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
-
-    # Width and height are "full" widths, not radius
-    width, height = 2 * nstd * np.sqrt(vals)
-    ellip = Ellipse(xy=pos, width=width, height=height, angle=theta,
-                    alpha=0.4, **kwargs)
-
-    ax.add_artist(ellip)
-    return ellip
-
-
 # Parameters
 np.random.seed(1000)
 clutter_rate = 5                                    # Mean number of clutter points per scan
@@ -151,26 +111,19 @@ detector2 = PlatformTargetDetectionSimulator(groundtruth=gnd_simulator, platform
                                              targets=[platforms[0], platforms[2], target])
 detector3 = PlatformTargetDetectionSimulator(groundtruth=gnd_simulator, platforms=[platforms[2]],
                                              targets=[platforms[0], platforms[1], target])
-detectors = [detector1, detector2, detector3]
+
+all_detectors = [detector1, detector2, detector3]
+non_bias_detectors = [detector for i, detector in enumerate(all_detectors) if i not in bias_tracker_idx]
+bias_detectors = [detector for i, detector in enumerate(all_detectors) if i in bias_tracker_idx]
 
 # Multi-Target Trackers (1 per platform)
-trackers = []
-track_readers = []
-for i, detector in enumerate(detectors):
-    # Bias trackers place the biases for azimuth and range in the 5-th and 6-th state index, resp.
-    # Therefore, a different prior and transition model are required
-    if i in bias_tracker_idx:
-        transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                                  ConstantVelocity(0.05),
-                                                                  NthDerivativeDecay(0, 1e-6, 5),
-                                                                  NthDerivativeDecay(0, 1e-4, 5)])
-        prior = GaussianState(StateVector([0, 0, 0, 0, 0, 0]),
-                              CovarianceMatrix(np.diag([50, 5, 50, 5, np.pi/6, 5])))
-    else:
-        transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                                  ConstantVelocity(0.05)])
-        prior = GaussianState(StateVector([0, 0, 0, 0]),
-                              CovarianceMatrix(np.diag([50, 5, 50, 5])))
+non_bias_trackers = []
+non_bias_track_readers = []
+for i, detector in enumerate(non_bias_detectors):
+    transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
+                                                              ConstantVelocity(0.05)])
+    prior = GaussianState(StateVector([0, 0, 0, 0]),
+                          CovarianceMatrix(np.diag([50, 5, 50, 5])))
     predictor = ExtendedKalmanPredictor(transition_model)
     updater = ExtendedKalmanUpdater(None, True)
 
@@ -192,18 +145,46 @@ for i, detector in enumerate(detectors):
     hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
     data_associator = JPDAWithEHM2(hypothesiser)
     tracker = MultiTargetMixtureTracker(initiator, deleter, detector, data_associator, updater)
-    trackers.append(tracker)
-    track_readers.append(TrackReader(tracker, run_async=False, transition_model=transition_model,
-                                     sensor_id=i))
+    non_bias_trackers.append(tracker)
+    non_bias_track_readers.append(TrackReader(tracker, run_async=False,
+                                              transition_model=transition_model,
+                                              sensor_id=i))
 
+# Bias tracker for sensors that feed detections straight to the Fusion Engine
+bias_transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
+                                                               ConstantVelocity(0.05),
+                                                               NthDerivativeDecay(0, 1e-6, 5),
+                                                               NthDerivativeDecay(0, 1e-4, 5)])
+bias_prior = GaussianState(StateVector([0, 0, 0, 0, 0, 0]),
+                           CovarianceMatrix(np.diag([50, 5, 50, 5, np.pi/6, 5])))
+predictor = ExtendedKalmanPredictor(bias_transition_model)
+updater = ExtendedKalmanUpdater(None, True)
+# Initiator components
+hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
+data_associator_init = GNNWith2DAssignment(hypothesiser_init)
+deleter_init1 = UpdateTimeStepsDeleter(2)
+deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
+deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
+initiator = MultiMeasurementInitiator(bias_prior, None, deleter_init,
+                                      data_associator_init, updater, 10)
+deleter1 = UpdateTimeStepsDeleter(10)
+deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
+deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
+hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
+hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
+data_associator = JPDAWithEHM2(hypothesiser)
+bias_tracker = MultiTargetMixtureTracker(initiator, deleter, None, data_associator, updater)
 
 # Fusion Tracker
 transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
                                                           ConstantVelocity(0.05)])
 prior = GaussianState(StateVector([0, 0, 0, 0]),
                       CovarianceMatrix(np.diag([50, 5, 50, 5])))
-tracklet_extractor = TrackletExtractor(track_readers, transition_model,
-                                       fuse_interval=timedelta(seconds=3))
+tracklet_extractor = TrackletExtractorWithTracker(trackers=non_bias_track_readers,
+                                                  transition_model=transition_model,
+                                                  detectors=bias_detectors,
+                                                  core_tracker=bias_tracker,
+                                                  fuse_interval=timedelta(seconds=3))
 detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3])
 two_state_predictor = TwoStatePredictor(transition_model)
 two_state_updater = TwoStateKalmanUpdater(None, True)
@@ -229,7 +210,7 @@ for i, (timestamp, ctracks) in enumerate(fuse_tracker):
     # Plot
     if PLOT:
         plt.clf()
-        all_detections = [tracker.detector.detections for tracker in trackers]
+        all_detections = [detector.detections for detector in all_detectors]
         colors = ['r', 'g', 'b']
         data = np.array([state.state_vector for state in target])
         plt.plot(data[:, 0], data[:, 2], '--k', label='Groundtruth (Target)')
@@ -244,12 +225,12 @@ for i, (timestamp, ctracks) in enumerate(fuse_tracker):
                 plt.plot(x, y, f'{color}x')
 
         for i, (tracklets, color) in enumerate(zip(tracklet_extractor.current[1], colors)):
-            if i in bias_tracker_idx:
-                idx = [6, 8]
-            else:
-                idx = [4, 6]
             for tracklet in tracklets:
                 data = np.array([s.mean for s in tracklet.states if isinstance(s, Update)])
+                if data.shape[1] > 8:
+                    idx = [6, 8]
+                else:
+                    idx = [4, 6]
                 plt.plot(data[:, idx[0]], data[:, idx[1]], f':{color}')
 
         for track in tracks:
