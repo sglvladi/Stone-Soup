@@ -265,10 +265,19 @@ class TrackletExtractorWithTracker(TrackletExtractor):
 
     def __init__(self, *args, **kwargs):
         super(TrackletExtractorWithTracker, self).__init__(*args, **kwargs)
-        for detector in self.detectors:
+        sensor_id_offset = len(self.trackers)
+        for i, detector in enumerate(self.detectors):
             tracker = deepcopy(self.core_tracker)
             tracker.detector = detector
-            self.trackers.append(TrackReader(tracker, run_async=self.run_async))
+            # Extract transition model
+            hypothesiser = tracker.data_associator.hypothesiser
+            while not hasattr(hypothesiser, 'predictor'):
+                hypothesiser = hypothesiser.hypothesiser
+            transition_model = hypothesiser.predictor.transition_model
+            self.trackers.append(TrackReader(tracker,
+                                             transition_model=transition_model,
+                                             sensor_id=sensor_id_offset+i,
+                                             run_async=self.run_async))
 
 
 class PseudoMeasExtractor(Base, BufferedGenerator):
