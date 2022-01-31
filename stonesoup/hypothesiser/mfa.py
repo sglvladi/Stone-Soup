@@ -2,7 +2,7 @@
 from .base import Hypothesiser
 from ..base import Property
 from ..types.multihypothesis import MultipleHypothesis
-from ..types.prediction import TaggedWeightedGaussianStatePrediction
+from ..types.prediction import Prediction
 
 
 class MFAHypothesiser(Hypothesiser):
@@ -45,14 +45,10 @@ class MFAHypothesiser(Hypothesiser):
                 # Update component tag and weight
                 det_idx = detections_list.index(hypothesis.measurement) + 1 if hypothesis else 0
                 new_weight = component.weight * hypothesis.weight
-                hypothesis.prediction = \
-                    TaggedWeightedGaussianStatePrediction(
-                        tag=[*component.tag, det_idx],
-                        weight=new_weight,
-                        state_vector=hypothesis.prediction.state_vector,
-                        covar=hypothesis.prediction.covar,
-                        timestamp=hypothesis.prediction.timestamp
-                    )
+                hypothesis.prediction = Prediction.from_state(
+                    hypothesis.prediction,
+                    tag=[*component.tag, det_idx],
+                    weight=new_weight)
                 hypotheses.append(hypothesis)
         # Create Multiple Hypothesis and add to list
         hypotheses = MultipleHypothesis(hypotheses)
