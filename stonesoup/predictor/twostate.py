@@ -2,7 +2,7 @@ from stonesoup.predictor import Predictor
 from stonesoup.predictor._utils import predict_lru_cache
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.functions import predict_state_to_two_state
-from stonesoup.types.prediction import TwoStateGaussianStatePrediction
+from stonesoup.types.prediction import TwoStateGaussianStatePrediction, Prediction
 
 
 class TwoStatePredictor(Predictor):
@@ -24,7 +24,7 @@ class TwoStatePredictor(Predictor):
 
         two_state_mu, two_state_cov = predict_state_to_two_state(mu, C, self.transition_model,
                                                                  new_end_time - new_start_time)
-        return TwoStateGaussianStatePrediction(StateVector(two_state_mu),
-                                               CovarianceMatrix(two_state_cov),
-                                               start_time=new_start_time,
-                                               end_time=new_end_time)
+
+        return Prediction.from_state(prior, two_state_mu, two_state_cov,
+                                     start_time=new_start_time,
+                                     end_time=new_end_time)
