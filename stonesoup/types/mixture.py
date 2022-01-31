@@ -29,7 +29,7 @@ class GaussianMixture(Type, Sized, Iterable, Container):
         super().__init__(*args, **kwargs)
         if self.components is None:
             self.components = []
-        if any(not isinstance(component, (WeightedGaussianState, TaggedWeightedGaussianState))
+        if any(not hasattr(component, 'weight')
                 for component in self.components):
             raise ValueError("Cannot form GaussianMixtureState out of "
                              "non-WeightedGaussianState inputs!")
@@ -106,3 +106,7 @@ class GaussianMixture(Type, Sized, Iterable, Container):
             raise ValueError("All components must be "
                              "TaggedWeightedGaussianState!")
         return component_tags
+
+    @property
+    def timestamp(self):
+        return next((component.timestamp for component in self.components), None)
