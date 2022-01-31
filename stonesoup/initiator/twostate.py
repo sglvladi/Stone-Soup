@@ -1,10 +1,12 @@
 import numpy as np
 
 from ..base import Base, Property
+from ..dataassociator.mfa import MFADataAssociator
 from ..dataassociator.probability import JPDA
 from ..models.base import NonLinearModel, ReversibleModel
 from ..models.transition import TransitionModel
 from ..tracker.fuse import _BaseFuseTracker
+from ..types.mixture import GaussianMixture
 from ..types.state import GaussianState, TwoStateGaussianState, State
 from ..types.update import Update
 from ..updater import Updater
@@ -44,6 +46,22 @@ class TwoStateInitiator(Base):
             new_tracks.add(track)
 
         return new_tracks
+
+
+class TwoStateInitiatorMixture(TwoStateInitiator):
+
+    def initiate(self, detections, start_time, end_time, **kwargs):
+        sure_tracks = super().initiate(detections, start_time, end_time, **kwargs)
+        for track in sure_tracks:
+            prior = GaussianMixture([TwoStateGaussianState(track.state.state_vector,
+                                                           track.state.covar,
+                                                           start_time=track.state.start_time,
+                                                           end_time=track.state.end_time,
+                                                           weight=Probability(1),
+                                                           tag=[])])
+            track.states[-1] = prior
+        return sure_tracks
+
 
 
 class TwoStateMeasurementInitiator(TwoStateInitiator):
@@ -106,9 +124,25 @@ class TwoStateMeasurementInitiator(TwoStateInitiator):
         return new_tracks
 
 
+class TwoStateMeasurementInitiatorMixture(TwoStateMeasurementInitiator):
+
+    def initiate(self, detections, start_time, end_time, **kwargs):
+        sure_tracks = super().initiate(detections, start_time, end_time, **kwargs)
+        for track in sure_tracks:
+            prior = GaussianMixture([TwoStateGaussianState(track.state.state_vector,
+                                                           track.state.covar,
+                                                           start_time=track.state.start_time,
+                                                           end_time=track.state.end_time,
+                                                           weight=Probability(1),
+                                                           tag=[])])
+            track.states[-1] = prior
+        return sure_tracks
+
+
 class FuseTrackerInitiator(_BaseFuseTracker):
     min_points: int = Property(
         default=2, doc="Minimum number of track points required to confirm a track.")
+    output_mixture: bool = Property(default=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -136,6 +170,16 @@ class FuseTrackerInitiator(_BaseFuseTracker):
                 sure_tracks.add(track)
 
         self.holding_tracks -= sure_tracks
+
+        if self.output_mixture:
+            for track in sure_tracks:
+                prior = GaussianMixture([TwoStateGaussianState(track.state.state_vector,
+                                                               track.state.covar,
+                                                               start_time=track.state.start_time,
+                                                               end_time=track.state.end_time,
+                                                               weight=Probability(1),
+                                                               tag=[])])
+                track.states[-1] = prior
         return sure_tracks
 
     def predict(self, new_start_time, new_end_time):
@@ -160,7 +204,7 @@ class FuseTrackerInitiator(_BaseFuseTracker):
                 self.update_track(track, associations[track], scan.id)
 
             # Initiate new tracks on unassociated detections
-            if isinstance(self.associator, JPDA):
+            if isinstance(self.associator, JPDA) or isinstance(self.associator, MFADataAssociator):
                 assoc_detections = set(
                     [h.measurement for hyp in associations.values() for h in hyp if h])
             else:
