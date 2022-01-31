@@ -155,7 +155,12 @@ class PDAHypothesiserNoPrediction(PDAHypothesiser):
         hypotheses = list()
 
         # Common state & measurement prediction
-        prediction = track.states[-1]
+        try:
+            prediction = track.states[-1]
+        except AttributeError:
+            # MFAHypothethiser feeds components (i.e. State object) instead of tracks
+            prediction = track
+            
         # Missed detection hypothesis
         probability = self.prob_new_targets * Probability(1 - self.prob_detect * self.prob_gate)
         hypotheses.append(
