@@ -12,10 +12,11 @@ from ..detector import Detector
 from ..models.transition.base import TransitionModel
 from ..models.measurement.linear import LinearGaussianPredefinedH
 from ..tracker.base import Tracker
+from ..types.mixture import GaussianMixture
 from ..types.numeric import Probability
 from ..types.prediction import TwoStateGaussianStatePrediction, Prediction
 from ..types.tracklet import Tracklet, SensorTracks, SensorTracklets, Scan, SensorScan
-from ..types.state import TwoStateGaussianState
+from ..types.state import TwoStateGaussianState, GaussianState
 from ..types.array import StateVector
 from ..types.detection import Detection
 from ..functions import predict_state_to_two_state
@@ -210,8 +211,17 @@ class TrackletExtractor(Base, BufferedGenerator):
 
         # Get filtered distributions at start and end of interval
         predictor = ExtendedKalmanPredictor(tx_model)
-        pred0 = predictor.predict(states[0], start_time)
-        pred1 = predictor.predict(states[1], end_time)
+        state0 = states[0]
+        if isinstance(state0, GaussianMixture):
+            # Ensure state is single Gaussian
+            state0 = GaussianState(state0.mean, state0.covar, state0.timestamp)
+        state1 = states[1]
+        if isinstance(state1, GaussianMixture):
+            # Ensure state is single Gaussian
+            state1 = GaussianState(state1.mean, state1.covar, state1.timestamp)
+
+        pred0 = predictor.predict(state0, start_time)
+        pred1 = predictor.predict(state1, end_time)
 
         # Predict prior mean
         prior_mean, prior_cov = predict_state_to_two_state(pred0.mean, pred0.covar, tx_model,
