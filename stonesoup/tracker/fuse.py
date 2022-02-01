@@ -2,10 +2,12 @@ import numpy as np
 
 from ..base import Base, Property
 from ..buffered_generator import BufferedGenerator
+from ..dataassociator.mfa import MFADataAssociator
 from ..dataassociator.probability import JPDA
 from ..tracker import Tracker
 from ..reader.tracklet import PseudoMeasExtractor
 from ..predictor import Predictor
+from ..types.mixture import GaussianMixture
 from ..updater import Updater
 from ..dataassociator import DataAssociator
 from ..types.numeric import Probability
@@ -63,7 +65,7 @@ class _BaseFuseTracker(Base):
                 self.update_track(track, associations[track], scan.id)
 
             # Initiate new tracks on unassociated detections
-            if isinstance(self.associator, JPDA):
+            if isinstance(self.associator, JPDA) or isinstance(self.associator, MFADataAssociator):
                 assoc_detections = set(
                     [h.measurement for hyp in associations.values() for h in hyp if h])
             else:
@@ -94,15 +96,62 @@ class _BaseFuseTracker(Base):
 
         # Predict forward
         # p(x_k, x_{k+\Delta} | y^{1:S}_{1:k})
-        prediction = self.predictor.predict(track.state, current_end_time=current_end_time,
-                                            new_start_time=new_start_time,
-                                            new_end_time=new_end_time)
+        if not isinstance(track.state, GaussianMixture):
+            prediction = self.predictor.predict(track.state, current_end_time=current_end_time,
+                                                new_start_time=new_start_time,
+                                                new_end_time=new_end_time)
+        else:
+            pred_components = []
+            for component in track.state:
+                pred_components.append(self.predictor.predict(component,
+                                                              current_end_time=current_end_time,
+                                                              new_start_time=new_start_time,
+                                                              new_end_time=new_end_time))
+            prediction = GaussianMixture(pred_components)
         # Append prediction to track history
         track.append(prediction)
 
     def update_track(self, track, hypothesis, scan_id):
         last_state = track.states[-1]
-        if isinstance(self.associator, JPDA):
+        if isinstance(self.associator, MFADataAssociator):
+            components = []
+            dct = dict()    # Contains association weights for each distinct prediction component
+            for hyp in hypothesis:
+                if not hyp:
+                    idx = 0
+                    components.append(hyp.prediction)
+                else:
+                    idx = 1
+                    update = self.updater.update(hyp)
+                    components.append(update)
+                # Populate association weights for each prediction component
+                # (i.e. components that share a common measurement history up to previous
+                # (hence -1) timestep)
+                try:
+                    dct[tuple(hyp.prediction.tag[:-1])].insert(idx, hyp.probability)
+                except KeyError:
+                    dct[tuple(hyp.prediction.tag[:-1])] = [hyp.probability]
+
+            update = GaussianMixture(components)
+            track.states[-1] = update
+
+            # Compute existence probability
+            non_exist_weight = 1 - track.exist_prob
+            non_det_weight = (1 - self.prob_detect) * track.exist_prob
+            null_exist_weight = non_det_weight / (non_exist_weight + non_det_weight)
+            exist_probs_list = []
+            exist_probs_weights = []
+            # Iterate over prediction components and compute existence prob for each
+            for key, weights in dct.items():
+                exist_probs = np.array([null_exist_weight, *[1. for i in range(len(weights) - 1)]])
+                exist_probs_list.append(Probability.sum(exist_probs * weights))
+                exist_probs_weights.append(Probability.sum(weights))
+
+            # Existence prob is the max over them
+            # NOTE: Might be better to use weighted average
+            track.exist_prob = np.max(exist_probs_list)
+
+        elif isinstance(self.associator, JPDA):
             # calculate each Track's state as a Gaussian Mixture of
             # its possible associations with each detection, then
             # reduce the Mixture to a single Gaussian State
@@ -111,11 +160,13 @@ class _BaseFuseTracker(Base):
             for hyp in hypothesis:
                 if not hyp:
                     posterior_states.append(hyp.prediction)
+                    # Ensure null hyp weight is at index 0
+                    posterior_state_weights.insert(0, hyp.probability)
                 else:
                     posterior_states.append(
                         self.updater.update(hyp))
-                posterior_state_weights.append(
-                    hyp.probability)
+                    posterior_state_weights.append(
+                        hyp.probability)
 
             means = StateVectors([state.state_vector for state in posterior_states])
             covars = np.stack([state.covar for state in posterior_states], axis=2)
