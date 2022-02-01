@@ -130,6 +130,8 @@ class ScanAggregator(Reader):
     readers: List[Reader] = Property(doc='The other readers')
     with_bias: bool = Property(doc='Whether to modify detections measurement model to consider '
                                    'bias', default=False)
+    bias_mappings: List[int] = Property(doc='Indices of bias variables in state for each sensor',
+                                        default=None)
 
     def __init__(self, *args, **kwargs):
         super(ScanAggregator, self).__init__(*args, **kwargs)
@@ -147,11 +149,14 @@ class ScanAggregator(Reader):
                 continue
             scans_tmp = [scan for scan in self._buffer if scan.timestamp <= timestamp]
             self._buffer = [scan for scan in self._buffer if scan not in scans_tmp]
-            for reader in self._reader_gens:
+            for i, reader in enumerate(self._reader_gens):
+                bias_mapping = self.bias_mappings[i] if self.bias_mappings is not None else None
                 _, scan = next(reader)
+                scan.bias_mapping = bias_mapping
                 while scan.timestamp <= timestamp:
                     scans_tmp.append(scan)
                     _, scan = next(reader)
+                    scan.bias_mapping = bias_mapping
                 self._buffer.append(scan)
             # for scan in scans_tmp:
             #     scan.start_time = start_time
@@ -164,7 +169,8 @@ class ScanAggregator(Reader):
                             mapping=(6, 8),
                             noise_covar=detection.measurement_model.noise_covar,
                             translation_offset=detection.measurement_model.translation_offset,
-                            rotation_offset=detection.measurement_model.rotation_offset
+                            rotation_offset=detection.measurement_model.rotation_offset,
+                            bias_mapping=scan.bias_mapping
                         )
                         detection.measurement_model = meas_model
                     else:
