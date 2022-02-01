@@ -197,7 +197,7 @@ track_readers = [TrackReader(t, run_async=False, transition_model=transition_mod
 tracklet_extractor = TrackletExtractor(track_readers, transition_model, fuse_interval=timedelta(seconds=3))
 sensor_scan_reader = SensorScanReader(detector3)
 detector = ScanAggregator(PseudoMeasExtractor(tracklet_extractor, target_state_dim=12),
-                          [sensor_scan_reader], with_bias=True)
+                          [sensor_scan_reader], with_bias=True, bias_mappings=[(-2, -1)])
 # detector = PseudoMeasExtractor(tracklet_extractor)
 two_state_predictor = TwoStatePredictor(transition_model_bias)
 two_state_updater = TwoStateKalmanUpdater(None, True)
