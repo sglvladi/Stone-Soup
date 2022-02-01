@@ -78,6 +78,7 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
     prob_detect: Probability = Property(doc='The sensor probability of detection')
     model_with_bias: bool = Property(doc='Whether to attach bias model to measurements',
                                      default=False)
+    bias_mapping: Tuple = Property(doc='Indices of bias variables in state', default=None)
 
     def measure(self, ground_truths: Set[GroundTruthState], noise: Union[np.ndarray, bool] = True,
                 timestamp=None, **kwargs) -> Set[Detection]:
@@ -102,7 +103,9 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
                 mapping=self.position_mapping[0:2],
                 noise_covar=self.noise_covar,
                 translation_offset=self.position[0:2],
-                rotation_offset=self.orientation)
+                rotation_offset=self.orientation,
+                bias_mapping=self.bias_mapping,
+            )
 
         detections = set()
         for truth in ground_truths:
