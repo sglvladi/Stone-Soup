@@ -84,8 +84,15 @@ def plot_covar(cov, pos, nstd=1, ax=None, **kwargs):
     return ellip
 
 
-def plot_tracks(tracks, ax, slide_window=None, color='r'):
+def plot_tracks(tracks, ax, plot_multi=True, slide_window=None, color='r'):
     for i, track in enumerate(tracks):
+        if not plot_multi:
+            data = np.array([state.state_vector for state in track])
+            ax.plot(data[:, 0], data[:, 2], f'-{color}')
+            plot_covar(track.state.covar[[0, 2], :][:, [0, 2]],
+                       track.state.mean[[0, 2], :],
+                       ax=ax)
+            continue
         mini_tracks = []
         hist_window = len(track) if (slide_window is None or slide_window > len(track)) else slide_window
         for component in track.state.components:
@@ -103,7 +110,7 @@ def plot_tracks(tracks, ax, slide_window=None, color='r'):
         for t in mini_tracks:
             # Avoid re-plotting drawn trajectory
             t_tmp = [x for x in t if x not in drawn_states]
-            if len(t_tmp)<len(t):
+            if len(t_tmp) < len(t):
                 t_tmp.insert(0, t[-(len(t_tmp)+1)])
             ax.plot([state.state_vector[0, 0] for state in t_tmp],
                     [state.state_vector[2, 0] for state in t_tmp], f'-{color}')
@@ -125,7 +132,7 @@ gate_level = 8 # Gate level; used by gater
 prob_gate = chi2.cdf(gate_level, 2)  # Prob. of gating, computed from gate level for hypothesiser
 slide_window_init = 1
 slide_window = 3
-PLOT = True
+PLOT = False
 
 num_timesteps = 100  # Number of simulation timesteps
 
@@ -195,13 +202,9 @@ detectors = [detector1, detector2, detector3]
 trackers = []
 for detector in detectors:
     transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                              ConstantVelocity(0.05),
                                                               ConstantVelocity(0.05)])
-    # This is a dummy measurement model and will not be used because detections carry their own
-    measurement_model = LinearGaussian(ndim_state=6, mapping=[0, 2, 4],
-                                       noise_covar=CovarianceMatrix(np.diag([1., 1., 1.])))
     predictor = ExtendedKalmanPredictor(transition_model)
-    updater = ExtendedKalmanUpdater(measurement_model)
+    updater = ExtendedKalmanUpdater(None)
 
     # # Initiator components
     # hypothesiser_init = PDAHypothesiser(predictor, updater, clutter_density, prob_gate=prob_gate,
@@ -217,15 +220,15 @@ for detector in detectors:
     # Initiator components
     hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
     data_associator_init = GNNWith2DAssignment(hypothesiser_init)
-    prior = GaussianState(StateVector([0, 0, 0, 0, 0, 0]),
-                          CovarianceMatrix(np.diag([50, 5, 50, 5, 1, .001])))
+    prior = GaussianState(StateVector([0, 0, 0, 0]),
+                          CovarianceMatrix(np.diag([50, 5, 50, 5])))
     deleter_init1 = UpdateTimeStepsDeleter(2)
     deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
     deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
 
     # Tracker components
     # MofN initiator
-    initiator = MultiMeasurementInitiatorMixture(prior, measurement_model, deleter_init,
+    initiator = MultiMeasurementInitiatorMixture(prior, None, deleter_init,
                                                  data_associator_init, updater, 10)
     deleter1 = UpdateTimeStepsDeleter(10)
     deleter2 = CovarianceBasedDeleter(200, mapping=[0, 2])
@@ -267,7 +270,7 @@ for (timestamp, ctracks1), (_, ctracks2), (_, ctracks3) in zip(*trackers):
                 plt.plot(x, y, f'{color}x')
 
         for i, (tracks, color) in enumerate(zip(all_tracks, colors)):
-            plot_tracks(tracks, plt.gca(), slide_window, color)
+            plot_tracks(tracks, plt.gca(), False, slide_window, color)
             for track in tracks:
                 data = np.array([state.state_vector for state in track])
                 plt.plot(data[:, 0], data[:, 2], f'-{color}')
