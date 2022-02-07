@@ -13,7 +13,7 @@ from ..dataassociator import DataAssociator
 from ..types.numeric import Probability
 from ..types.prediction import Prediction
 from ..types.array import StateVectors
-from ..types.update import Update, TwoStateGaussianStateUpdate
+from ..types.update import Update, TwoStateGaussianStateUpdate, GaussianMixtureUpdate
 from ..types.hypothesis import MultiHypothesis
 from ..initiator import Initiator
 from ..functions import gm_reduce_single
@@ -124,6 +124,11 @@ class _BaseFuseTracker(Base):
                     idx = 1
                     update = self.updater.update(hyp)
                     components.append(update)
+                    if 'track_id' in hyp.measurement.metadata:
+                        try:
+                            track.track_ids.add(hyp.measurement.metadata['track_id'])
+                        except AttributeError:
+                            track.track_ids = {hyp.measurement.metadata['track_id']}
                 # Populate association weights for each prediction component
                 # (i.e. components that share a common measurement history up to previous
                 # (hence -1) timestep)
@@ -132,8 +137,8 @@ class _BaseFuseTracker(Base):
                 except KeyError:
                     dct[tuple(hyp.prediction.tag[:-1])] = [hyp.probability]
 
-            update = GaussianMixture(components)
-            track.states[-1] = update
+            update = GaussianMixtureUpdate(components=components, hypothesis=hypothesis)
+            track[-1] = update
 
             # Compute existence probability
             non_exist_weight = 1 - track.exist_prob
@@ -167,6 +172,11 @@ class _BaseFuseTracker(Base):
                         self.updater.update(hyp))
                     posterior_state_weights.append(
                         hyp.probability)
+                    if 'track_id' in hyp.measurement.metadata:
+                        try:
+                            track.track_ids.add(hyp.measurement.metadata['track_id'])
+                        except AttributeError:
+                            track.track_ids = {hyp.measurement.metadata['track_id']}
 
             means = StateVectors([state.state_vector for state in posterior_states])
             covars = np.stack([state.covar for state in posterior_states], axis=2)
@@ -178,7 +188,7 @@ class _BaseFuseTracker(Base):
                                                  start_time=posterior_states[0].start_time,
                                                  end_time=posterior_states[0].end_time,
                                                  hypothesis=hypothesis)
-            track.states[-1] = update
+            track[-1] = update
             # Compute existence probability
             non_exist_weight = 1 - track.exist_prob
             non_det_weight = (1 - self.prob_detect) * track.exist_prob
@@ -202,7 +212,7 @@ class _BaseFuseTracker(Base):
                                               measurements=[hyp.measurement,
                                                             hypothesis.measurement])
                     update.hypothesis = hyp  # Update the hypothesis
-                    track.states[-1] = update  # Replace the last state
+                    track[-1] = update  # Replace the last state
                 elif isinstance(last_state,
                                 Prediction) and last_state.timestamp == update.timestamp:
                     # If the last state was a prediction with the same timestamp, it means that the
@@ -211,7 +221,7 @@ class _BaseFuseTracker(Base):
                     # with the update
                     update.hypothesis = MultiHypothesis(prediction=hypothesis.prediction,
                                                         measurements=[hypothesis.measurement])
-                    track.states[-1] = update
+                    track[-1] = update
                 else:
                     # Else simply append the update to the track history
                     update.hypothesis = MultiHypothesis(prediction=hypothesis.prediction,
@@ -219,6 +229,11 @@ class _BaseFuseTracker(Base):
                     track.append(update)
                 # Set existence probability to 1
                 track.exist_prob = 1
+                if 'track_id' in hypothesis.measurement.metadata:
+                    try:
+                        track.track_ids.add(hypothesis.measurement.metadata['track_id'])
+                    except AttributeError:
+                        track.track_ids = {hypothesis.measurement.metadata['track_id']}
             else:
                 # If the track was not associated to any measurement, simply update the existence
                 # probability

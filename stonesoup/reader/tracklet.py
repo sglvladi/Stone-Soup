@@ -428,6 +428,7 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
                 detection = Detection(state_vector=StateVector(z), measurement_model=meas_model,
                                       timestamp=posteriors[k].timestamp,
                                       metadata=tracklet.metadata)
+                detection.metadata['track_id'] = tracklet.id
                 detection.start_time = posteriors[k].start_time
                 detection.end_time = posteriors[k].end_time
                 measdata.append(detection)
