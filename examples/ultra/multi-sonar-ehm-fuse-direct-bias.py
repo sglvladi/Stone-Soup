@@ -1,5 +1,5 @@
 """
-multi-sonar-ehm-fuse-bias.py
+multi-sonar-ehm-fuse-direct-bias.py
 
 This example script simulates 3 moving platforms, each equipped with a single active sonar sensor
 (StoneSoup does not have an implementation of an active sonar so a radar is used instead), and 1
