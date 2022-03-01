@@ -15,7 +15,6 @@ class DestinationTransitionModel(LinearGaussianTransitionModel):
     noise_diff_coeff = Property(
         float, doc="The position noise diffusion coefficient :math:`q`")
     graph = Property(CustomDiGraph, doc="The graph")
-    spaths = Property(dict, doc="The short paths")
     use_smc = Property(bool, default=False)
 
     @property
@@ -56,7 +55,7 @@ class DestinationTransitionModel(LinearGaussianTransitionModel):
         e = n_state_vectors[2, :]
         u_edges = np.unique(e)
         for edge in u_edges:
-            for dest, path in self.spaths.items():
+            for dest, path in self.graph.short_paths_e.items():
                 # If the path contains the edge
                 if len(np.where(path == edge)[0]) > 0:
                     if edge in v_dest:
@@ -81,7 +80,7 @@ class DestinationTransitionModel(LinearGaussianTransitionModel):
         s = n_state_vectors[4, :]
 
         for i in range(num_particles):
-            r_i, e_i, d_i, s_i = normalise_re(r[i], e[i], d[i], s[i], self.spaths, self.graph)
+            r_i, e_i, d_i, s_i = normalise_re(r[i], e[i], d[i], s[i], self.graph)
             n_state_vectors[0, i] = r_i
             n_state_vectors[2, i] = e_i
 

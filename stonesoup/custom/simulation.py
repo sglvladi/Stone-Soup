@@ -40,7 +40,9 @@ def simulate(G: nx.DiGraph, source: int, destination: int, speed: float, track_i
 
     """
     # Compute shortest path to destination
-    gnd_route_n, gnd_route_e = shortest_path(G, source, destination)
+    gnd_route_n_tmp, gnd_route_e_tmp = shortest_path(G, source, destination)
+    gnd_route_n = gnd_route_n_tmp[(source, destination)]
+    gnd_route_e = gnd_route_e_tmp[(source, destination)]
     path_len = len(gnd_route_n)
 
     # Get the node positions
@@ -50,7 +52,7 @@ def simulate(G: nx.DiGraph, source: int, destination: int, speed: float, track_i
     sv = StateVector(np.array(pos[gnd_route_n[0]]))
     timestamp = timestamp_init
     state = GroundTruthState(sv, timestamp=timestamp)
-    gnd_path = GroundTruthPath([state], id = track_id)
+    gnd_path = GroundTruthPath([state], id=track_id)
 
     r = 0  # Stores the distance travelled (range) along a given edge
     overflow = False  # Indicates when the range has overflown to a new edge
@@ -123,7 +125,9 @@ def simulate_gnd(G, num_tracks, num_destinations, speed):
         while t_len < 20 or t_len > 100:
             t_source = int(np.random.uniform(0, num_nodes))
             t_dest = int(np.random.uniform(0, num_nodes))
-            path_n, path_e = shortest_path(G, t_source, t_dest)
+            path_n_tmp, path_e_tmp = shortest_path(G, t_source, t_dest)
+            path_n = path_n_tmp[(t_source, t_dest)]
+            path_e = path_e_tmp[(t_source, t_dest)]
             t_len = len(path_e)
         t_sources.append(t_source)
         t_destinations.append(t_dest)
@@ -135,8 +139,9 @@ def simulate_gnd(G, num_tracks, num_destinations, speed):
     gnd_routes_e = dict()
     timestamp_init = datetime.now()
     for i in range(num_tracks):
+        dt = timedelta(seconds=np.random.randint(0, 50))
         gnd_path, gnd_route_n, gnd_route_e = simulate(G, t_sources[i], t_destinations[i], speed,
-                                                      timestamp_init=timestamp_init, track_id=i)
+                                                      timestamp_init=timestamp_init+dt, track_id=i)
         gnd_paths.add(gnd_path)
         gnd_routes_e[gnd_path] = gnd_route_e
         gnd_routes_n[gnd_path] = gnd_route_n
@@ -145,7 +150,6 @@ def simulate_gnd(G, num_tracks, num_destinations, speed):
     feed_tmp = set([i for i in range(num_nodes)]) - set(feed)
     destinations = feed + list(
         np.random.choice(list(feed_tmp), (num_destinations - len(feed),), False))
-
 
     return gnd_paths, gnd_routes_n, gnd_routes_e, t_sources, t_destinations, t_colors, destinations
 
@@ -158,7 +162,8 @@ def simulate_detections(gnd_paths, measurement_model, P_D, lambda_FA, VBOUNDS):
             gnd_sv = gnd_state.state_vector
             det_sv = gnd_sv + measurement_model.rvs()
             timestamp = gnd_state.timestamp
-            detection = Detection(state_vector=det_sv, timestamp=timestamp)
+            metadata = {"gnd_id": gnd_path.id}
+            detection = Detection(state_vector=det_sv, timestamp=timestamp, metadata=metadata)
             if i == 0 or np.random.rand() <= P_D:
                 if timestamp in scans_dict:
                     scans_dict[timestamp] |= set([detection])
