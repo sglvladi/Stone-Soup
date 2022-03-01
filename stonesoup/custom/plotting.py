@@ -50,15 +50,15 @@ def highlight_nodes(G, ax,  nodes, node_size=0.1, node_color='m', node_shape='s'
     # Get node positions
     pos = nx.get_node_attributes(G, 'pos')
 
-    nx.draw_networkx_nodes(G, pos, nodelist=nodes, ax=ax, node_size=node_size,
-                           node_color=node_color, node_shape=node_shape, label=label)
+    return nx.draw_networkx_nodes(G, pos, nodelist=nodes, ax=ax, node_size=node_size,
+                                  node_color=node_color, node_shape=node_shape, label=label)
 
 def highlight_edges(G, ax, edges_idx, width= 2.0, edge_color='m', style='solid', arrows=False, label=None):
     edges = G.edges_by_idx(edges_idx)
     pos = nx.get_node_attributes(G, 'pos')
 
-    nx.draw_networkx_edges(G, pos, edgelist=edges, ax=ax, width=width, edge_color=edge_color,
-                           style=style, arrows=arrows, label=label)
+    return nx.draw_networkx_edges(G, pos, edgelist=edges, ax=ax, width=width, edge_color=edge_color,
+                                  style=style, arrows=arrows, label=label)
 
 def plot_cov_ellipse(cov, pos, nstd=2, ax=None, **kwargs):
     """
@@ -97,3 +97,100 @@ def plot_cov_ellipse(cov, pos, nstd=2, ax=None, **kwargs):
 
     ax.add_artist(ellip)
     return ellip
+
+
+def remove_artists(artists):
+    for artist in artists:
+        artist.remove()
+
+
+def plot_polygons(polygons, ax=None, zorder=2):
+    if not ax:
+        ax = plt.gca()
+    lines = []
+    for polygon in polygons:
+        x, y = polygon.exterior.xy
+        (ln,) = ax.plot(x, y, 'k-', zorder=zorder)
+        lines.append(ln)
+    return lines
+
+
+def plot_short_paths_e(spaths, *args, **kwargs):
+    edges = set()
+    for key, value in spaths.items():
+        edges |= set(value)
+    highlight_edges(*args, edges_idx=list(edges), **kwargs)
+
+
+
+class BlitManager:
+    def __init__(self, canvas, plot_data):
+        """
+        Parameters
+        ----------
+        canvas : FigureCanvasAgg
+            The canvas to work with, this only works for sub-classes of the Agg
+            canvas which have the `~FigureCanvasAgg.copy_from_bbox` and
+            `~FigureCanvasAgg.restore_region` methods.
+
+        animated_artists : Iterable[Artist]
+            List of the artists to manage
+        """
+        self.canvas = canvas
+        self._bg = None
+        self._artists = []
+
+        for a in plot_data['base']:
+            self.add_artist(a)
+        # grab the background on every draw
+        self.cid = canvas.mpl_connect("draw_event", self.on_draw)
+
+    def on_draw(self, event):
+        """Callback to register with 'draw_event'."""
+        cv = self.canvas
+        if event is not None:
+            if event.canvas != cv:
+                raise RuntimeError
+        self._bg = cv.copy_from_bbox(cv.figure.bbox)
+        self._draw_animated()
+
+    def add_artist(self, art):
+        """
+        Add an artist to be managed.
+
+        Parameters
+        ----------
+        art : Artist
+
+            The artist to be added.  Will be set to 'animated' (just
+            to be safe).  *art* must be in the figure associated with
+            the canvas this class is managing.
+
+        """
+        if art.figure != self.canvas.figure:
+            raise RuntimeError
+        art.set_animated(True)
+        self._artists.append(art)
+
+    def _draw_animated(self):
+        """Draw all of the animated artists."""
+        fig = self.canvas.figure
+        for a in self._artists:
+            fig.draw_artist(a)
+
+    def update(self):
+        """Update the screen with animated artists."""
+        cv = self.canvas
+        fig = cv.figure
+        # paranoia in case we missed the draw event,
+        if self._bg is None:
+            self.on_draw(None)
+        else:
+            # restore the background
+            cv.restore_region(self._bg)
+            # draw all of the animated artists
+            self._draw_animated()
+            # update the GUI state
+            cv.blit(fig.bbox)
+        # let the GUI event loop process anything it has to do
+        cv.flush_events()

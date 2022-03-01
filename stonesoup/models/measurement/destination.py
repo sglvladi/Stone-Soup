@@ -6,7 +6,7 @@ from scipy.stats import multivariate_normal as mvn
 from stonesoup.types.state import ParticleState2
 from ...base import Property
 from ...types.array import CovarianceMatrix
-from ...custom.graph import get_xy_from_range_edge, get_xy_from_sv
+from ...custom.graph import get_xy_from_range_edge, get_xy_from_sv, CustomDiGraph
 from ...types.numeric import Probability
 from .nonlinear import NonLinearGaussianMeasurement
 
@@ -29,8 +29,7 @@ from .nonlinear import NonLinearGaussianMeasurement
 
 class DestinationMeasurementModel(NonLinearGaussianMeasurement):
 
-    graph = Property(dict, doc="")
-    spaths = Property(dict, doc="The short paths")
+    graph = Property(CustomDiGraph, doc="The graph")
 
     @property
     def ndim_meas(self):
@@ -86,7 +85,7 @@ class DestinationMeasurementModel(NonLinearGaussianMeasurement):
         d = state_vectors[3, :]
         s = state_vectors[4, :]
         for i in range(num_particles):
-            path = self.spaths[(s[i], d[i])]
+            path = self.graph.shortest_path(s[i], d[i], path_type='edge')
             idx = np.where(path == e[i])[0]
             if len(idx) == 0:
                 likelihood[i] = -np.inf

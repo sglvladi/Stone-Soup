@@ -1,4 +1,6 @@
 import pickle
+import geopandas
+import itertools
 
 import numpy as np
 import networkx as nx
@@ -12,7 +14,16 @@ from shapely.geometry import LineString
 from shapely.geometry import Point
 # import sympy
 
+
 class CustomDiGraph(nx.DiGraph):
+    def __init__(self, *args, **kwargs):
+        super(CustomDiGraph, self).__init__(*args, *kwargs)
+        self.dict = graph_to_dict(self)
+        self.gdf = dict2gdf(self.dict)
+        self._rtree = None
+        self.short_paths_n = dict()
+        self.short_paths_e = dict()
+
     def edges_by_idx(self, idx):
         if not isinstance(idx, list):
             idx = list([idx])
@@ -23,6 +34,53 @@ class CustomDiGraph(nx.DiGraph):
         edges = self.edges_by_idx(idx)
         weights = [self.adj[e[0]][e[1]]['weight'] for e in edges]
         return weights
+
+    def as_dict(self):
+        return self.dict
+
+    @property
+    def rtree(self):
+        if self._rtree is None:
+            self._rtree = self.gdf.sindex
+        return self._rtree
+
+    @classmethod
+    def from_dict(cls, S):
+        G = dict_to_graph(S)
+        G.dict = S
+        G.gdf = dict2gdf(G.dict)
+        # G._rtree = G.gdf.sindex
+        return G
+
+    @classmethod
+    def fix(cls, G):
+        if not hasattr(G, 'short_paths_n'):
+            G.short_paths_n = dict()
+        if not hasattr(G, 'short_paths_e'):
+            G.short_paths_e = dict()
+        return G
+
+    def shortest_path(self, sources=None, targets=None, path_type='both', cache_filepath=None):
+        try:
+            short_paths_n, short_paths_e = self.short_paths_n[(sources, targets)], \
+                                           self.short_paths_e[(sources, targets)]
+            if path_type == 'node':
+                return short_paths_n
+            elif path_type == 'edge':
+                return short_paths_e
+            else:
+                return short_paths_n, short_paths_e
+        except KeyError:
+            pass
+        short_paths_n, short_paths_e = shortest_path(self, sources, targets, cache_filepath)
+        self.short_paths_n.update(short_paths_n)
+        self.short_paths_e.update(short_paths_e)
+        if path_type == 'node':
+            return short_paths_n
+        elif path_type == 'edge':
+            return short_paths_e
+        else:
+            return short_paths_n, short_paths_e
 
 
 def load_graph_dict(path):
@@ -100,8 +158,28 @@ def nxdigraph_to_customdigraph(G):
     return G2
 
 
+def dict2gdf(S):
+    """Convert dictionary into a GeoDataFrame object"""
+
+    d = {'col1': [], 'geometry': []}  # Initialise a new dictionary
+    last_index = S['Edges']['EndNodes'].shape[0]  # Count the road segments
+
+    for i in list(range(0, last_index)):
+        d['col1'].append('Edge ' + str(i))
+        node1, node2 = S['Edges']['EndNodes'][i]
+        lat1 = S['Nodes']['Latitude'][node1]
+        lon1 = S['Nodes']['Longitude'][node1]
+        lat2 = S['Nodes']['Latitude'][node2]
+        lon2 = S['Nodes']['Longitude'][node2]
+        segment = LineString([(lon1, lat1), (lon2, lat2)])
+        d['geometry'].append(segment)
+
+    gdf = geopandas.GeoDataFrame(d)  # GeoDataFrame from dict
+    return gdf
+
+
 def shortest_path(G, sources=None, targets=None, cache_filepath=None):
-    edges = [e for e in G.edges]
+    edges_index = {edge: i for i, edge in enumerate(G.edges)}
 
     short_paths_n = dict()
     short_paths_e = dict()
@@ -111,7 +189,6 @@ def shortest_path(G, sources=None, targets=None, cache_filepath=None):
 
     if cache_filepath is None:
         if sources is None or targets is None:
-            edges_index = {edge: edges.index(edge) for edge in edges}
             if sources is None and targets is None:
                 paths = nx.shortest_path(G, weight='weight')
                 for s, dic in paths.items():
@@ -151,7 +228,6 @@ def shortest_path(G, sources=None, targets=None, cache_filepath=None):
                         short_paths_n[(s, t)], short_paths_e[(s, t)] = (node_path, edge_path)
         else:
             if multi_source and multi_target:
-                edges_index = {edge: edges.index(edge) for edge in edges}
                 for s in sources:
                     for t in targets:
                         try:
@@ -163,7 +239,6 @@ def shortest_path(G, sources=None, targets=None, cache_filepath=None):
                             edge_path = []
                         short_paths_n[(s, t)], short_paths_e[(s, t)] = (node_path, edge_path)
             elif multi_source:
-                edges_index = {edge: edges.index(edge) for edge in edges}
                 t = targets
                 for s in sources:
                     try:
@@ -175,7 +250,6 @@ def shortest_path(G, sources=None, targets=None, cache_filepath=None):
                         edge_path = []
                     short_paths_n[(s, t)], short_paths_e[(s, t)] = (node_path, edge_path)
             elif multi_target:
-                edges_index = {edge: edges.index(edge) for edge in edges}
                 s = sources
                 for t in targets:
                     try:
@@ -192,11 +266,11 @@ def shortest_path(G, sources=None, targets=None, cache_filepath=None):
                 try:
                     node_path = nx.shortest_path(G, s, t, 'weight')
                     path_edges = zip(node_path, node_path[1:])
-                    edge_path = [edges.index(edge) for edge in path_edges]
+                    edge_path = [edges_index[edge] for edge in path_edges]
                 except (nx.NetworkXNoPath):
                     node_path = []
                     edge_path = []
-                return node_path, edge_path
+                short_paths_n[(s, t)], short_paths_e[(s, t)] = (node_path, edge_path)
     else:
         with open(cache_filepath, 'rb') as f:
             s_paths_e, s_paths_n = pickle.load(f)
@@ -239,14 +313,16 @@ def shortest_path(G, sources=None, targets=None, cache_filepath=None):
 
 def get_xy_from_range_edge(r, e, G):
 
+    S = G.as_dict()
+
     r = np.atleast_1d(r)
     e = np.atleast_1d(e).astype(int)
 
-    endnodes = G['Edges']['EndNodes'][e, :]
+    endnodes = S['Edges']['EndNodes'][e, :]
 
     # Get endnode coordinates
-    p1 = np.array([G['Nodes']['Longitude'][endnodes[:,0]], G['Nodes']['Latitude'][endnodes[:,0]]])
-    p2 = np.array([G['Nodes']['Longitude'][endnodes[:,1]], G['Nodes']['Latitude'][endnodes[:,1]]])
+    p1 = np.array([S['Nodes']['Longitude'][endnodes[:,0]], S['Nodes']['Latitude'][endnodes[:,0]]])
+    p2 = np.array([S['Nodes']['Longitude'][endnodes[:,1]], S['Nodes']['Latitude'][endnodes[:,1]]])
 
     # Normalise coordinates of p2, assuming p1 is the origin
     p2norm = p2-p1
@@ -298,8 +374,11 @@ def get_xy_from_sv(sv: StateVector, short_paths, G):
     return xy
 
 
-def normalise_re(r_i, e_i, d_i, s_i, spaths, G):
-    edge_len = G['Edges']['Weight'][int(e_i)]
+def normalise_re(r_i, e_i, d_i, s_i, G):
+
+    S = G.as_dict()
+    spaths = G.short_paths_e
+    edge_len = S['Edges']['Weight'][int(e_i)]
     path = spaths[(s_i, d_i)]
     idx = np.where(path == e_i)[0]
 
@@ -316,7 +395,7 @@ def normalise_re(r_i, e_i, d_i, s_i, spaths, G):
                     r_i = r_i - edge_len
                     idx = idx + 1
                     e_i = path[idx]
-                    edge_len = G['Edges']['Weight'][int(e_i)]
+                    edge_len = S['Edges']['Weight'][int(e_i)]
                     if len(path) == idx + 1:
                         # If particle has reached the end of the path
                         if r_i > edge_len:
@@ -334,7 +413,7 @@ def normalise_re(r_i, e_i, d_i, s_i, spaths, G):
                     # If particle is within the path limits
                     idx = idx - 1
                     e_i = path[idx]
-                    edge_len = G['Edges']['Weight'][int(e_i)]
+                    edge_len = S['Edges']['Weight'][int(e_i)]
                     r_i = edge_len + r_i
                 else:
                     # Else if the particle position is beyond the path
