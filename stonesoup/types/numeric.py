@@ -28,12 +28,19 @@ class Probability(Real):
 
     @staticmethod
     def _log(other):
-        if isinstance(other, Probability):
+        try:
             return other.log_value
-        elif other == 0:
-            return float("-inf")
-        else:
-            return log(other)
+        except AttributeError:
+            if other == 0:
+                return float("-inf")
+            else:
+                return log(other)
+        # if isinstance(other, Probability):
+        #     return other.log_value
+        # elif other == 0:
+        #     return float("-inf")
+        # else:
+        #     return log(other)
 
     def __hash__(self):
         value = float(self)
