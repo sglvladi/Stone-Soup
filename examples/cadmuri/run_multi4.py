@@ -4,7 +4,7 @@ import matplotlib.animation as manimation
 import pickle
 
 from stonesoup.custom.graph import load_graph_dict, dict_to_graph, shortest_path, \
-    get_xy_from_range_edge
+    get_xy_from_range_edge, CustomDiGraph
 from stonesoup.custom.plotting import plot_network, highlight_nodes, highlight_edges
 from stonesoup.custom.simulation import simulate_gnd, simulate_detections
 from stonesoup.deleter.time import UpdateTimeStepsDeleter
@@ -136,7 +136,7 @@ def plot_line_circle(line, circle):
 
 # HIGH-LEVEL CONFIG
 path = './data/minn_2.mat'  # Path to mat file containing the road network
-num_tracks = 20             # Number of simulated targets
+num_tracks = 1             # Number of simulated targets
 num_destinations = 50       # Number of possible destinations
 num_particles = 1000        # Number of particles to use in SMC sampler
 speed = 0.01                # Target speed
@@ -144,10 +144,10 @@ P_D = 0.95                  # Probability of detection
 lambda_FA = 0               # Clutter density
 PLOT = True                 # Set True/False to enable/disable plotting
 RECORD = PLOT and False     # Set True/False to enable/disable recording
-LOAD = True                 # Set True/False to enable/disable loading data from file
+LOAD = False                 # Set True/False to enable/disable loading data from file
 
 S = load_graph_dict(path)
-G = dict_to_graph(S)
+G = CustomDiGraph.from_dict(S)
 num_nodes = G.number_of_nodes()
 num_edges = G.number_of_edges()
 
@@ -205,7 +205,7 @@ hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 20)
 associator = GNNWith2DAssignment(hypothesiser)
 
 deleter = UpdateTimeStepsDeleter(4)
-initiator = DestinationBasedInitiator(measurement_model, num_particles, speed, short_paths_e, S)
+initiator = DestinationBasedInitiator(measurement_model, num_particles, speed, short_paths_e, G)
 
 # Initiate tracks
 tracks = set()

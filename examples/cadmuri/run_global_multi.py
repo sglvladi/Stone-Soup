@@ -125,7 +125,7 @@ speed = 10000                # Target speed
 P_D = 0.95                  # Probability of detection
 lambda_FA = 0               # Clutter density
 PLOT = True                # Set True/False to enable/disable plotting
-RECORD = PLOT and True     # Set True/False to enable/disable recording
+RECORD = PLOT and False     # Set True/False to enable/disable recording
 zoom = 50000
 LOAD = True                 # Set True/False to enable/disable loading data from file
 

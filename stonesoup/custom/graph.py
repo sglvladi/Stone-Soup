@@ -1,6 +1,8 @@
 import pickle
+from pathlib import Path
 import geopandas
 import itertools
+import rtree
 
 import numpy as np
 import networkx as nx
@@ -12,15 +14,22 @@ from stonesoup.types.array import StateVector
 
 from shapely.geometry import LineString
 from shapely.geometry import Point
+from geopandas.sindex import RTreeIndex
 # import sympy
 
 
 class CustomDiGraph(nx.DiGraph):
-    def __init__(self, *args, **kwargs):
+    def __init__(self, *args, base_path=None, **kwargs):
         super(CustomDiGraph, self).__init__(*args, *kwargs)
         self.dict = graph_to_dict(self)
         self.gdf = dict2gdf(self.dict)
-        self._rtree = None
+        self.base_path = base_path
+        if self.base_path is None:
+            self._rtree = None
+        else:
+            if not isinstance(self.base_path, Path):
+                self.base_path = Path(self.base_path)
+            self._rtree = RTreeIndex(self.gdf.geometry.to_numpy(), str(self.rtree_path))
         self.short_paths_n = dict()
         self.short_paths_e = dict()
 
@@ -39,9 +48,24 @@ class CustomDiGraph(nx.DiGraph):
         return self.dict
 
     @property
+    def graph_path(self):
+        if self.base_path is not None:
+            return self.base_path/'graph.pickle'
+        return None
+
+    @property
+    def rtree_path(self):
+        if self.base_path is not None:
+            return self.base_path / 'rtree'
+        return None
+
+    @property
     def rtree(self):
         if self._rtree is None:
-            self._rtree = self.gdf.sindex
+            if self.rtree_path is None:
+                self._rtree = self.gdf.sindex
+            else:
+                self._rtree = RTreeIndex(self.gdf.geometry.to_numpy(), str(self.rtree_path))
         return self._rtree
 
     @classmethod
@@ -70,7 +94,7 @@ class CustomDiGraph(nx.DiGraph):
                 return short_paths_e
             else:
                 return short_paths_n, short_paths_e
-        except KeyError:
+        except (TypeError, KeyError):
             pass
         short_paths_n, short_paths_e = shortest_path(self, sources, targets, cache_filepath)
         self.short_paths_n.update(short_paths_n)
@@ -81,6 +105,39 @@ class CustomDiGraph(nx.DiGraph):
             return short_paths_e
         else:
             return short_paths_n, short_paths_e
+
+    @staticmethod
+    def load(path):
+        if not isinstance(path, Path):
+            path = Path(path)
+        graph_path = path/'graph.pickle'
+        G = pickle.load(open(graph_path, 'rb'))
+        G.base_path = path
+        G = CustomDiGraph.fix(G)
+        return G
+
+    def save(self, path, with_rtree=True):
+        if not isinstance(path, Path):
+            path = Path(path)
+        self.base_path = path
+        pickle.dump(self, open(self.graph_path, 'wb'))
+        if with_rtree:
+            rtree = RTreeIndex(self.gdf.geometry.to_numpy(), str(self.rtree_path))
+
+    def __getstate__(self):
+        state = self.__dict__
+        # Ensure _rtree is None when unpickling, since rtree index becomes invalid
+        # when pickled. The rtree is stored in a seperate file,
+        state['_rtree'] = None
+        return state
+
+    def __setstate__(self, state):
+        # Ensure _rtree is None when unpickling, since rtree index becomes invalid
+        # when serialised. The correct _rtree will be loaded or generated when rtree is
+        # accessed.
+        state['_rtree'] = None
+        self.__dict__ = state
+
 
 
 def load_graph_dict(path):
@@ -223,6 +280,8 @@ def shortest_path(G, sources=None, targets=None, cache_filepath=None):
                     s = sources
                     paths = nx.shortest_path(G, source=s, weight='weight')
                     for t, node_path in paths.items():
+                        if t == s:
+                            continue
                         path_edges = zip(node_path, node_path[1:])
                         edge_path = [edges_index[edge] for edge in path_edges]
                         short_paths_n[(s, t)], short_paths_e[(s, t)] = (node_path, edge_path)
@@ -340,6 +399,25 @@ def get_xy_from_range_edge(r, e, G):
     return xy
 
 
+def get_xy_from_range_endnodes(r, p1, p2):
+
+    r = np.atleast_1d(r)
+
+    # Normalise coordinates of p2, assuming p1 is the origin
+    p2norm = p2-p1
+
+    # Compute angle between p2 and p1
+    _, theta = cart2pol(p2norm[0, :], p2norm[1, :])
+
+    # Compute XY normalised, assuming p1 is the origin
+    x_norm, y_norm = pol2cart(r, theta)
+    xy_norm = np.array([x_norm, y_norm])
+
+    # Compute transformed XY
+    xy = p1 + xy_norm
+
+    return xy
+
 def get_xy_from_sv(sv: StateVector, short_paths, G):
 
     r = np.atleast_1d(sv[0, :])
@@ -375,10 +453,36 @@ def get_xy_from_sv(sv: StateVector, short_paths, G):
 
 
 def normalise_re(r_i, e_i, d_i, s_i, G):
+    """ Normalise the given range based on the provided edge
+
+    Parameters
+    ----------
+    r_i: float
+        The range
+    e_i: int
+        The edge index
+    d_i: int
+        The destination index
+    s_i: int
+        The source index
+    G: CustomDiGraph
+        The graph
+
+    Returns
+    -------
+
+    """
 
     S = G.as_dict()
     spaths = G.short_paths_e
-    edge_len = S['Edges']['Weight'][int(e_i)]
+    edge_len = calc_edge_len(e_i, S)
+    # endnodes = S['Edges']['EndNodes'][int(e_i), :]
+    # p1 = np.array(
+    #     [S['Nodes']['Longitude'][endnodes[0]], S['Nodes']['Latitude'][endnodes[0]]])
+    # p2 = np.array(
+    #     [S['Nodes']['Longitude'][endnodes[1]], S['Nodes']['Latitude'][endnodes[1]]])
+    edge_len2 = \
+        S['Edges']['Weight'][int(e_i)]
     path = spaths[(s_i, d_i)]
     idx = np.where(path == e_i)[0]
 
@@ -395,7 +499,8 @@ def normalise_re(r_i, e_i, d_i, s_i, G):
                     r_i = r_i - edge_len
                     idx = idx + 1
                     e_i = path[idx]
-                    edge_len = S['Edges']['Weight'][int(e_i)]
+                    edge_len = calc_edge_len(e_i, S)
+                    # edge_len = S['Edges']['Weight'][int(e_i)]
                     if len(path) == idx + 1:
                         # If particle has reached the end of the path
                         if r_i > edge_len:
@@ -413,7 +518,8 @@ def normalise_re(r_i, e_i, d_i, s_i, G):
                     # If particle is within the path limits
                     idx = idx - 1
                     e_i = path[idx]
-                    edge_len = S['Edges']['Weight'][int(e_i)]
+                    edge_len = calc_edge_len(e_i, S)
+                    # edge_len = S['Edges']['Weight'][int(e_i)]
                     r_i = edge_len + r_i
                 else:
                     # Else if the particle position is beyond the path
@@ -421,12 +527,81 @@ def normalise_re(r_i, e_i, d_i, s_i, G):
                     r_i = 0
                     break
     else:
+
+        endnodes = S['Edges']['EndNodes'][int(e_i), :]
+        endnode = endnodes[1]
         if r_i > edge_len:
             r_i = edge_len
         elif r_i < 0:
             r_i = 0
 
     return r_i, e_i, d_i, s_i
+
+
+def normalise_re2(r_i, e_i, d_i, s_i, a_i, am1_i, G):
+
+    S = G.as_dict()
+    spaths = G.short_paths_e
+    edge_len = np.hypot(a_i[0]-am1_i[0], a_i[1]-am1_i[1])
+    path = spaths[(s_i, d_i)]
+    idx = np.where(path == e_i)[0]
+
+    if len(idx) > 0:
+        # If idx is empty, it means that the edge does not exist on the given
+        # path to a destination. Therefore this is an invalid particle, for
+        # which nothing can be done. It's likelihood will be set to zero
+        # during the weight update.
+        idx = idx[0]
+        while r_i > edge_len or r_i < 0:
+            if r_i > edge_len:
+                if len(path) > idx+1:
+                    # If particle has NOT reached the end of the path
+                    r_i = r_i - edge_len
+                    idx = idx + 1
+                    e_i = path[idx]
+                    endnodes = S['Edges']['EndNodes'][e_i, :]
+                    am1_i = a_i  # current aimpoint becomes last
+                    # next endnode becomes new aimpoint
+                    a_i = np.array([S['Nodes']['Longitude'][endnodes[1]],
+                                    S['Nodes']['Latitude'][endnodes[1]]])
+                    edge_len = np.hypot(a_i[0]-am1_i[0], a_i[1]-am1_i[1])
+                    if len(path) == idx + 1:
+                        # If particle has reached the end of the path
+                        if r_i > edge_len:
+                            # Cap r_i to edge_length
+                            r_i = edge_len
+                        break
+                else:
+                    # If particle has reached the end of the path
+                    if r_i > edge_len:
+                        # Cap r_i to edge_length
+                        r_i = edge_len
+                    break
+            elif r_i < 0:
+                if idx > 0:
+                    # If particle is within the path limits
+                    idx = idx - 1
+                    e_i = path[idx]
+                    endnodes = S['Edges']['EndNodes'][e_i, :]
+                    a_i = am1_i  # last aimpoint becomes current
+                    # last endnode becomes last aimpoint
+                    am1_i = np.array([S['Nodes']['Longitude'][endnodes[0]],
+                                      S['Nodes']['Latitude'][endnodes[0]]])
+                    edge_len = np.hypot(a_i[0]-am1_i[0], a_i[1]-am1_i[1])
+                    r_i = edge_len + r_i
+                else:
+                    # Else if the particle position is beyond the path
+                    # limits, the set its range to 0.
+                    r_i = 0
+                    break
+    else:
+        # v_edges = [e for e in ]
+        if r_i > edge_len:
+            r_i = edge_len
+        elif r_i < 0:
+            r_i = 0
+
+    return r_i, e_i, d_i, s_i, a_i, am1_i
 
 
 def line_intersects_circle(line, circle):
@@ -486,6 +661,7 @@ def calculate_r(line, point):
         # projected point is "right" of p2: r is edge length
         return np.linalg.norm(p2-p1)
     else:
+        point_is_on_line_segment(line, projected_point)
         # raise an error if non of the above hold: There is a bug somewhere!
         raise AssertionError
 
@@ -506,7 +682,17 @@ def point_is_on_line_segment(line, point):
         slope = (y2 - y1) / (x2 - x1)
         pt3_on = np.isclose((y3 - y1), slope * (x3 - x1))
 
-        pt3_between = (min(x1, x2) <= x3 <= max(x1, x2)) and (min(y1, y2) <= y3 <= max(y1, y2))
+        pt3_between = (min(x1, x2) <= x3 <= max(x1, x2) or np.isclose(x3, x2) or np.isclose(x3, x1)) \
+                      and (min(y1, y2) <= y3 <= max(y1, y2) or np.isclose(y3, y2) or np.isclose(y3, y1))
 
         on_and_between = pt3_on and pt3_between
     return on_and_between
+
+
+def calc_edge_len(e, S, use_weight=False):
+    endnodes = S['Edges']['EndNodes'][int(e), :]
+    p1 = np.array(
+        [S['Nodes']['Longitude'][endnodes[0]], S['Nodes']['Latitude'][endnodes[0]]])
+    p2 = np.array(
+        [S['Nodes']['Longitude'][endnodes[1]], S['Nodes']['Latitude'][endnodes[1]]])
+    return np.hypot(p2[0]-p1[0], p2[1]-p1[1])

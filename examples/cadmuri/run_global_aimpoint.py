@@ -10,12 +10,12 @@ import cProfile as profile
 from moviepy.video.io.bindings import mplfig_to_npimage
 
 from stonesoup.custom.graph import graph_to_dict, shortest_path, get_xy_from_range_edge, \
-    CustomDiGraph
+    CustomDiGraph, get_xy_from_range_endnodes
 from stonesoup.custom.plotting import plot_network, highlight_edges, highlight_nodes, plot_cov_ellipse
 from stonesoup.custom.simulation import simulate
-from stonesoup.initiator.destination import DestinationBasedInitiator
-from stonesoup.models.transition.destination import DestinationTransitionModel
-from stonesoup.models.measurement.destination import DestinationMeasurementModel
+from stonesoup.initiator.destination import DestinationBasedInitiatorAimpoint
+from stonesoup.models.transition.destination import AimpointTransitionModel
+from stonesoup.models.measurement.destination import AimpointMeasurementModel
 from stonesoup.predictor.particle import ParticlePredictor, ParticlePredictor2
 from stonesoup.resampler.particle import SystematicResampler, SystematicResampler2
 from stonesoup.types.array import StateVector
@@ -28,14 +28,17 @@ from stonesoup.types.particle import Particle
 from stonesoup.types.track import Track
 from stonesoup.updater.particle import ParticleUpdater, ParticleUpdater2
 
+from pybsp.bsp import BSP
+from bsppy import BSPTree
+
 # path =r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\PyBSP\data\graphs\custom_digraph_v4.1.pickle'
 # G = pickle.load(open(path, 'rb'))
 # G = CustomDiGraph.fix(G)
+# G.base_path = r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\PyBSP\data\graphs\rtree'
 
 path = r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\PyBSP\data\graphs\custom_digraph_v4.1'
 G = CustomDiGraph.load(path)
 # G.save(path)
-
 path2 =r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\PyBSP\data\ports_polygons.pickle'
 ports, new_polygons = pickle.load(open(path2, 'rb'))
 # G._rtree = None
@@ -52,6 +55,7 @@ destination = 2431
 speed = 10000
 zoom = 50000
 LOAD = True
+PLOT = not True
 
 if LOAD:
     gnd_path, gnd_route_n, gnd_route_e, short_paths_n, short_paths_e, destinations = \
@@ -79,14 +83,18 @@ else:
     pickle.dump([gnd_path, gnd_route_n, gnd_route_e, short_paths_n, short_paths_e, destinations],
                 open(f'./data/bsp_single_track_{source}_{destination}.pickle', 'wb'))
 
+# bsptree = BSP.load(r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\PyBSP\data\trees\global_min_v2',
+#                    'Stage3', 'final')
+bsptree = BSPTree.load(r'C:\Users\sglvladi\source\repos\bsp\main\data\trees\global_even',
+                       'Stage2', 'final')
+
 # Transition model
-transition_model = DestinationTransitionModel(10000, G)
+transition_model = AimpointTransitionModel(10000, G, bsptree)
 
 # Measurement model
 mapping = [0,1]
 R = np.eye(2)*500000
-measurement_model = DestinationMeasurementModel(ndim_state=4, mapping=mapping, noise_covar=R,
-                                                graph=G)
+measurement_model = AimpointMeasurementModel(ndim_state=4, mapping=mapping, noise_covar=R, graph=G)
 
 # Simulate detections
 scans = []
@@ -98,7 +106,7 @@ for gnd_state in gnd_path:
     detection = Detection(state_vector=det_sv, timestamp=timestamp, metadata=metadata)
     scans.append((timestamp, set([detection])))
 
-initiator = DestinationBasedInitiator(measurement_model, num_particles, speed, G)
+initiator = DestinationBasedInitiatorAimpoint(measurement_model, num_particles, speed, G, bsptree)
 tracks = initiator.initiate(scans[0][1])
 # Prior
 timestamp_init = scans[0][0]
@@ -138,47 +146,51 @@ else:
     track = Track(prior_state)
 
 
+
 pos = nx.get_node_attributes(G, 'pos')
 
-fig = plt.figure(figsize=(17, 10))
-gs = fig.add_gridspec(2, 3)
-ax1 = fig.add_subplot(gs[:, :2])
-ax2 = fig.add_subplot(gs[0, 2])
-ax3 = fig.add_subplot(gs[1, 2])
+if PLOT:
+    fig = plt.figure(figsize=(17, 10))
+    gs = fig.add_gridspec(2, 3)
+    ax1 = fig.add_subplot(gs[:, :2])
+    ax2 = fig.add_subplot(gs[0, 2])
+    ax3 = fig.add_subplot(gs[1, 2])
 
-# Plot the map
-for polygon in new_polygons:
-    x, y = polygon.exterior.xy
-    ax1.plot(x, y, 'k-')
-    ax2.plot(x, y, 'k-')
-for key, value in short_paths_e.items():
-    highlight_edges(G, ax1, value, edge_color='y')
-    highlight_edges(G, ax2, value, edge_color='y')
-highlight_edges(G, ax1, gnd_route_e, edge_color='g')
-highlight_edges(G, ax2, gnd_route_e, edge_color='g')
-highlight_nodes(G, ax1, destinations, node_color='m', node_size=10)
-highlight_nodes(G, ax2, destinations, node_color='m', node_size=10)
-highlight_nodes(G, ax1, [destination], node_color='r', node_size=10)
-highlight_nodes(G, ax2, [destination], node_color='r', node_size=10)
-ax1.plot([], [], '-g', label='True path')
-ax1.plot([], [], 'sr', label='True destination')
-ax1.plot([], [], '-y', label='Confuser paths')
-ax1.plot([], [], 'sm', label='Confuser destinations')
-ax1.legend(loc='upper right')
-ax1.set_title('Global view')
-ax2.plot([], [], 'r.', label='Particles')
-ax2.plot([], [], 'b-', label='Trajectory')
-ax2.plot([], [], 'cx', label='Measurements')
-ax2.set_title('Zoomed view')
-ax2.legend(loc='upper right')
-arts1 = []
-arts2 = []
+    # Plot the map
+    for polygon in new_polygons:
+        x, y = polygon.exterior.xy
+        ax1.plot(x, y, 'k-')
+        ax2.plot(x, y, 'k-')
+    for key, value in short_paths_e.items():
+        highlight_edges(G, ax1, value, edge_color='y')
+        highlight_edges(G, ax2, value, edge_color='y')
+    highlight_edges(G, ax1, gnd_route_e, edge_color='g')
+    highlight_edges(G, ax2, gnd_route_e, edge_color='g')
+    highlight_nodes(G, ax1, destinations, node_color='m', node_size=10)
+    highlight_nodes(G, ax2, destinations, node_color='m', node_size=10)
+    highlight_nodes(G, ax1, [destination], node_color='r', node_size=10)
+    highlight_nodes(G, ax2, [destination], node_color='r', node_size=10)
+    ax1.plot([], [], '-g', label='True path')
+    ax1.plot([], [], 'sr', label='True destination')
+    ax1.plot([], [], '-y', label='Confuser paths')
+    ax1.plot([], [], 'sm', label='Confuser destinations')
+    ax1.legend(loc='upper right')
+    ax1.set_title('Global view')
+    ax2.plot([], [], 'r.', label='Particles')
+    ax2.plot([], [], 'b-', label='Trajectory')
+    ax2.plot([], [], 'cx', label='Measurements')
+    ax2.set_title('Zoomed view')
+    ax2.legend(loc='upper right')
+    arts1 = []
+    arts2 = []
 
 pr = profile.Profile()
 pr.disable()
 est = np.array([[],[]])
+est2 = np.array([[],[],[],[],[]])
 frames = []
-for timestamp, detections in scans:
+start = datetime.now()
+for i, (timestamp, detections) in enumerate(scans):
     print(timestamp)
     detection = list(detections)[0]
     pr.enable()
@@ -201,64 +213,71 @@ for timestamp, detections in scans:
     id = np.argmax(vd_counts)
     v_edges, ve_counts = np.unique(data[2,:], return_counts=True)
     ie = np.argmax(ve_counts)
-    est = np.append(est, [[track.state.mean[0, 0]], [v_edges[ie]]], axis=1)
+
     # print(f'Estimated edge: {v_edges[ie]} - Estimated destination node: {v_dest[id]}')
     port_name = ports.loc[ports['Node']==v_dest[id]]['NAME'].to_list()[0]
     print(f'Estimated edge: {v_edges[ie]} - Estimated destination node: {v_dest[id]} - Estimated destination port: {port_name}')
 
-    est_dest_pos = np.array([list(pos[node]) for node in data[3, :]]).T
-    mu = np.average(est_dest_pos, axis=1, weights=posterior.weights)
-    cov = np.cov(est_dest_pos, ddof=0, aweights=posterior.weights)
+    if PLOT:
+        est = np.append(est, [[track.state.mean[0, 0]], [v_edges[ie]]], axis=1)
+        est2 = np.append(est2, track.state.mean[[0, 5, 6, 7, 8]], axis=1)
+        est_dest_pos = np.array([list(pos[node]) for node in data[3, :]]).T
+        mu = np.average(est_dest_pos, axis=1, weights=posterior.weights)
+        cov = np.cov(est_dest_pos, ddof=0, aweights=posterior.weights)
 
-    # Plot
-    # plot_network(G, ax)
-    for art in arts1:
-        art.remove()
-    for art in arts2:
-        art.remove()
-    arts1 = []
-    arts2 = []
+        # Plot
+        # plot_network(G, ax)
+        for art in arts1:
+            art.remove()
+        for art in arts2:
+            art.remove()
+        arts1 = []
+        arts2 = []
 
-    ind1 = np.flatnonzero(v_dest == destination)
-    xy = get_xy_from_range_edge(data[0, :], data[2, :], G)
-    arts1.append(ax1.plot(xy[0, :],xy[1, :], '.r')[0])
-    arts2.append(ax2.plot(xy[0, :],xy[1, :], '.r')[0])
-    xy1 = get_xy_from_range_edge(est[0, :], est[1, :], G)
-    arts1.append(ax1.plot(xy1[0, :], xy1[1, :], '-b')[0])
-    arts2.append(ax2.plot(xy1[0, :], xy1[1, :], '-b')[0])
-    detection_data = np.array([detection.state_vector for detection in detections])
-    arts1.append(ax1.plot(detection_data[:, 0], detection_data[:, 1], 'xc', label="Detections")[0])
-    arts2.append(ax2.plot(detection_data[:, 0], detection_data[:, 1], 'xc', label="Detections")[0])
-    port_names = ports.loc[ports['Node'].isin(v_dest)].sort_values('Node').drop_duplicates(subset='Node')['NAME'].to_list()
-    if np.trace(cov) > 1e-10:
-        arts1.append(plot_cov_ellipse(cov, mu, ax=ax1, nstd=3, fill=None, edgecolor='r'))
-    else:
-        circ = Circle(mu, 100000)
-        ax1.add_artist(circ)
-        arts1.append(circ)
-    ax3.cla()
-    barlist = ax3.bar(port_names, vd_counts/np.sum(vd_counts))
-    try:
-        idx = port_names.index('TOKYO KO')
-        barlist[idx].set_color('m')
-    except:
-        pass
-    ax3.set_title('Destination Distribution')
-    plt.xticks(rotation=90, fontsize=5)
+        ind1 = np.flatnonzero(v_dest == destination)
+        a = data[[5, 6], :]
+        am1 = data[[7, 8], :]
+        xy = get_xy_from_range_endnodes(data[0, :], am1, a)
+        # xy = get_xy_from_range_edge(data[0, :], data[2, :], G)
+        arts1.append(ax1.plot(xy[0, :],xy[1, :], '.r')[0])
+        arts2.append(ax2.plot(xy[0, :],xy[1, :], '.r')[0])
+        # xy1 = get_xy_from_range_edge(est[0, :], est[1, :], G)
+        xy1 = get_xy_from_range_endnodes(est[0, :], est2[[3,4],:], est2[[1,2],:])
+        arts1.append(ax1.plot(xy1[0, :], xy1[1, :], '-b')[0])
+        arts2.append(ax2.plot(xy1[0, :], xy1[1, :], '-b')[0])
+        detection_data = np.array([detection.state_vector for detection in detections])
+        arts1.append(ax1.plot(detection_data[:, 0], detection_data[:, 1], 'xc', label="Detections")[0])
+        arts2.append(ax2.plot(detection_data[:, 0], detection_data[:, 1], 'xc', label="Detections")[0])
+        port_names = ports.loc[ports['Node'].isin(v_dest)].sort_values('Node').drop_duplicates(subset='Node')['NAME'].to_list()
+        if np.trace(cov) > 1e-10:
+            arts1.append(plot_cov_ellipse(cov, mu, ax=ax1, nstd=3, fill=None, edgecolor='r'))
+        else:
+            circ = Circle(mu, 100000)
+            ax1.add_artist(circ)
+            arts1.append(circ)
+        ax3.cla()
+        barlist = ax3.bar(port_names, vd_counts/np.sum(vd_counts))
+        try:
+            idx = port_names.index('TOKYO KO')
+            barlist[idx].set_color('m')
+        except:
+            pass
+        ax3.set_title('Destination Distribution')
+        plt.xticks(rotation=90, fontsize=5)
 
 
-    mu = np.mean(xy, axis=1)
-    arts1.append(ax1.plot([mu[0]-zoom, mu[0]+zoom, mu[0]+zoom, mu[0]-zoom, mu[0]-zoom],
-                          [mu[1]-zoom, mu[1]-zoom, mu[1]+zoom, mu[1]+zoom, mu[1]-zoom], '-k')[0])
-    ax2.set_xlim((mu[0]-zoom, mu[0]+zoom))
-    ax2.set_ylim((mu[1]-zoom, mu[1]+zoom))
+        mu = np.mean(xy, axis=1)
+        arts1.append(ax1.plot([mu[0]-zoom, mu[0]+zoom, mu[0]+zoom, mu[0]-zoom, mu[0]-zoom],
+                              [mu[1]-zoom, mu[1]-zoom, mu[1]+zoom, mu[1]+zoom, mu[1]-zoom], '-k')[0])
+        ax2.set_xlim((mu[0]-zoom, mu[0]+zoom))
+        ax2.set_ylim((mu[1]-zoom, mu[1]+zoom))
 
-    plt.pause(0.01)
+        plt.pause(0.01)
     # frame = mplfig_to_npimage(fig)
     # frames.append(frame)
     a=2
-
-pf = 'new' if USE_NEW_PF else 'old'
+print(datetime.now() - start)
+pf = 'new2' if USE_NEW_PF else 'old'
 pr.dump_stats('profile_{}.pstat'.format(pf))
 
 # fig, ax = plt.subplots()
