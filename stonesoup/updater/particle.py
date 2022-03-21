@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from functools import lru_cache
 
+import numpy as np
 from .base import Updater
 from ..base import Property
 from ..resampler import Resampler
@@ -106,6 +107,7 @@ class ParticleUpdater2(Updater):
             measurement_model = hypothesis.measurement.measurement_model
 
         weights = measurement_model.pdf(hypothesis.measurement, hypothesis.prediction, **kwargs)
+        weights *= np.array(hypothesis.prediction.weights)
 
         # Normalise the weights
         sum_w = Probability.sum(weight for weight in weights)
@@ -115,6 +117,7 @@ class ParticleUpdater2(Updater):
         new_particles, new_weights = self.resampler.resample(
             hypothesis.prediction.particles, weights)
 
+        new_weights = [weight*sum_w for weight in new_weights]
         return ParticleStateUpdate2(new_particles,
                                     hypothesis,
                                     weights=new_weights,
