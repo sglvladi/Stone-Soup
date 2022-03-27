@@ -2,12 +2,13 @@
 import datetime
 import uuid
 from collections import abc
+from functools import lru_cache
 from typing import MutableSequence, Any, Optional, Sequence
 import typing
 
 import numpy as np
 
-from .array import StateVector, CovarianceMatrix, PrecisionMatrix
+from .array import StateVector, CovarianceMatrix, PrecisionMatrix, Matrix
 from .base import Type
 from .numeric import Probability
 from .particle import Particles
@@ -524,13 +525,11 @@ class ParticleState2(Type, Sequence):
     This is a particle state object which describes the state as a
     distribution of particles"""
 
-    particles = Property(Matrix,
-                         doc='Array of particles states')
-    weights = Property([Probability],
-                       default=None,
-                       doc='Array of particle weights')
-    timestamp = Property(datetime.datetime, default=None,
-                         doc="Timestamp of the state. Default None.")
+    particles: Matrix = Property(doc='Array of particles states')
+    weights: MutableSequence[Probability] = Property(default=None,
+                                                     doc='Array of particle weights')
+    timestamp: datetime.datetime = Property(default=None,
+                                            doc="Timestamp of the state. Default None.")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)

@@ -228,8 +228,7 @@ class ParticleUpdater2(Updater):
         Perform measurement update step in the standard Kalman Filter.
         """
 
-    resampler = Property(Resampler,
-                         doc='Resampler to prevent particle degeneracy')
+    resampler: Resampler = Property(doc='Resampler to prevent particle degeneracy')
 
     def update(self, hypothesis, **kwargs):
         """Particle Filter update step

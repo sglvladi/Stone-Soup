@@ -46,7 +46,7 @@ num_edges = G.number_of_edges()
 # Global vars
 USE_NEW_PF = True
 num_destinations = 100
-num_particles = 10000
+num_particles = 1000
 source = 519
 destination = 115
 speed = 0.1

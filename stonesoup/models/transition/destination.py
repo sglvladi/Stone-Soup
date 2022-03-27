@@ -3,11 +3,9 @@ import numpy as np
 from scipy.linalg import block_diag
 from scipy.stats import multivariate_normal as mn
 
-from stonesoup.types.particle import Particle
 from stonesoup.types.state import ParticleState2
+from ..base import TimeVariantModel
 from ...base import Property
-from ..base import LinearModel, NonLinearModel
-from .base import TransitionModel
 from .linear import ConstantVelocity, LinearGaussianTransitionModel
 from ...custom.graph import CustomDiGraph, normalise_re, normalise_re2
 from pybsp.bsp import BSP
@@ -15,11 +13,10 @@ from pybsp.bsp import BSP
 from bsppy import Point, BSPTree
 
 
-class DestinationTransitionModel(LinearGaussianTransitionModel):
-    noise_diff_coeff = Property(
-        float, doc="The position noise diffusion coefficient :math:`q`")
-    graph = Property(CustomDiGraph, doc="The graph")
-    use_smc = Property(bool, default=False)
+class DestinationTransitionModel(LinearGaussianTransitionModel, TimeVariantModel):
+    noise_diff_coeff: float = Property(doc="The position noise diffusion coefficient :math:`q`")
+    graph: CustomDiGraph = Property(doc="The graph")
+    use_smc: bool = Property(default=False)
 
     @property
     def ndim_state(self):
@@ -92,11 +89,10 @@ class DestinationTransitionModel(LinearGaussianTransitionModel):
 
 
 class AimpointTransitionModel(LinearGaussianTransitionModel):
-    noise_diff_coeff = Property(
-        float, doc="The position noise diffusion coefficient :math:`q`")
-    graph = Property(CustomDiGraph, doc="The graph")
-    bsptree = Property(BSP, doc="The bsp tree")
-    use_smc = Property(bool, default=False)
+    noise_diff_coeff: float = Property(doc="The position noise diffusion coefficient :math:`q`")
+    graph: CustomDiGraph = Property(doc="The graph")
+    bsptree: BSP = Property(doc="The bsp tree")
+    use_smc: bool = Property(default=False)
 
     @property
     def ndim_state(self):
@@ -114,7 +110,7 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
         covar_list = [self.cv_model.covar(time_interval, **kwargs), np.zeros((7, 7))]
         return block_diag(*covar_list)
 
-    def function(self, state, time_interval, noise=None, **kwargs):
+    def function(self, state, time_interval=None, noise=None, **kwargs):
 
         if isinstance(state, ParticleState2):
             num_particles = len(state)

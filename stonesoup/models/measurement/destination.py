@@ -29,7 +29,7 @@ from .nonlinear import NonLinearGaussianMeasurement
 
 class DestinationMeasurementModel(NonLinearGaussianMeasurement):
 
-    graph = Property(CustomDiGraph, doc="The graph")
+    graph: CustomDiGraph = Property(doc="The graph")
 
     @property
     def ndim_meas(self):
@@ -96,7 +96,7 @@ class DestinationMeasurementModel(NonLinearGaussianMeasurement):
 
 class AimpointMeasurementModel(NonLinearGaussianMeasurement):
 
-    graph = Property(CustomDiGraph, doc="The graph")
+    graph: CustomDiGraph = Property(doc="The graph")
 
     @property
     def ndim_meas(self):

@@ -17,10 +17,10 @@ from stonesoup.types.update import ParticleStateUpdate2
 
 
 class DestinationBasedInitiator(Initiator):
-    measurement_model = Property(MeasurementModel, doc="The measurement model")
-    num_particles = Property(float, doc="Number of particles to use for initial state")
-    speed_std = Property(float, doc="Std. of initial speed")
-    graph = Property(CustomDiGraph, doc="A dictionary representation of the road network")
+    measurement_model: MeasurementModel = Property(doc="The measurement model")
+    num_particles: float = Property(doc="Number of particles to use for initial state")
+    speed_std: float = Property(doc="Std. of initial speed")
+    graph: CustomDiGraph = Property(doc="A dictionary representation of the road network")
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -116,12 +116,12 @@ class DestinationBasedInitiator(Initiator):
         prior_state = ParticleStateUpdate2(particles=prior_particle_sv,
                                            hypothesis=SingleHypothesis(None, detection),
                                            timestamp=detection.timestamp)
-        return Track(prior_state, id=detection.metadata['gnd_id'])
+        return Track([prior_state], id=detection.metadata['gnd_id'])
 
 
 class DestinationBasedInitiatorAimpoint(DestinationBasedInitiator):
 
-    bsptree = Property(BSP, doc="The bsp tree")
+    bsptree: BSP = Property(doc="The bsp tree")
 
     def _init_track(self, detection,  v_edges2, v_dest):
         S = self.graph.as_dict()
@@ -169,4 +169,4 @@ class DestinationBasedInitiatorAimpoint(DestinationBasedInitiator):
         prior_state = ParticleStateUpdate2(particles=prior_particle_sv,
                                            hypothesis=SingleHypothesis(None, detection),
                                            timestamp=detection.timestamp)
-        return Track(prior_state, id=detection.metadata['gnd_id'])
+        return Track([prior_state], id=detection.metadata['gnd_id'])
