@@ -93,6 +93,7 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
     graph: CustomDiGraph = Property(doc="The graph")
     bsptree: BSP = Property(doc="The bsp tree")
     use_smc: bool = Property(default=False)
+    prior_on_endnodes: bool = Property(default=False)
 
     @property
     def ndim_state(self):
@@ -147,40 +148,38 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
 
         # 3) Perform aimpoint sampling
         aimpoint_locs = n_state_vectors[[5, 6], :]
+        e = n_state_vectors[2, :].astype(int)
+        endnodes = self.graph.dict['Edges']['EndNodes'][e, 1]
+        endnode_locs = np.array([self.graph.dict['Nodes']['Longitude'][endnodes],
+                                 self.graph.dict['Nodes']['Latitude'][endnodes]])
 
-        resample_inds = np.flatnonzero(np.random.binomial(1, 0.1, num_particles))
-        aimpoint_locs_res = aimpoint_locs[:, resample_inds]
+        resample_inds = np.flatnonzero(np.random.binomial(1, 0.5, num_particles))
+        # aimpoint_locs_res = aimpoint_locs[:, resample_inds]
+        if self.prior_on_endnodes:
+            aimpoint_locs_res = endnode_locs[:, resample_inds]
+        else:
+            aimpoint_locs_res = aimpoint_locs[:, resample_inds]
         num_samples = len(resample_inds)
-        samples = mn.rvs(np.zeros((2,)), np.diag([1e4, 1e4]), size=num_samples).T
+        samples = mn.rvs(np.zeros((2,)), np.diag([1e7, 1e7]), size=num_samples).T
         new_locs = aimpoint_locs_res + samples
         while True:
             ps = [Point(*new_locs[:, i]) for i in range(num_samples)]
             valid = self.bsptree.are_empty_leaves(ps) # [self.bsptree.is_empty_leaf(p) for p in ps]
             if np.alltrue(valid):
-                try:
-                    aimpoint_locs[:, resample_inds] = new_locs
-                except:
-                    a = 2
+                aimpoint_locs[:, resample_inds] = new_locs
                 break
             else:
                 valid_inds = np.flatnonzero(valid)
                 aimpoint_locs[:, resample_inds[valid_inds]] = new_locs[:, valid_inds]
                 resample_inds = resample_inds[np.logical_not(valid)]
                 num_samples = len(resample_inds)
-                aimpoint_locs_res = aimpoint_locs[:, resample_inds]
-                samples = np.atleast_2d(mn.rvs(np.zeros((2,)), np.diag([1e4, 1e4]), size=num_samples)).T
+                # aimpoint_locs_res = aimpoint_locs[:, resample_inds]
+                if self.prior_on_endnodes:
+                    aimpoint_locs_res = endnode_locs[:, resample_inds]
+                else:
+                    aimpoint_locs_res = aimpoint_locs[:, resample_inds]
+                samples = np.atleast_2d(mn.rvs(np.zeros((2,)), np.diag([1e7, 1e7]), size=num_samples)).T
                 new_locs = aimpoint_locs_res + samples
-        #
-        # n_state_vectors[[5, 6], :] = aimpoint_locs
-        # for i in range(num_particles):
-        #     if np.random.rand() > 0.9:
-        #         aimpoint_loc = aimpoint_locs[:, i]
-        #         new_loc = mn.rvs(aimpoint_loc.ravel(), np.diag([1e4, 1e4]))
-        #         p = Point(new_loc[0], new_loc[1])
-        #         while self.bsptree.find_leaf(p).is_solid:
-        #             new_loc = mn.rvs(aimpoint_loc.ravel(), np.diag([1e4, 1e4]))
-        #             p = Point(new_loc[0], new_loc[1])
-        #         n_state_vectors[[5, 6], i] = np.array([p.x, p.y])
 
         # 4) Process edge change
         # The CV propagation may lead to r's which are either less that zero or more than the
@@ -192,7 +191,7 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
         e = n_state_vectors[2, :]
         d = n_state_vectors[3, :]
         s = n_state_vectors[4, :]
-        a = n_state_vectors[[5, 6], :]
+        a = aimpoint_locs # n_state_vectors[[5, 6], :]
         am1 = n_state_vectors[[7, 8], :]
 
         for i in range(num_particles):
