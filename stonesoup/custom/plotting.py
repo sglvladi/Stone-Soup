@@ -53,12 +53,12 @@ def highlight_nodes(G, ax,  nodes, node_size=0.1, node_color='m', node_shape='s'
     return nx.draw_networkx_nodes(G, pos, nodelist=nodes, ax=ax, node_size=node_size,
                                   node_color=node_color, node_shape=node_shape, label=label)
 
-def highlight_edges(G, ax, edges_idx, width= 2.0, edge_color='m', style='solid', arrows=False, label=None):
+def highlight_edges(G, ax, edges_idx, width= 2.0, edge_color='m', style='solid', arrows=False, label=None, **kwargs):
     edges = G.edges_by_idx(edges_idx)
     pos = nx.get_node_attributes(G, 'pos')
 
     return nx.draw_networkx_edges(G, pos, edgelist=edges, ax=ax, width=width, edge_color=edge_color,
-                                  style=style, arrows=arrows, label=label)
+                                  style=style, arrows=arrows, label=label, **kwargs)
 
 def plot_cov_ellipse(cov, pos, nstd=2, ax=None, **kwargs):
     """

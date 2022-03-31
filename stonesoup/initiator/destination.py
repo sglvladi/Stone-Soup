@@ -1,8 +1,5 @@
 import numpy as np
 import geopandas
-from pybsp.bsp import BSP
-# from pybsp.geometry import Point
-from bsppy import Point, BSPTree
 from scipy.stats import multivariate_normal as mvn
 from shapely.geometry import LineString, Point as ShapelyPoint
 
@@ -111,59 +108,6 @@ class DestinationBasedInitiator(Initiator):
             s_i = sv[4]
             r_i, e_i, d_i, s_i = normalise_re(r_i, e_i, d_i, s_i, self.graph)
             sv = (r_i, sv[1], e_i, d_i, s_i)
-            prior_particle_sv[:, i] = np.array(sv)
-
-        prior_state = ParticleStateUpdate2(particles=prior_particle_sv,
-                                           hypothesis=SingleHypothesis(None, detection),
-                                           timestamp=detection.timestamp)
-        return Track([prior_state], id=detection.metadata['gnd_id'])
-
-
-class DestinationBasedInitiatorAimpoint(DestinationBasedInitiator):
-
-    bsptree: BSP = Property(doc="The bsp tree")
-
-    def _init_track(self, detection,  v_edges2, v_dest):
-        S = self.graph.as_dict()
-        prior_e = np.random.choice(v_edges2, (self.num_particles,))
-        prior_speed = mvn.rvs(0, self.speed_std ** 2, (self.num_particles,))
-        prior_destinations = []
-        prior_source = []
-        prior_r = []
-        prior_a = []
-        prior_am1 = []
-        for e in prior_e:
-            endnodes = S['Edges']['EndNodes'][e, :]
-            p1 = Point(S['Nodes']['Longitude'][endnodes[0]], S['Nodes']['Latitude'][endnodes[0]])
-            p2 = Point(S['Nodes']['Longitude'][endnodes[1]], S['Nodes']['Latitude'][endnodes[1]])
-            if np.random.rand() > 0.98:
-                new_loc = mvn.rvs(p2.to_array(), np.diag([1e3, 1e3]))
-                p2 = Point(new_loc[0], new_loc[1])
-                while self.bsptree.find_leaf(p2).is_solid:
-                    new_loc = mvn.rvs(p2.to_array(), np.diag([1e3, 1e3]))
-                    p2 = Point(new_loc[0], new_loc[1])
-            r = calculate_r((p1.to_array(), p2.to_array()), detection.state_vector.ravel()) + mvn.rvs(cov=10)
-            prior_r.append(r)
-            prior_a.append(p2.to_array())
-            prior_am1.append(p1.to_array())
-            sources = [key[0] for key in v_dest if key[1] == e]
-            source = np.random.choice(sources)
-            v_d = v_dest[(source, e)]
-            dest = np.random.choice(v_d)
-            prior_source.append(source)
-            prior_destinations.append(dest)
-
-        prior_particle_sv = np.zeros((9, self.num_particles))
-        for i, sv in enumerate(
-                zip(prior_r, prior_speed, prior_e, prior_destinations, prior_source, prior_a, prior_am1)):
-            r_i = sv[0]
-            e_i = sv[2]
-            d_i = sv[3]
-            s_i = sv[4]
-            a_i = sv[5]
-            am1_i = sv[6]
-            r_i, e_i, d_i, s_i, a_i, am1_i = normalise_re2(r_i, e_i, d_i, s_i, a_i, am1_i, self.graph)
-            sv = (r_i, sv[1], e_i, d_i, s_i, *a_i, *am1_i)
             prior_particle_sv[:, i] = np.array(sv)
 
         prior_state = ParticleStateUpdate2(particles=prior_particle_sv,
