@@ -7,6 +7,7 @@ import numpy as np
 from ..base import Property
 from .base import Deleter
 from ..functions import gauss2sigma, unscented_transform
+from ..types.state import GaussianState
 from ..types.update import Update
 
 
@@ -104,19 +105,37 @@ class MeasurementCovarianceBasedDeleter(Deleter):
                                     measurement_model.function)
         else:
             # Find its jacobian
-            h = measurement_model.jacobian(track.state)
+            try:
+                h = measurement_model.jacobian(track.state)
+            except:
+                state = GaussianState(track.state.mean, track.state.covar, track.state.timestamp)
+                h = measurement_model.jacobian(state)
             # Transform covariance
             covar = h @ track.state.covar @ h.T
 
         return covar
 
     def _find_last_meas_model(self, track):
-        # Get the last update
-        last_update = next((state for state in reversed(track) if isinstance(state, Update)), None)
-        hypothesis = last_update.hypothesis
-        try:
-            # Single hypothesis objects
-            return hypothesis.measurement.measurement_model
-        except AttributeError:
-            # Multi hypothesis
-            return next((hyp.measurement.measurement_model for hyp in hypothesis if hyp), None)
+        measurement_model = None
+        for state in reversed(track):
+            if isinstance(state, Update):
+                hypothesis = state.hypothesis
+                try:
+                    # Single hypothesis objects
+                    measurement_model =  hypothesis.measurement.measurement_model
+                except AttributeError:
+                    # Multi hypothesis
+                    measurement_model = next((hyp.measurement.measurement_model
+                                              for hyp in hypothesis if hyp), None)
+                if measurement_model:
+                    return measurement_model
+        return measurement_model
+        # # Get the last update
+        # last_update = next((state for state in reversed(track) if isinstance(state, Update)), None)
+        # hypothesis = last_update.hypothesis
+        # try:
+        #     # Single hypothesis objects
+        #     return hypothesis.measurement.measurement_model
+        # except AttributeError:
+        #     # Multi hypothesis
+        #     return next((hyp.measurement.measurement_model for hyp in hypothesis if hyp), None)
