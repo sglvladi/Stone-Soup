@@ -43,7 +43,7 @@ from stonesoup.gater.distance import DistanceGater
 from stonesoup.plugins.pyehm import JPDAWithEHM2
 from stonesoup.initiator.simple import MultiMeasurementInitiator
 from stonesoup.deleter.time import UpdateTimeStepsDeleter
-from stonesoup.deleter.error import CovarianceBasedDeleter
+from stonesoup.deleter.error import CovarianceBasedDeleter, MeasurementCovarianceBasedDeleter
 from stonesoup.deleter.multi import CompositeDeleter
 from stonesoup.measures import Mahalanobis
 from stonesoup.tracker.simple import MultiTargetMixtureTracker
@@ -149,7 +149,8 @@ for i, detector in enumerate(non_bias_detectors):
     hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
     data_associator_init = GNNWith2DAssignment(hypothesiser_init)
     deleter_init1 = UpdateTimeStepsDeleter(2)
-    deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
+    # deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
+    deleter_init2 = MeasurementCovarianceBasedDeleter([np.pi / 4, 20])
     deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
 
     # Tracker components
@@ -157,7 +158,8 @@ for i, detector in enumerate(non_bias_detectors):
     initiator = MultiMeasurementInitiator(prior, None, deleter_init,
                                           data_associator_init, updater, 10)
     deleter1 = UpdateTimeStepsDeleter(10)
-    deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
+    # deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
+    deleter2 = MeasurementCovarianceBasedDeleter([np.pi/4, 200])
     deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
     hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
     hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
@@ -181,12 +183,14 @@ updater = ExtendedKalmanUpdater(None, True)
 hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
 data_associator_init = GNNWith2DAssignment(hypothesiser_init)
 deleter_init1 = UpdateTimeStepsDeleter(2)
-deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
+# deleter_init2 = CovarianceBasedDeleter(20, mapping=[0, 2])
+deleter_init2 = MeasurementCovarianceBasedDeleter([np.pi/4, 20])
 deleter_init = CompositeDeleter([deleter_init1, deleter_init2], intersect=False)
 initiator = MultiMeasurementInitiator(bias_prior, None, deleter_init,
                                       data_associator_init, updater, 10)
 deleter1 = UpdateTimeStepsDeleter(10)
-deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
+# deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
+deleter2 = MeasurementCovarianceBasedDeleter([np.pi/4, 200])
 deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
 hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
 hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
