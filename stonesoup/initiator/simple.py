@@ -306,10 +306,15 @@ class MultiMeasurementInitiatorMixture(MultiMeasurementInitiator):
 
         sure_tracks2 = set()
         for track in sure_tracks:
-            prior = GaussianMixture([TaggedWeightedGaussianState(track.state.state_vector,
+            last_update = next((state for state in reversed(track) if isinstance(state, Update)),
+                               None)
+            # Need hypothesis for MeasurementCovarianceBasedDeleter
+            hypothesis = last_update.hypothesis
+            prior = GaussianMixtureUpdate(components=[TaggedWeightedGaussianState(track.state.state_vector,
                                                       track.state.covar,
                                                       timestamp=track.timestamp,
-                                                      weight=Probability(1), tag=[])])
+                                                      weight=Probability(1), tag=[])],
+                                          hypothesis=hypothesis)
             new_track = Track([prior])
             sure_tracks2.add(new_track)
         return sure_tracks2
