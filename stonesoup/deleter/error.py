@@ -7,6 +7,8 @@ import numpy as np
 from ..base import Property
 from .base import Deleter
 from ..functions import gauss2sigma, unscented_transform
+from ..models.measurement import MeasurementModel
+from ..models.measurement.nonlinear import CartesianToBearingRange
 from ..types.state import GaussianState
 from ..types.update import Update
 
@@ -60,6 +62,7 @@ class MeasurementCovarianceBasedDeleter(Deleter):
     """
 
     diag_covar_thresh: Sequence[float] = Property(doc="Covariance matrix diagonal threshold")
+    measurement_model: MeasurementModel = Property(doc="The measurement model", default=None)
     use_ut: bool = Property(doc="Whether to use unscented transform to calculate measurement "
                                 "matrix. Defaults to False, in which case jacobian will be used",
                             default=False)
@@ -68,6 +71,14 @@ class MeasurementCovarianceBasedDeleter(Deleter):
                                           "covariances' sum is to be considered. Defaults to"
                                           "None, whereby the entire track covariance trace is "
                                           "considered.")
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+        if self.measurement_model is None:
+            self.measurement_model = CartesianToBearingRange(ndim_state=4,
+                                                             mapping=(0, 2),
+                                                             noise_covar=np.diag([0, 0]))
 
     def check_for_deletion(self, track, **kwargs):
         """Check if a given track should be deleted
@@ -96,46 +107,21 @@ class MeasurementCovarianceBasedDeleter(Deleter):
 
     def _get_covar(self, track):
         # Get the measurement model used in the last update
-        measurement_model = self._find_last_meas_model(track)
+        self.measurement_model.ndim_state = track.state.ndim
         if self.use_ut:
             sigma_points, mean_weights, covar_weights = \
                 gauss2sigma(track.state, 0.5, 2, 0)
             _, covar, _, _, _, _ = \
                 unscented_transform(sigma_points, mean_weights, covar_weights,
-                                    measurement_model.function)
+                                    self.measurement_model.function)
         else:
             # Find its jacobian
             try:
-                h = measurement_model.jacobian(track.state)
+                h = self.measurement_model.jacobian(track.state)
             except:
                 state = GaussianState(track.state.mean, track.state.covar, track.state.timestamp)
-                h = measurement_model.jacobian(state)
+                h = self.measurement_model.jacobian(state)
             # Transform covariance
             covar = h @ track.state.covar @ h.T
 
         return covar
-
-    def _find_last_meas_model(self, track):
-        measurement_model = None
-        for state in reversed(track):
-            if isinstance(state, Update):
-                hypothesis = state.hypothesis
-                try:
-                    # Single hypothesis objects
-                    measurement_model =  hypothesis.measurement.measurement_model
-                except AttributeError:
-                    # Multi hypothesis
-                    measurement_model = next((hyp.measurement.measurement_model
-                                              for hyp in hypothesis if hyp), None)
-                if measurement_model:
-                    return measurement_model
-        return measurement_model
-        # # Get the last update
-        # last_update = next((state for state in reversed(track) if isinstance(state, Update)), None)
-        # hypothesis = last_update.hypothesis
-        # try:
-        #     # Single hypothesis objects
-        #     return hypothesis.measurement.measurement_model
-        # except AttributeError:
-        #     # Multi hypothesis
-        #     return next((hyp.measurement.measurement_model for hyp in hypothesis if hyp), None)
