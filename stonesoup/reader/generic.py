@@ -167,7 +167,7 @@ class CSVDetectionReader_EE(CSVDetectionReader):
                     longitude = np.float64(row["Longitude"])
                     latitude = np.float64(row["Latitude"])
                     detect = Detection(np.array(
-                        [[Longitude(longitude)], [Latitude(latitude)]]),
+                        [[Longitude(np.deg2rad(longitude))], [Latitude(np.deg2rad(latitude))]]),
                         timestamp=time,
                         metadata=self._get_metadata(row))
                     detect.metadata['type'] = 'dynamic'

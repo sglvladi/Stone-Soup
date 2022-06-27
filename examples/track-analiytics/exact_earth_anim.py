@@ -120,9 +120,18 @@ if __name__ == '__main__':
     from matplotlib import pyplot as plt
     from mpl_toolkits.basemap import Basemap
 
+
     plt.rcParams['figure.figsize'] = (12, 8)
     plt.style.use('seaborn-colorblind')
     fig = plt.figure()
+
+    class Plotter():
+
+        def __init__(self, fig):
+            self.track atists =  dict()
+            detection_artists = dict()
+
+
 
 
     def plot_map(timestamp):

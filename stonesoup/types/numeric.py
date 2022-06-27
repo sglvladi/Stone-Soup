@@ -19,6 +19,7 @@ class Probability(Real):
                 self._log_value = self._log(value)
             except ValueError:
                 raise ValueError("value must be greater than 0")
+        a = 2
 
     @property
     def log_value(self):
