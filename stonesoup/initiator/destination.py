@@ -58,7 +58,7 @@ class DestinationBasedInitiator(Initiator):
         # Get query point
         center = detection.state_vector.ravel()
         radius = 3 * np.sqrt(self.measurement_model.covar()[0, 0])
-        query_point = ShapelyPoint(center).buffer(radius)
+        query_point = ShapelyPoint(center).buffer(20*radius)
         # Get rough result of edges that intersect query point envelope
         result_rough = rtree.query(query_point)
         # The exact edges are those in the rough result that intersect the query point

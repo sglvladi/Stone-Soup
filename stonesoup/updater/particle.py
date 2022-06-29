@@ -260,7 +260,7 @@ class ParticleUpdater2(Updater):
         new_particles, new_weights = self.resampler.resample(
             hypothesis.prediction.particles, weights)
 
-        new_weights = [weight*sum_w for weight in new_weights]
+        # new_weights = [weight*sum_w for weight in new_weights]
         return ParticleStateUpdate2(new_particles,
                                     hypothesis,
                                     weights=new_weights,

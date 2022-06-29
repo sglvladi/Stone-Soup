@@ -7,13 +7,14 @@ import rtree
 import numpy as np
 import networkx as nx
 from scipy.io import loadmat
+from scipy.stats import multivariate_normal as mvn
+from bsppy import Point, LineSegment
+from shapely.geometry import Point as ShapelyPoint, LineString
 
 from stonesoup.functions import cart2pol, pol2cart
 from stonesoup.types.state import State
 from stonesoup.types.array import StateVector
 
-from shapely.geometry import LineString
-from shapely.geometry import Point
 from geopandas.sindex import RTreeIndex
 # import sympy
 
@@ -177,13 +178,24 @@ def dict_to_graph(S):
 def graph_to_dict(G):
 
     weights = nx.get_edge_attributes(G, 'weight')
+    has_parent_idx = False
+    try:
+        parent_idx = nx.get_edge_attributes(G, 'parent_idx')
+        has_parent_idx = True
+    except:
+        pass
+
     S = dict()
     S['Edges'] = dict()
     S['Edges']['EndNodes'] = []
     S['Edges']['Weight'] = []
+    if has_parent_idx:
+        S['Edges']['ParentIdx'] = []
     for edge in G.edges:
         S['Edges']['EndNodes'].append([edge[0], edge[1]])
         S['Edges']['Weight'].append(weights[edge])
+        if has_parent_idx:
+            S['Edges']['ParentIdx'].append(parent_idx[edge])
 
     pos = nx.get_node_attributes(G, 'pos')
     S['Nodes'] = dict()
@@ -197,6 +209,9 @@ def graph_to_dict(G):
     S['Edges']['EndNodes'] = np.array(S['Edges']['EndNodes'])
     S['Nodes']['Longitude'] = np.array(S['Nodes']['Longitude'])
     S['Nodes']['Latitude'] = np.array(S['Nodes']['Latitude'])
+    if has_parent_idx:
+        S['Edges']['ParentIdx'] = np.array(S['Edges']['ParentIdx'])
+
     return S
 
 
@@ -609,7 +624,7 @@ def line_intersects_circle(line, circle):
     c = circle[0]
     r = circle[1]
 
-    cc = Point(c).buffer(r)
+    cc = ShapelyPoint(c).buffer(r)
     l = LineString(line)
     i = cc.boundary.intersection(l)
 
@@ -696,3 +711,127 @@ def calc_edge_len(e, S, use_weight=False):
     p2 = np.array(
         [S['Nodes']['Longitude'][endnodes[1]], S['Nodes']['Latitude'][endnodes[1]]])
     return np.hypot(p2[0]-p1[0], p2[1]-p1[1])
+
+
+def edge_resample(state, detection, measurement_model, G, bsptree, aimpoint_sample_covar):
+    num_particles = len(state.weights)
+    # SMC edge resampling
+    # 1) Get valid edges for detection
+    gdf = G.gdf  # construct a GeoDataFrame object
+    rtree = G.rtree  # generate a spatial index (R-tree)
+    center = detection.state_vector.ravel()
+    radius = 3 * np.sqrt(measurement_model.covar()[0, 0])
+    query_point = ShapelyPoint(center).buffer(20*radius)
+    # Get rough result of edges that intersect query point envelope
+    result_rough = rtree.query(query_point)
+    # The exact edges are those in the rough result that intersect the query point
+    gdf_rough = gdf.iloc[result_rough]
+    v_edges = result_rough[np.flatnonzero(gdf_rough.intersects(query_point))]
+
+    # 2) Get valid destinations from valid edges
+    v_dest = dict()
+    for (source, dest), path in G.short_paths_e.items():
+        edges_in_path = set(v_edges).intersection(set(path))
+        for edge in edges_in_path:
+            try:
+                v_dest[(source, edge)].append(dest)
+            except KeyError:
+                v_dest[(source, edge)] = [dest]
+    # Get subset of edges that match the destinations
+    v_edges2 = np.unique([key[1] for key in v_dest])
+    S = G.as_dict()
+    v_edges2_by_parent = {p: [t for t in g] for p, g in itertools.groupby(v_edges2, lambda e: S['Edges']['ParentIdx'][e])}
+    v_edges3 = []
+
+    p3 = ShapelyPoint(*detection.state_vector)
+    for parent, edges in v_edges2_by_parent.items():
+        if len(edges) > 1:
+            min_dist = np.inf
+            min_dist_edge = -1
+            for edge in edges:
+                endnodes = S['Edges']['EndNodes'][edge, :]
+                p1 = ShapelyPoint(S['Nodes']['Longitude'][endnodes[0]],
+                           S['Nodes']['Latitude'][endnodes[0]])
+                p2 = ShapelyPoint(S['Nodes']['Longitude'][endnodes[1]],
+                           S['Nodes']['Latitude'][endnodes[1]])
+                l = LineString([p1, p2])
+                dist = l.distance(p3)
+                if dist < min_dist:
+                    min_dist = dist
+                    min_dist_edge = edge
+            v_edges3.append(min_dist_edge)
+        else:
+            v_edges3.append(edges[0])
+
+
+    # 3) Do resampling
+    resample_inds = np.flatnonzero(np.random.binomial(1, 0.1, num_particles))
+    for i in resample_inds:
+        # Sample an edge randomly from the set of possible edges
+        e_i = np.random.choice(v_edges3, 1)[0]
+        # Sample a random position from the measurement pdf
+        xy = detection.state_vector + measurement_model.rvs()
+        speed_i = state.particles[1, i]
+        endnodes = S['Edges']['EndNodes'][e_i, :]
+        # Aimpoint m-1
+        p1 = Point(S['Nodes']['Longitude'][endnodes[0]], S['Nodes']['Latitude'][endnodes[0]])
+        new_loc = mvn.rvs(p1.to_array(), aimpoint_sample_covar)
+        p1 = Point(new_loc[0], new_loc[1])
+        # Current aimpoint is computed be taking a straight line from previous aimpoint
+        # that passes through the measurement location
+        rad, theta = cart2pol(xy[0] - p1.x, xy[1] - p1.y)
+        x1, y1 = pol2cart(S['Edges']['Weight'][e_i], theta)
+        p2 = Point(p1.x + x1, p1.y + y1)
+        # p2 = Point(S['Nodes']['Longitude'][endnodes[1]], S['Nodes']['Latitude'][endnodes[1]])
+        # if np.random.rand() > 0.98:
+        #     new_loc = mvn.rvs(p2.to_array(), aimpoint_sample_covar)
+        #     p2 = Point(new_loc[0], new_loc[1])
+        #     while bsptree.find_leaf(p2).is_solid:
+        #         new_loc = mvn.rvs(p2.to_array(), aimpoint_sample_covar)
+        #         p2 = Point(new_loc[0], new_loc[1])
+        r_i = calculate_r((p1.to_array(), p2.to_array()), xy.ravel())
+        a_i = p2.to_array()
+        am1_i = p1.to_array()
+        sources = [key[0] for key in v_dest if key[1] == e_i]
+        s_i = np.random.choice(sources)
+        v_d = v_dest[(s_i, e_i)]
+        d_i = np.random.choice(v_d)
+        r_i, e_i, d_i, s_i, a_i, am1_i = normalise_re2(r_i, e_i, d_i, s_i, a_i, am1_i, G)
+        sv = (r_i, speed_i, e_i, d_i, s_i, *a_i, *am1_i)
+        state_vector = np.array(sv)
+        state.particles[:, i] = state_vector
+    # for i in range(num_particles):
+    #     if np.random.rand() > 0.9:
+    #         # Sample an edge randomly from the set of possible edges
+    #         e_i = np.random.choice(v_edges2, 1)[0]
+    #         # Sample a random position from the measurement pdf
+    #         xy = detection.state_vector + measurement_model.rvs()
+    #         speed_i = state.particles[1, i]
+    #         endnodes = S['Edges']['EndNodes'][e_i, :]
+    #         # Aimpoint m-1
+    #         p1 = Point(S['Nodes']['Longitude'][endnodes[0]], S['Nodes']['Latitude'][endnodes[0]])
+    #         # Current aimpoint is computed be taking a straight line from previous aimpoint
+    #         # that passes through the measurement location
+    #         rad, theta = cart2pol(xy[0] - p1.x, xy[1]-p1.y)
+    #         x1, y1 = pol2cart(S['Edges']['Weight'][e_i], theta)
+    #         p2 = Point(p1.x + x1, p1.y + y1)
+    #         # p2 = Point(S['Nodes']['Longitude'][endnodes[1]], S['Nodes']['Latitude'][endnodes[1]])
+    #         # if np.random.rand() > 0.98:
+    #         #     new_loc = mvn.rvs(p2.to_array(), aimpoint_sample_covar)
+    #         #     p2 = Point(new_loc[0], new_loc[1])
+    #         #     while bsptree.find_leaf(p2).is_solid:
+    #         #         new_loc = mvn.rvs(p2.to_array(), aimpoint_sample_covar)
+    #         #         p2 = Point(new_loc[0], new_loc[1])
+    #         r_i = calculate_r((p1.to_array(), p2.to_array()), xy.ravel())
+    #         a_i = p2.to_array()
+    #         am1_i = p1.to_array()
+    #         sources = [key[0] for key in v_dest if key[1] == e_i]
+    #         s_i = np.random.choice(sources)
+    #         v_d = v_dest[(s_i, e_i)]
+    #         d_i = np.random.choice(v_d)
+    #         r_i, e_i, d_i, s_i, a_i, am1_i = normalise_re2(r_i, e_i, d_i, s_i, a_i, am1_i, G)
+    #         sv = (r_i, speed_i, e_i, d_i, s_i, *a_i, *am1_i)
+    #         state_vector = np.array(sv)
+    #         state.particles[:, i] = state_vector
+
+    return state, resample_inds

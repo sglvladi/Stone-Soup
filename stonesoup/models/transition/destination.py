@@ -7,7 +7,7 @@ from stonesoup.types.state import ParticleState2
 from ..base import TimeVariantModel
 from ...base import Property
 from .linear import ConstantVelocity, LinearGaussianTransitionModel
-from ...custom.graph import CustomDiGraph, normalise_re, normalise_re2
+from ...custom.graph import CustomDiGraph, normalise_re, normalise_re2, get_xy_from_range_endnodes
 from pybsp.bsp import BSP
 # from pybsp.geometry import Point
 from bsppy import Point, BSPTree
@@ -94,7 +94,7 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
     bsptree: BSP = Property(doc="The bsp tree")
     use_smc: bool = Property(default=False)
     check_los: bool = Property(default=False)
-    prior_on_endnodes: bool = Property(default=False)
+    prior_on_endnodes: bool = Property(default=True)
     aimpoint_sample_covar: np.ndarray = Property(default=None)
 
     @property
@@ -105,7 +105,7 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
         super().__init__(*args, **kwargs)
         self.cv_model = ConstantVelocity(self.noise_diff_coeff)
         if self.aimpoint_sample_covar is None:
-            self.aimpoint_sample_covar = np.diag([1e5, 1e5])
+            self.aimpoint_sample_covar = np.diag([1e9, 1e9])
 
     def matrix(self, time_interval, **kwargs):
         transition_matrices = [self.cv_model.matrix(time_interval, **kwargs), np.eye(7)]
@@ -131,24 +131,42 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
         else:
             n_state_vectors = self.matrix(time_interval)@state.state_vector + noise
 
+        # SMC edge resampling
+        # data = state.particles
+        # a = data[[5, 6], :]
+        # am1 = data[[7, 8], :]
+        # xy = get_xy_from_range_endnodes(data[0, :], am1, a)
+        # mu = np.mean(np.mean(xy, axis=1)).ravel()
+        #
+        # gdf = self.graph.gdf  # construct a GeoDataFrame object
+        # rtree = self.graph.rtree  # generate a spatial index (R-tree)
+        # center = state.state_vector.ravel()
+        # radius = 3 * np.sqrt(np.max(state.covar()[0, 0], state.covar)
+        # query_point = ShapelyPoint(center).buffer(20 * radius)
+        # # Get rough result of edges that intersect query point envelope
+        # result_rough = rtree.query(query_point)
+        # # The exact edges are those in the rough result that intersect the query point
+        # gdf_rough = gdf.iloc[result_rough]
+        # return result_rough[np.flatnonzero(gdf_rough.intersects(query_point))]
+
         # 2) SMC destination sampling
         # Get all valid destinations given the current edge
-        v_dest = dict()
-        e = n_state_vectors[2, :]
-        u_edges = np.unique(e)
-        for edge in u_edges:
-            for dest, path in self.graph.short_paths_e.items():
-                # If the path contains the edge
-                if len(np.where(path == edge)[0]) > 0:
-                    if edge in v_dest:
-                        v_dest[edge].append(dest[1])
-                    else:
-                        v_dest[edge] = [dest[1]]
-        # Perform the sampling
-        for i in range(num_particles):
-            if np.random.rand() > 0.98:
-                edge = e[i]
-                n_state_vectors[3, i] = np.random.choice(v_dest[edge])
+        # v_dest = dict()
+        # e = n_state_vectors[2, :]
+        # u_edges = np.unique(e)
+        # for edge in u_edges:
+        #     for dest, path in self.graph.short_paths_e.items():
+        #         # If the path contains the edge
+        #         if len(np.where(path == edge)[0]) > 0:
+        #             if edge in v_dest:
+        #                 v_dest[edge].append(dest[1])
+        #             else:
+        #                 v_dest[edge] = [dest[1]]
+        # # Perform the sampling
+        # for i in range(num_particles):
+        #     if np.random.rand() > 0.98:
+        #         edge = e[i]
+        #         n_state_vectors[3, i] = np.random.choice(v_dest[edge])
 
         # 3) Perform aimpoint sampling
         resample_inds = np.flatnonzero(np.random.binomial(1, 0.5, num_particles))
