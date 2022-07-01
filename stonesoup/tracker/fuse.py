@@ -8,6 +8,7 @@ from ..tracker import Tracker
 from ..reader.tracklet import PseudoMeasExtractor
 from ..predictor import Predictor
 from ..types.mixture import GaussianMixture
+from ..types.multihypothesis import MultipleHypothesis
 from ..updater import Updater
 from ..dataassociator import DataAssociator
 from ..types.numeric import Probability
@@ -136,6 +137,18 @@ class _BaseFuseTracker(Base):
                     dct[tuple(hyp.prediction.tag[:-1])].insert(idx, hyp.probability)
                 except KeyError:
                     dct[tuple(hyp.prediction.tag[:-1])] = [hyp.probability]
+
+            # Ensure update contains all hypotheses
+            # NOTE: EAFP (easier to ask for forgiveness than permission)
+            # If the last state is not a GaussianMixtureUpdate, an AttributeError will be
+            # raised since GaussianMixture does not have a "hypothesis" attribute.
+            try:
+                # New hypotheses = old hypotheses + (current-null)
+                single_hyps = [hyp for hyp in last_state.hypothesis] \
+                              + [hyp for hyp in hypothesis if hyp]
+                hypothesis = MultipleHypothesis(single_hyps)
+            except AttributeError:
+                pass
 
             update = GaussianMixtureUpdate(components=components, hypothesis=hypothesis)
             track[-1] = update
