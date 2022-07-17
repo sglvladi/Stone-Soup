@@ -10,7 +10,7 @@ from ..types.mixture import GaussianMixture
 from ..types.state import GaussianState, TwoStateGaussianState, State
 from ..types.update import Update
 from ..updater import Updater
-from ..functions import predict_state_to_two_state
+from ..functions import predict_state_to_two_state, nearestPD, isPD
 from ..types.hypothesis import SingleHypothesis, MultiHypothesis
 from ..types.track import Track
 from ..types.numeric import Probability
@@ -111,6 +111,8 @@ class TwoStateMeasurementInitiator(TwoStateInitiator):
             init_cov[mapped_dimensions, :] = 0
             C0 = inv_model_matrix @ model_covar @ inv_model_matrix.T
             C0 = C0 + init_cov + np.diag(np.array([self.diag_load] * C0.shape[0]))
+            if not isPD(C0):
+                C0 = nearestPD(C0)
             init_mean = init_mean + state_vector
             prior = TwoStateGaussianState(init_mean, C0, start_time=start_time,
                                           end_time=end_time)
