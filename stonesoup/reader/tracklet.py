@@ -295,6 +295,7 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
     target_state_dim: int = Property(doc='The target state dim', default=None)
     state_idx_to_use: List[int] = Property(doc='The indices of the state corresponding to pos/vel',
                                            default=None)
+    use_prior: bool = Property(doc="", default=True)
 
     def __init__(self, *args, **kwargs):
         super(PseudoMeasExtractor, self).__init__(*args, **kwargs)
@@ -435,8 +436,7 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
 
         return measdata
 
-    @classmethod
-    def get_pseudomeasurement(cls, mu1, C1, mu2, C2):
+    def get_pseudomeasurement(self, mu1, C1, mu2, C2):
         eigthresh = 1e-6
         matthresh = 1e-6
 
@@ -457,6 +457,14 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
         H = Htilde[idx, :]
 
         statedim = mu1.shape[0]
+
+        if not self.use_prior:
+            H = np.eye(statedim)
+            z = mu1
+            R = C1
+            return H, z, R, evals
+
+
         if np.max(np.abs(C1.flatten() - C2.flatten())) < matthresh:
             print('Discarded - matrices too similar')
             H = np.zeros((0, statedim))
