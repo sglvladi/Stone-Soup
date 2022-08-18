@@ -466,14 +466,14 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
 
 
         if np.max(np.abs(C1.flatten() - C2.flatten())) < matthresh:
-            print('Discarded - matrices too similar')
+            # print('Discarded - matrices too similar')
             H = np.zeros((0, statedim))
             z = np.zeros((0, 1))
             R = np.zeros((0, 0))
             return H, z, R, evals
 
         if np.all(np.abs(evals) <= eigthresh):
-            print('Discarded - all eigenvalues zero')
+            # print('Discarded - all eigenvalues zero')
             H = np.zeros((0, statedim))
             z = np.zeros((0, 1))
             R = np.zeros((0, 0))
@@ -487,7 +487,7 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
             np.linalg.cholesky(R)
         except np.linalg.LinAlgError:
             # if not np.all(np.linalg.eigvals(R) > 0):
-            print('Discarded - singular R')
+            # print('Discarded - singular R')
             H = np.zeros((0, statedim))
             z = np.zeros((0, 1))
             R = np.zeros((0, 0))

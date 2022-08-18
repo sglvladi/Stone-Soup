@@ -328,6 +328,8 @@ class MovingMovable(Movable):
         # Compute time_interval
         try:
             time_interval = timestamp - self.state.timestamp
+            if not time_interval:
+                return
         except TypeError:
             # TypeError: (timestamp or prior.timestamp) is None
             return
@@ -398,6 +400,8 @@ class MultiTransitionMovable(MovingMovable):
             return
         try:
             time_interval = timestamp - self.state.timestamp
+            if not time_interval:
+                return
         except TypeError:
             # TypeError: (timestamp or prior.timestamp) is None
             return
