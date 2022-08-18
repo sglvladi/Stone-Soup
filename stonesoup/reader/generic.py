@@ -224,7 +224,10 @@ class DetectionReplayer(DetectionReader):
                 self._buffer.put((timestamp, detections))
 
     def _scans_gen(self):
-        for timestamp, detections in self.scans:
+        for dt, detections in self.scans:
+            timestamp = self.start_time + dt
+            for detection in detections:
+                detection.timestamp = timestamp
             yield timestamp, detections
 
     def _scans_gen_async(self):
