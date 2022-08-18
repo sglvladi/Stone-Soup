@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 import copy
 from math import erfc
-from typing import Tuple, Set, Union
+from typing import Tuple, Set, Union, Optional
 
 import numpy as np
 import scipy.constants as const
@@ -79,6 +79,7 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
     model_with_bias: bool = Property(doc='Whether to attach bias model to measurements',
                                      default=False)
     bias_mapping: Tuple = Property(doc='Indices of bias variables in state', default=None)
+    seed: Optional[int] = Property(default=None, doc="Seed for random number generation")
 
     def measure(self, ground_truths: Set[GroundTruthState], noise: Union[np.ndarray, bool] = True,
                 timestamp=None, **kwargs) -> Set[Detection]:
@@ -88,7 +89,9 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
             mapping=self.position_mapping,
             noise_covar=self.noise_covar,
             translation_offset=self.position,
-            rotation_offset=self.orientation)
+            rotation_offset=self.orientation,
+            seed=self.seed
+        )
 
         if not self.model_with_bias:
             m_model = CartesianToBearingRange(
@@ -96,7 +99,8 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
                 mapping=self.position_mapping[0:2],
                 noise_covar=self.noise_covar,
                 translation_offset=self.position[0:2],
-                rotation_offset=self.orientation)
+                rotation_offset=self.orientation,
+                seed=self.seed)
         else:
             m_model = CartesianToBearingRangeBias(
                 ndim_state=6,
@@ -105,6 +109,7 @@ class RadarBearingRangeWithClutter(RadarBearingRange):
                 translation_offset=self.position[0:2],
                 rotation_offset=self.orientation,
                 bias_mapping=self.bias_mapping,
+                seed=self.seed
             )
 
         detections = set()
