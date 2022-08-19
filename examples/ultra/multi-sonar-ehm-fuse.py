@@ -207,7 +207,7 @@ tracklet_extractor = TrackletExtractorWithTracker(trackers=non_bias_track_reader
                                                   detectors=bias_detectors,
                                                   core_tracker=bias_tracker,
                                                   fuse_interval=timedelta(seconds=3))
-detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3])
+detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3], use_prior=False)
 two_state_predictor = TwoStatePredictor(transition_model)
 two_state_updater = TwoStateKalmanUpdater(None, True)
 hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,

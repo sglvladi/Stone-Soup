@@ -93,7 +93,7 @@ def run_sim(sim_iter):
     max_range = 100  # Max range of sensor (meters)
     surveillance_area = np.pi * max_range ** 2  # Surveillance region area
     clutter_density = clutter_rate / surveillance_area  # Mean number of clutter points per unit area
-    slide_window = 3
+    slide_window = 2
     prob_detect = sim_data['prob_detect']  # Probability of Detection
     bias_tracker_idx = sim_data['bias_tracker_idx']  # Indices of trackers that run with bias model
 
@@ -262,6 +262,7 @@ def run_sim(sim_iter):
                                      ospa_generator.extract_states(all_gnd))
     ospa_metric = ospa_generator.compute_over_time(ospa_generator.extract_states(tracks),
                                                    ospa_generator.extract_states(all_gnd))
+
     return ospa_metric
 
 def main():
@@ -280,7 +281,7 @@ def main():
     ax.set_ylabel("OSPA distance")
     ax.tick_params(labelbottom=False)
     _ = ax.set_xlabel("Time")
-    pickle.dump({'values': metric, 'timestamps': timestamps}, open('./output/mfa.pickle3', 'wb'))
+    pickle.dump({'values': metric, 'timestamps': timestamps}, open('./output/mfa_ospa.pickle3', 'wb'))
     plt.show()
     
 

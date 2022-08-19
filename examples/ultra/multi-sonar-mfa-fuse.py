@@ -26,7 +26,8 @@ from stonesoup.dataassociator.mfa import MFADataAssociator
 from stonesoup.dataassociator.neighbour import GNNWith2DAssignment
 from stonesoup.hypothesiser.distance import DistanceHypothesiser
 from stonesoup.hypothesiser.mfa import MFAHypothesiser
-from stonesoup.initiator.twostate import TwoStateInitiatorMixture
+from stonesoup.initiator.twostate import TwoStateInitiatorMixture, \
+    TwoStateMeasurementInitiatorMixture
 from stonesoup.types.numeric import Probability
 from stonesoup.types.state import State, GaussianState
 from stonesoup.types.array import StateVector, CovarianceMatrix
@@ -211,7 +212,7 @@ tracklet_extractor = TrackletExtractorWithTracker(trackers=non_bias_track_reader
                                                   detectors=bias_detectors,
                                                   core_tracker=bias_tracker,
                                                   fuse_interval=timedelta(seconds=3))
-detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3])
+detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3], use_prior=False)
 two_state_predictor = TwoStatePredictor(transition_model)
 two_state_updater = TwoStateKalmanUpdater(None, True)
 hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,
@@ -223,7 +224,7 @@ hypothesiser1 = DistanceGater(hypothesiser1, Mahalanobis(), 10)   # Uncomment to
 hypothesiser1 = MFAHypothesiser(hypothesiser1)
 fuse_associator = MFADataAssociator(hypothesiser1, slide_window=slide_window) # in Fuse tracker
 # fuse_associator = GNNWith2DAssignment(hypothesiser1)          # Uncomment for GNN in Fuse Tracker
-initiator1 = TwoStateInitiatorMixture(prior, transition_model, two_state_updater)
+initiator1 = TwoStateMeasurementInitiatorMixture(prior, transition_model, two_state_updater)
 fuse_tracker = FuseTracker(initiator=initiator1, predictor=two_state_predictor,
                            updater=two_state_updater, associator=fuse_associator,
                            detector=detector, death_rate=1e-4,
