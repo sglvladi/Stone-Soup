@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from stonesoup.types.state import CreatableFromState
+from stonesoup.types.state import CreatableFromState, TwoStateParticleState
 from ..base import Property
 from .array import CovarianceMatrix
 from .base import Type
@@ -120,3 +120,8 @@ class ParticleMeasurementPrediction(MeasurementPrediction, ParticleState):
 
     This is a simple Particle measurement prediction object.
     """
+
+class TwoStateParticleStatePrediction(Prediction, TwoStateParticleState):
+    """ A Particle state object representing the predicted distribution
+    :math:`p(x_{k+T}, x_{k} | Y)` """
+

@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 
-from stonesoup.types.state import CreatableFromState
+from stonesoup.types.state import CreatableFromState, TwoStateParticleState
 from ..base import Property
 from .base import Type
 from .hypothesis import Hypothesis
@@ -86,3 +86,7 @@ class InformationStateUpdate(Update, InformationState):
     This is a simple Information state update object, which, as the name
     suggests, is described by a precision matrix and its corresponding state vector.
     """
+
+class TwoStateParticleStateUpdate(Update, TwoStateParticleState):
+    """ A particle state object representing the updated distribution
+    :math:`p(x_{k+T}, x_{k} | Y)` """

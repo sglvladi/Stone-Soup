@@ -2,6 +2,7 @@ import numpy as np
 
 from ..base import Base, Property
 from ..buffered_generator import BufferedGenerator
+from ..custom.initiator import TwoStateSMCPHDInitiator
 from ..dataassociator.mfa import MFADataAssociator
 from ..dataassociator.probability import JPDA
 from ..tracker import Tracker
@@ -56,6 +57,7 @@ class _BaseFuseTracker(Base):
         current_end_time = new_end_time
 
         for sensor_scan in scan.sensor_scans:
+            tracks = list(tracks)
             detections = set(sensor_scan.detections)
 
             # Perform data association
@@ -72,14 +74,45 @@ class _BaseFuseTracker(Base):
             else:
                 assoc_detections = set(
                     [hyp.measurement for hyp in associations.values() if hyp])
-            unassoc_detections = set(detections) - assoc_detections
-            if isinstance(sensor_scan.sensor_id, str):
-                tracks |= self.initiator.initiate(unassoc_detections, sensor_scan.timestamp,
-                                                  sensor_scan.timestamp,
+
+            num_tracks = len(tracks)
+            num_detections = len(detections)
+            assoc_prob_matrix = np.zeros((num_tracks, num_detections + 1))
+            for i, track in enumerate(tracks):
+                for hyp in associations[track]:
+                    if not hyp:
+                        assoc_prob_matrix[i, 0] = hyp.weight
+                    else:
+                        j = next(d_i for d_i, detection in enumerate(detections)
+                                 if hyp.measurement == detection)
+                        assoc_prob_matrix[i, j + 1] = hyp.weight
+
+            rho = np.zeros((len(detections)))
+            for j, detection in enumerate(detections):
+                rho_tmp = 1
+                if len(assoc_prob_matrix):
+                    for i, track in enumerate(tracks):
+                        rho_tmp *= 1 - assoc_prob_matrix[i, j + 1]
+                rho[j] = rho_tmp
+
+
+            if isinstance(self.initiator, TwoStateSMCPHDInitiator):
+                # pass
+                tracks = set(tracks)
+                tracks |= self.initiator.initiate(detections, current_start_time,
+                                                  current_end_time,
+                                                  weights=rho,
                                                   sensor_id=sensor_scan.sensor_id)
             else:
-                tracks |= self.initiator.initiate(unassoc_detections, current_start_time,
-                                                  current_end_time, sensor_id=sensor_scan.sensor_id)
+                tracks = set(tracks)
+                unassoc_detections = set(detections) - assoc_detections
+                if isinstance(sensor_scan.sensor_id, str):
+                    tracks |= self.initiator.initiate(unassoc_detections, sensor_scan.timestamp,
+                                                      sensor_scan.timestamp,
+                                                      sensor_id=sensor_scan.sensor_id)
+                else:
+                    tracks |= self.initiator.initiate(unassoc_detections, current_start_time,
+                                                      current_end_time, sensor_id=sensor_scan.sensor_id)
         try:
             self.initiator.current_end_time = current_end_time
         except AttributeError:
@@ -260,6 +293,9 @@ class _BaseFuseTracker(Base):
 
 
 class FuseTracker(Tracker, _BaseFuseTracker):
+    """
+
+    """
 
     detector: PseudoMeasExtractor = Property(doc='The pseudo-measurement extractor')
 

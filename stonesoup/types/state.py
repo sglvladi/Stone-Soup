@@ -483,3 +483,13 @@ class ParticleState(Type):
         # Fix one dimensional covariances being returned with zero dimension
         return cov
 State.register(ParticleState)  # noqa: E305
+
+
+class TwoStateParticleState(ParticleState):
+    """ A Particle state object representing the distribution :math:`p(x_{k+T}, x_{k} | Y)` """
+    start_time: datetime.datetime = Property(doc='Timestamp at t_k')
+    end_time: datetime.datetime = Property(doc='Timestamp at t_{k+T}')
+
+    @property
+    def timestamp(self):
+        return self.end_time
