@@ -63,7 +63,7 @@ from stonesoup.tracker.fuse import FuseTracker
 
 np.random.seed(1000)
 PLOT = False
-num_sims = 100
+num_sims = 1
 
 # Simulation start time
 start_time = datetime.now()
@@ -254,34 +254,52 @@ def run_sim(sim_iter):
     for gnd in all_gnd:
         gnd.states = [state for state in gnd.states if state.timestamp in timestamps]
 
-    from stonesoup.metricgenerator.ospametric import OSPAMetric
+    from stonesoup.metricgenerator.ospametric import GOSPAMetric, OSPAMetric
     from stonesoup.measures import Euclidean
 
     ospa_generator = OSPAMetric(c=10, p=1, measure=Euclidean([0, 2]))
-    ospa_generator.compute_over_time(ospa_generator.extract_states(tracks),
-                                     ospa_generator.extract_states(all_gnd))
     ospa_metric = ospa_generator.compute_over_time(ospa_generator.extract_states(tracks),
                                                    ospa_generator.extract_states(all_gnd))
-
-    return ospa_metric
+    gospa_generator = GOSPAMetric(c=10, p=1, measure=Euclidean([0, 2]))
+    gospa_metric = gospa_generator.compute_over_time(ospa_generator.extract_states(tracks),
+                                                     ospa_generator.extract_states(all_gnd))
+    return ospa_metric, gospa_metric
 
 def main():
     # for sim_iter in range(num_sims):
     #     run_sim(sim_iter)
     pool = mpp.Pool(mpp.cpu_count())
     inputs = [sim_iter for sim_iter in range(num_sims)]
+    sim_start_time = datetime.now()
     results = imap_tqdm(pool, run_sim, inputs, desc='Sim')
-    ospa_metrics = list(results)
-    metric_mat = np.array([[i.value for i in ospa_metric.value] for ospa_metric in ospa_metrics])
-    metric = np.mean(metric_mat, axis=0)
+    print(datetime.now() - sim_start_time)
+    metrics = list(results)
+    ospa_metrics = [metric[0] for metric in metrics]
+    gospa_metrics = [metric[1] for metric in metrics]
+    gospa = {'distance': 0.0,
+             'localisation': 0.0,
+             'missed': 0,
+             'false': 0}
+
+    for key in gospa:
+        metric_mat = np.array(
+            [[i.value[key] for i in gospa_metric.value] for gospa_metric in gospa_metrics])
+        gospa[key] = metric_mat
+
+    ospa_mat = np.array([[i.value for i in ospa_metric.value] for ospa_metric in ospa_metrics])
+
+    pickle.dump({'ospa': ospa_mat, 'gospa': gospa}, open('./output/mfa_metrics_full.pickle', 'wb'))
+    ospa = np.mean(ospa_mat, axis=0)
     timestamps = [i.timestamp for i in ospa_metrics[0].value]
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
-    ax.plot(timestamps, metric)
-    ax.set_ylabel("OSPA distance")
+    ax.plot(timestamps, ospa, label='OSPA')
+    ax.plot(timestamps, gospa['distance'], label='GOSPA')
+    ax.set_ylabel("(G)OSPA distance")
     ax.tick_params(labelbottom=False)
     _ = ax.set_xlabel("Time")
-    pickle.dump({'values': metric, 'timestamps': timestamps}, open('./output/mfa_ospa.pickle3', 'wb'))
+    plt.legend()
+    pickle.dump({'ospa': ospa, 'gospa': gospa}, open('./output/mfa_metrics.pickle', 'wb'))
     plt.show()
     
 

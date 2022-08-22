@@ -30,7 +30,8 @@ from stonesoup.types.state import State, GaussianState
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.platform.base import MovingPlatform
 from stonesoup.models.transition.linear import (CombinedLinearGaussianTransitionModel,
-                                                ConstantVelocity, ConstantTurn, NthDerivativeDecay)
+                                                ConstantVelocity, ConstantTurn, NthDerivativeDecay,
+                                                OrnsteinUhlenbeck)
 from stonesoup.sensor.radar import RadarBearingRangeWithClutter
 from stonesoup.platform.base import MultiTransitionMovingPlatform
 from stonesoup.simulator.simple import DummyGroundTruthSimulator
@@ -64,7 +65,7 @@ clutter_density = clutter_rate/surveillance_area    # Mean number of clutter poi
 prob_detect = 0.9                                   # Probability of Detection
 num_timesteps = 101                                 # Number of simulation timesteps
 bias_tracker_idx = [0, 2]                           # Indices of trackers that run with bias model
-PLOT = True
+PLOT = False
 
 # Simulation start time
 start_time = datetime.now()
@@ -138,8 +139,8 @@ bias_detectors = [detector for i, detector in enumerate(all_detectors) if i in b
 non_bias_trackers = []
 non_bias_track_readers = []
 for i, detector in enumerate(non_bias_detectors):
-    transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                              ConstantVelocity(0.05)])
+    transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(0.05, 0.01),
+                                                              OrnsteinUhlenbeck(0.05, 0.01)])
     prior = GaussianState(StateVector([0, 0, 0, 0]),
                           CovarianceMatrix(np.diag([50, 5, 50, 5])))
     predictor = ExtendedKalmanPredictor(transition_model)
@@ -164,15 +165,15 @@ for i, detector in enumerate(non_bias_detectors):
     hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect, 0.95)
     hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
     data_associator = JPDAWithEHM2(hypothesiser)
-    tracker = MultiTargetMixtureTracker(initiator, deleter, detector, data_associator, updater)
+    tracker = MultiTargetMixtureTracker(ineitiator, deleter, detector, data_associator, updater)
     non_bias_trackers.append(tracker)
     non_bias_track_readers.append(TrackReader(tracker, run_async=False,
                                               transition_model=transition_model,
                                               sensor_id=i))
 
 # Bias tracker for sensors that feed detections straight to the Fusion Engine
-bias_transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                               ConstantVelocity(0.05),
+bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(0.05, 0.01),
+                                                               OrnsteinUhlenbeck(0.05, 0.01),
                                                                NthDerivativeDecay(0, 1e-6, 5),
                                                                NthDerivativeDecay(0, 1e-4, 5)])
 bias_prior = GaussianState(StateVector([0, 0, 0, 0, 0, 0]),
@@ -198,8 +199,8 @@ data_associator = JPDAWithEHM2(hypothesiser)
 bias_tracker = MultiTargetMixtureTracker(initiator, deleter, None, data_associator, updater)
 
 # Fusion Tracker
-transition_model = CombinedLinearGaussianTransitionModel([ConstantVelocity(0.05),
-                                                          ConstantVelocity(0.05)])
+transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(0.05, 0.01),
+                                                          OrnsteinUhlenbeck(0.05, 0.01)])
 prior = GaussianState(StateVector([0, 0, 0, 0]),
                       CovarianceMatrix(np.diag([50, 5, 50, 5])))
 tracklet_extractor = TrackletExtractorWithTracker(trackers=non_bias_track_readers,
@@ -225,6 +226,7 @@ fuse_tracker = FuseTracker(initiator=initiator1, predictor=two_state_predictor,
                            prob_detect=Probability(prob_detect),
                            delete_thresh=Probability(0.1))
 
+sim_start_time = datetime.now()
 tracks = set()
 for i, (timestamp, ctracks) in enumerate(fuse_tracker):
     print(f'{timestamp-start_time} - No. Tracks: {len(ctracks)}')
@@ -271,3 +273,4 @@ for i, (timestamp, ctracks) in enumerate(fuse_tracker):
         plt.ylim((-100, 100))
         plt.pause(0.01)
 
+print(datetime.now() - sim_start_time)

@@ -161,8 +161,23 @@ for detector in detectors:
 
     # Tracker components
     # MofN initiator
-    initiator = MultiMeasurementInitiator(prior, measurement_model, deleter_init,
-                                          data_associator_init, updater, 10)
+    num_p = 2 ** 11
+    resampler = SystematicResampler()
+    filter = SMCPHDFilter(prior=prior, transition_model=transition_model,
+                          measurement_model=None, prob_detect=prob_detect,
+                          prob_death=Probability(0.01), prob_birth=Probability(0.1),
+                          birth_rate=0.1, clutter_density=clutter_density,
+                          num_samples=num_p, resampler=resampler,
+                          birth_scheme='expansion')
+    samples = multivariate_normal.rvs(prior.mean.ravel(),
+                                      prior.covar,
+                                      size=num_p)
+    weight = Probability(1 / num_p)
+    particles = [Particle(sample.reshape(-1, 1), weight=weight) for sample in samples]
+    state = ParticleState(particles=particles, timestamp=start_time)
+    initiator = SMCPHDInitiator(filter=filter, prior=state)
+    # initiator = MultiMeasurementInitiator(prior, measurement_model, deleter_init,
+    #                                       data_associator_init, updater, 10)
     deleter1 = UpdateTimeStepsDeleter(10)
     deleter2 = CovarianceBasedDeleter(200, mapping=[0,2])
     deleter = CompositeDeleter([deleter1, deleter2], intersect=False)

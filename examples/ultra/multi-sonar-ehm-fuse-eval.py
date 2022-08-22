@@ -263,10 +263,12 @@ def run_sim(sim_iter):
     return ospa_metric, gospa_metric
 
 def main():
-    run_sim(0)
+    # ospa, gospa = run_sim(0)
     pool = mpp.Pool(mpp.cpu_count())
     inputs = [sim_iter for sim_iter in range(num_sims)]
+    sim_start_time = datetime.now()
     results = imap_tqdm(pool, run_sim, inputs, desc='Sim')
+    print(datetime.now() - sim_start_time)
     metrics = list(results)
     ospa_metrics = [metric[0] for metric in metrics]
     gospa_metrics = [metric[1] for metric in metrics]
@@ -278,18 +280,23 @@ def main():
     for key in gospa:
         metric_mat = np.array(
             [[i.value[key] for i in gospa_metric.value] for gospa_metric in gospa_metrics])
-        gospa[key] = np.mean(metric_mat, axis=0)
+        gospa[key] = metric_mat
 
-    metric_mat = np.array([[i.value for i in ospa_metric.value] for ospa_metric in ospa_metrics])
-    metric = np.mean(metric_mat, axis=0)
+    ospa_mat = np.array([[i.value for i in ospa_metric.value] for ospa_metric in ospa_metrics])
+
+    pickle.dump({'ospa': ospa_mat, 'gospa': gospa}, open('./output/jpda_metrics_full.pickle', 'wb'))
+
+    ospa = np.mean(ospa_mat, axis=0)
     timestamps = [i.timestamp for i in ospa_metrics[0].value]
     fig = plt.figure()
     ax = fig.add_subplot(1, 1, 1)
-    ax.plot(timestamps, metric)
-    ax.set_ylabel("OSPA distance")
+    ax.plot(timestamps, ospa, label='OSPA')
+    ax.plot(timestamps, gospa['distance'], label='GOSPA')
+    ax.set_ylabel("(G)OSPA distance")
     ax.tick_params(labelbottom=False)
     _ = ax.set_xlabel("Time")
-    pickle.dump({'ospa': metric}, open('./output/jpda_ospa.pickle', 'wb'))
+    plt.legend()
+    # pickle.dump({'ospa': ospa, 'gospa': gospa}, open('./output/jpda_metrics.pickle', 'wb'))
     plt.show()
     
 
