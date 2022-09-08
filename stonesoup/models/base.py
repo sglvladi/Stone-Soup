@@ -287,10 +287,14 @@ class GaussianModel(Model):
 
         # Calculate difference before to handle custom types (mean defaults to zero)
         # This is required as log pdf coverts arrays to floats
+        # likelihood = np.array([Probability(value, log_value=True)
+        #                        for value in np.atleast_1d(multivariate_normal.logpdf(
+        #                           (state1.state_vector - self.function(state2, **kwargs)).T,
+        #                           cov=covar))])
         likelihood = np.array([Probability(value, log_value=True)
-                               for value in np.atleast_1d(multivariate_normal.logpdf(
-                                  (state1.state_vector - self.function(state2, **kwargs)).T,
-                                  cov=covar))])
+                               for value in np.atleast_1d(
+                multivariate_normal.logpdf(self.function(state2, **kwargs).T,
+                                           mean=state1.state_vector.ravel(), cov=covar))])
 
         if len(likelihood) == 1:
             likelihood = likelihood[0]

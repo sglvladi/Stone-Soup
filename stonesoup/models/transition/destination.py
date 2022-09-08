@@ -6,7 +6,7 @@ from scipy.stats import multivariate_normal as mn
 from stonesoup.types.state import ParticleState2
 from ..base import TimeVariantModel
 from ...base import Property
-from .linear import ConstantVelocity, LinearGaussianTransitionModel
+from .linear import ConstantVelocity, LinearGaussianTransitionModel, OrnsteinUhlenbeck
 from ...custom.graph import CustomDiGraph, normalise_re, normalise_re2, get_xy_from_range_endnodes
 from pybsp.bsp import BSP
 # from pybsp.geometry import Point
@@ -103,7 +103,8 @@ class AimpointTransitionModel(LinearGaussianTransitionModel):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        self.cv_model = ConstantVelocity(self.noise_diff_coeff)
+        # self.cv_model = ConstantVelocity(self.noise_diff_coeff)
+        self.cv_model = OrnsteinUhlenbeck(self.noise_diff_coeff, 7e-4)
         if self.aimpoint_sample_covar is None:
             self.aimpoint_sample_covar = np.diag([1e9, 1e9])
 
