@@ -58,6 +58,7 @@ class SingleHypothesis(Hypothesis):
     measurement: Detection = Property(doc="Detection used for hypothesis and updating")
     measurement_prediction: MeasurementPrediction = Property(
         default=None, doc="Optional track prediction in measurement space")
+    metadata: Dict = Property(default=None, doc="Optional metadata")
 
     def __bool__(self):
         return (not isinstance(self.measurement, MissedDetection)) and \
@@ -100,10 +101,6 @@ class SingleDistanceHypothesis(SingleHypothesis):
 
 class SingleProbabilityHypothesis(ProbabilityHypothesis, SingleHypothesis):
     """Single Measurement Probability scored hypothesis subclass."""
-
-    def __hash__(self):
-        return hash((self.probability, self.prediction, self.measurement,
-                    self.measurement_prediction))
 
 
 class JointHypothesis(Type, UserDict):
@@ -307,7 +304,7 @@ class CompositeProbabilityHypothesis(CompositeHypothesis, SingleProbabilityHypot
         doc="Probability that detection is true location of prediction. Default is `None`, "
             "whereby probability is calculated as the product of sub-hypotheses' probabilities")
     sub_hypotheses: Sequence[SingleProbabilityHypothesis] = Property(
-        default_factory=list,
+        default=None,
         doc="Sequence of probability-scored sub-hypotheses comprising the composite hypothesis."
     )
 
