@@ -1,3 +1,4 @@
+import sys
 from typing import List, Any
 
 import pytest
@@ -102,7 +103,12 @@ def test_init_new(base):
 
 
 def test_non_base_property():
-    with pytest.raises(RuntimeError):
+    if sys.version_info >= (3, 12):
+        error_type = AttributeError
+    else:
+        error_type = RuntimeError
+
+    with pytest.raises(error_type):
         class _TestNonBase:
             property_a = Property(int)
 
@@ -331,16 +337,6 @@ def test_type_hint_checking():
     class TestClass(Base):
         i = Property(List[int], doc='Test')
     _ = TestClass(i=1)
-
-    with pytest.raises(ValueError):
-        class TestClass(Base):
-            i: 'string' = Property(doc='Test')  # noqa: F821
-        _ = TestClass(i=1)
-
-    with pytest.raises(ValueError):
-        class TestClass(Base):
-            i = Property('string', doc='Test')
-        _ = TestClass(i=1)
 
     # errors for any
     with pytest.raises(ValueError):

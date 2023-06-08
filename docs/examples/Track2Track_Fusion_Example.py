@@ -87,9 +87,8 @@ Multi-Sensor Fusion: Covariance Intersection Using Tracks as Measurements
 #     both radars. This is created to compare with the covariance intersection method.
 #   * Create a GM-PHD tracker that will perform track fusion via covariance intersection using
 #     the :class:`ChernoffUpdater` class.
-#   * Create metric managers for each of the four trackers
-#   * Set up the detection feeders. Each tracker will receive measurements using a custom
-#     :class:`DummyDetector` class. The track fusion tracker will also use the
+#   * Create a metric manager to generate metrics for each of the four trackers
+#   * Set up the detection feeders. The track fusion tracker will also use the
 #     :class:`Tracks2GaussianDetectionFeeder` class.
 #   * Run the simulation
 #   * Plot the resulting tracks and the metrics over time
@@ -205,13 +204,30 @@ sensor2_platform = FixedPlatform(
 # Now we can pass the platforms into a detection simulator. At each timestep, the simulator will
 # return the detections from the `sensor1_platform`, then the detections from the
 # `sensor2_platform`.
+#
+# As we'll be using the same simulation and detectors in multiple detectors, trackers and for
+# plotting :func:`itertools.tee()` is used to create independent iterators to use in different
+# components.
 
 # %%
+from itertools import tee
+from stonesoup.feeder.multi import MultiDataFeeder
 from stonesoup.simulator.platform import PlatformDetectionSimulator
-radar_simulator = PlatformDetectionSimulator(
-    groundtruth=gt_simulator,
-    platforms=[sensor1_platform, sensor2_platform]
+
+gt_sims = tee(gt_simulator, 2)
+radar1_simulator = PlatformDetectionSimulator(
+    groundtruth=gt_sims[0],
+    platforms=[sensor1_platform]
 )
+radar1_plotting, radar1_simulator, s1_detector = tee(radar1_simulator, 3)
+
+radar2_simulator = PlatformDetectionSimulator(
+    groundtruth=gt_sims[1],
+    platforms=[sensor2_platform]
+)
+radar2_plotting, radar2_simulator, s2_detector = tee(radar2_simulator, 3)
+
+s1s2_detector = MultiDataFeeder([radar1_simulator, radar2_simulator])
 
 # %%
 # Let's briefly visualize the truths and measurements before we move on. Note that the final
@@ -224,20 +240,17 @@ radar_simulator = PlatformDetectionSimulator(
 from stonesoup.plotter import Plotter, Dimension
 
 # Lists to hold the detections from each sensor and the path of the airborne radar
-s1_detections = []
-s2_detections = []
+s1_detections = set()
+s2_detections = set()
 radar1_path = []
-
-# Extract the generator function from a copy of the simulator
-sim = deepcopy(radar_simulator)
-g = sim.detections_gen()
+truths = set()
 
 # Iterate over the time steps, extracting the detections, truths, and airborne sensor path
-for _ in range(num_steps):
-    s1_detections.append(next(g)[1])
-    s2_detections.append(next(g)[1])
-    radar1_path.append(sim.platforms[0].position)
-truths = set(sim.groundtruth.groundtruth_paths)
+for (time, s1ds), (_, s2ds) in zip(radar1_plotting, radar2_plotting):
+    s1_detections.update(s1ds)
+    s2_detections.update(s2ds)
+    radar1_path.append(sensor1_platform.position)
+    truths.update(gt_simulator.groundtruth_paths)
 
 # Plot the truths and detections
 plotter = Plotter(dimension=Dimension.THREE)
@@ -318,10 +331,11 @@ initiator = MultiMeasurementInitiator(
 jpda_tracker = MultiTargetMixtureTracker(
     initiator=initiator,
     deleter=deleter,
-    detector=None,
+    detector=s1_detector,
     data_associator=data_associator,
     updater=jpda_updater
 )
+jpda_tracker, s1_tracker = tee(jpda_tracker, 2)
 
 # %%
 # GM-LCC Tracker
@@ -382,13 +396,14 @@ birth_component = TaggedWeightedGaussianState(
 
 # Tracker
 gmlcc_tracker = PointProcessMultiTargetTracker(
-    detector=None,
+    detector=s2_detector,
     hypothesiser=deepcopy(hypothesiser),
     updater=deepcopy(updater),
     reducer=deepcopy(reducer),
     birth_component=deepcopy(birth_component),
     extraction_threshold=0.90,
 )
+gmlcc_tracker, s2_tracker = tee(gmlcc_tracker, 2)
 
 # %%
 # 4: Make GM-PHD Tracker For Measurement Fusion
@@ -406,7 +421,7 @@ updater = PHDUpdater(
 )
 
 meas_fusion_tracker = PointProcessMultiTargetTracker(
-    detector=None,
+    detector=s1s2_detector,
     hypothesiser=deepcopy(hypothesiser),
     updater=deepcopy(updater),
     reducer=deepcopy(reducer),
@@ -478,8 +493,10 @@ ch_birth_component = TaggedWeightedGaussianState(
 )
 
 # Make tracker
+from stonesoup.feeder.track import Tracks2GaussianDetectionFeeder
+
 track_fusion_tracker = PointProcessMultiTargetTracker(
-    detector=None,
+    detector=Tracks2GaussianDetectionFeeder(MultiDataFeeder([s1_tracker, s2_tracker])),
     hypothesiser=hypothesiser,
     updater=updater,
     reducer=deepcopy(ch_reducer),
@@ -488,32 +505,53 @@ track_fusion_tracker = PointProcessMultiTargetTracker(
 )
 
 # %%
-# 6: Make Metric Managers
-# -----------------------
-# We will track the metrics of each of the four trackers for comparison.
+# 6: Make Metric Manager
+# ----------------------
+# We will generate metrics of each of the four trackers for comparison.
 
 # %%
 from stonesoup.metricgenerator.basicmetrics import BasicMetrics
 from stonesoup.metricgenerator.ospametric import OSPAMetric
 from stonesoup.metricgenerator.tracktotruthmetrics import SIAPMetrics
 from stonesoup.metricgenerator.uncertaintymetric import SumofCovarianceNormsMetric
+
+metric_generators = []
+
+track_labels = ['jpda', 'gmlcc', 'meas_fusion', 'track_fusion']
+labels = ['Airborne Radar (JPDAF)', 'Ground Radar (GM-LCC)', 'Measurement Fusion (GM-PHD)',
+          'Covariance Intersection (GM-PHD)']
+
+for track_label, label in zip(track_labels, labels):
+    # for _ in ['jpda', 'gmlcc', 'meas_fusion', 'track_fusion']:
+    metric_generators.extend([BasicMetrics(generator_name=f'basic {label}',
+                                           tracks_key=f'{track_label}_tracks',
+                                           truths_key='truths'
+                                           ),
+                              OSPAMetric(c=10, p=1, measure=Euclidean([0, 2, 4]),
+                                         generator_name=f'OSPA {label}',
+                                         tracks_key=f'{track_label}_tracks',
+                                         truths_key='truths'
+                                         ),
+                              SIAPMetrics(position_measure=Euclidean(), velocity_measure=Euclidean(),
+                                          generator_name=f'SIAP {label}',
+                                          tracks_key=f'{track_label}_tracks',
+                                          truths_key='truths'
+                                          ),
+                              SumofCovarianceNormsMetric(generator_name=f'Uncertainty {label}',
+                                                         tracks_key=f'{track_label}_tracks'
+                                                         )
+
+                              ])
+
+
+# %%
 from stonesoup.dataassociator.tracktotrack import TrackToTruth
-from stonesoup.metricgenerator.manager import SimpleManager
-
-# Make the basic metric manager
-basic_generator = BasicMetrics()
-ospa_generator = OSPAMetric(c=10, p=1, measure=Euclidean([0, 2, 4]))
-siap_generator = SIAPMetrics(position_measure=Euclidean(), velocity_measure=Euclidean())
-uncertainty_generator = SumofCovarianceNormsMetric()
-
 associator = TrackToTruth(association_threshold=30)
-base_metric_manager = SimpleManager([basic_generator, ospa_generator, siap_generator,
-                                     uncertainty_generator],
-                                    associator=associator)
 
-sensor1_mm, sensor2_mm = deepcopy(base_metric_manager), deepcopy(base_metric_manager)
-meas_fusion_mm, track_fusion_mm = deepcopy(base_metric_manager), deepcopy(base_metric_manager)
+# %%
+from stonesoup.metricgenerator.manager import MultiManager
 
+metric_manager = MultiManager(metric_generators, associator=associator)
 
 # %%
 # 7: Set Up the Detection Feeders
@@ -524,110 +562,59 @@ meas_fusion_mm, track_fusion_mm = deepcopy(base_metric_manager), deepcopy(base_m
 #
 # The track fusion tracker will also use the :class:`~.Tracks2GaussianDetectionFeeder` class to
 # feed the tracks as measurements. At each time step, the resultant live tracks from the JPDA and
-# GM-LCC trackers will be put into a :class:`~.Tracks2GaussianDetectionFeeder` (using the
-# :class:`~.DummyDetector` we write below). The feeder will take the most recent state from each
+# GM-LCC trackers will be put into a :class:`~.Tracks2GaussianDetectionFeeder`. The feeder will
+# take the most recent state from each
 # track and turn it into a :class:`~.GaussianDetection` object. The set of detection objects will
 # be returned and passed into the tracker.
 
 # %%
-from stonesoup.feeder.track import Tracks2GaussianDetectionFeeder
-from stonesoup.buffered_generator import BufferedGenerator
-from stonesoup.reader.base import DetectionReader
-
-
-class DummyDetector(DetectionReader):
-    def __init__(self, *args, **kwargs):
-        self.current = kwargs['current']
-
-    @BufferedGenerator.generator_method
-    def detections_gen(self):
-        yield self.current
-
 
 # %%
 # 8: Run Simulation
 # -----------------
 
 # %%
-
-sensor1_detections, sensor2_detections = [], []
 jpda_tracks, gmlcc_tracks = set(), set()
 meas_fusion_tracks, track_fusion_tracks = set(), set()
 
-sim_generator = radar_simulator.detections_gen()
+meas_fusion_tracker_iter = iter(meas_fusion_tracker)
+track_fusion_tracker_iter = iter(track_fusion_tracker)
 
 for t in range(num_steps):
 
     # Run JPDA tracker from sensor 1
-    s1d = next(sim_generator)
-    sensor1_detections.extend(s1d[1])  # hold in list for plotting
-    # Pass the detections into a DummyDetector and set it up as an iterable
-    jpda_tracker.detector = DummyDetector(current=s1d)
-    jpda_tracker.__iter__()
-    # Run the tracker and store the resulting tracks
     _, sensor1_tracks = next(jpda_tracker)
     jpda_tracks.update(sensor1_tracks)
 
     # Run GM-LCC tracker from sensor 2
-    s2d = next(sim_generator)
-    sensor2_detections.extend(s2d[1])  # hold in list for plotting
-    # Pass the detections into a DummyDetector and set it up as an iterable
-    gmlcc_tracker.detector = DummyDetector(current=s2d)
-    gmlcc_tracker.__iter__()
-    # Run the tracker and store results
-    time, sensor2_tracks = next(gmlcc_tracker)
+    _, sensor2_tracks = next(gmlcc_tracker)
     gmlcc_tracks.update(sensor2_tracks)
 
     # Run the GM-PHD for measurement fusion. This one gets called twice, once for each set of
     # detections. This ensures there is only one detection per target.
-    for detections in [s1d, s2d]:
-        meas_fusion_tracker.detector = DummyDetector(current=detections)
-        meas_fusion_tracker.__iter__()
-        _, tracks = next(meas_fusion_tracker)
-        meas_fusion_tracks.update(tracks)
-
     # Run the GM-PHD for track fusion. Similar to the measurement fusion, this tracker gets run
     # twice, once for each set of tracks.
-    for tracks_as_meas in [sensor1_tracks, sensor2_tracks]:
-        dummy_detector = DummyDetector(current=[time, tracks_as_meas])
-        track_fusion_tracker.detector = Tracks2GaussianDetectionFeeder(dummy_detector)
-        track_fusion_tracker.__iter__()
-        _, tracks = next(track_fusion_tracker)
+    for _ in (0, 1):
+        _, tracks = next(meas_fusion_tracker_iter)
+        meas_fusion_tracks.update(tracks)
+        _, tracks = next(track_fusion_tracker_iter)
         track_fusion_tracks.update(tracks)
 
-    # ----------------------------------------------------------------------
-
-    # Add ground truth data to metric managers
-    truths = radar_simulator.groundtruth.current
-    for manager in [sensor1_mm, sensor2_mm, meas_fusion_mm, track_fusion_mm]:
-        manager.add_data(groundtruth_paths=truths[1], overwrite=False)
-
-    # Add measurements to metric managers
-    sensor1_mm.add_data(detections=s1d[1], overwrite=False)
-    sensor2_mm.add_data(detections=s2d[1], overwrite=False)
-    meas_fusion_mm.add_data(detections=s1d[1], overwrite=False)
-    meas_fusion_mm.add_data(detections=s2d[1], overwrite=False)
-    track_fusion_mm.add_data(detections=s1d[1], overwrite=False)
-    track_fusion_mm.add_data(detections=s2d[1], overwrite=False)
-
-
-# Ensure that all tracks have been extracted from the trackers
-jpda_tracks.update(jpda_tracker.tracks)
-gmlcc_tracks.update(gmlcc_tracker.tracks)
-meas_fusion_tracks.update(meas_fusion_tracker.tracks)
-track_fusion_tracks.update(track_fusion_tracker.tracks)
+detections = s1_detections | s2_detections
+metric_manager.add_data({'truths': truths, 'detections': detections}, overwrite=False)
 
 # Remove tracks that have just one state in them as they were probably from clutter
-jpda_tracks = set([track for track in jpda_tracks if len(track) > 1])
-gmlcc_tracks = set([track for track in gmlcc_tracks if len(track) > 1])
-meas_fusion_tracks = set([track for track in meas_fusion_tracks if len(track) > 1])
-track_fusion_tracks = set([track for track in track_fusion_tracks if len(track) > 1])
+jpda_tracks = {track for track in jpda_tracks if len(track) > 1}
+gmlcc_tracks = {track for track in gmlcc_tracks if len(track) > 1}
+meas_fusion_tracks = {track for track in meas_fusion_tracks if len(track) > 1}
+track_fusion_tracks = {track for track in track_fusion_tracks if len(track) > 1}
 
-# Add tracks to metric managers
-sensor1_mm.add_data(tracks=jpda_tracks, overwrite=False)
-sensor2_mm.add_data(tracks=gmlcc_tracks, overwrite=False)
-meas_fusion_mm.add_data(tracks=meas_fusion_tracks, overwrite=False)
-track_fusion_mm.add_data(tracks=track_fusion_tracks, overwrite=False)
+# Add track data to the metric manager
+metric_manager.add_data({'jpda_tracks': jpda_tracks,
+                         'gmlcc_tracks': gmlcc_tracks,
+                         'meas_fusion_tracks': meas_fusion_tracks,
+                         'track_fusion_tracks': track_fusion_tracks
+                         }, overwrite=False)
 
 # %%
 # 9: Plot the Results
@@ -635,20 +622,15 @@ track_fusion_mm.add_data(tracks=track_fusion_tracks, overwrite=False)
 # Next, we will plot all of the resulting tracks and measurements. This will be done in two plots.
 # The first plot will show all of the data, and the second plot will show a closer view of one
 # resultant track.
-#
-# These plots are done in 2D to make them more readable. We invite the reader to explore the plot
-# interactively using the following line in an active Jupyter session.
-#
-# %matplotlib widget
 
 # %%
 plotter1, plotter2 = Plotter(), Plotter()
 for plotter in [plotter1, plotter2]:
-    plotter.plot_ground_truths(set(radar_simulator.groundtruth.groundtruth_paths), [0, 2],
+    plotter.plot_ground_truths(truths, [0, 2],
                                color='black')
-    plotter.plot_measurements(sensor1_detections, [0, 2], color='orange', marker='*',
+    plotter.plot_measurements(s1_detections, [0, 2], color='orange', marker='*',
                               measurements_label='Measurements - Airborne Radar')
-    plotter.plot_measurements(sensor2_detections, [0, 2], color='blue', marker='*',
+    plotter.plot_measurements(s2_detections, [0, 2], color='blue', marker='*',
                               measurements_label='Measurements - Ground Radar')
     plotter.plot_tracks(jpda_tracks, [0, 2], color='red',
                         track_label='Tracks - Airborne Radar (JPDAF)')
@@ -671,7 +653,7 @@ for plotter in [plotter1, plotter2]:
 
 plotter1.fig.show()
 
-track = track_fusion_tracks.pop()
+track = sorted(track_fusion_tracks, key=len)[-1]  # Longest track
 x_min = min([state.state_vector[0] for state in track])
 x_max = max([state.state_vector[0] for state in track])
 y_min = min([state.state_vector[2] for state in track])
@@ -684,14 +666,11 @@ plotter2.fig.show()
 
 
 # %%
-# Now we will plot the metrics. First, we call a function for each sensor manager to calculate
+# Now we will plot the metrics. First, we call a function to calculate
 # the metrics.
 
 # %%
-s1_metrics = sensor1_mm.generate_metrics()
-s2_metrics = sensor2_mm.generate_metrics()
-meas_fusion_metrics = meas_fusion_mm.generate_metrics()
-track_fusion_metrics = track_fusion_mm.generate_metrics()
+metrics = metric_manager.generate_metrics()
 
 # %%
 # Now we can plot them. The SIAP and OSPA metrics can be done together in a loop. The
@@ -699,62 +678,26 @@ track_fusion_metrics = track_fusion_mm.generate_metrics()
 # timestep.
 
 # %%
-from matplotlib import pyplot as plt
-from stonesoup.metricgenerator.tracktotruthmetrics import SIAPMetrics
+from stonesoup.plotter import MetricPlotter
 
-# Legend labels for each type of tracker
-labels = ['Airborne Radar (JPDAF)', 'Ground Radar (GM-LCC)', 'Measurement Fusion (GM-PHD)',
-          'Covariance Intersection (GM-PHD)']
-linestyles = ['dashed', 'dotted', 'solid', 'dashdot']
+fig = MetricPlotter()
+fig.plot_metrics(metrics, color=['blue', 'orange', 'green', 'red'], linestyle='--')
 
-# Iterate through the SIAP and OSPA metrics
-for metric_name in ['SIAP Position Accuracy at times', 'SIAP Velocity Accuracy at times',
-                    'SIAP Spuriousness at times', 'SIAP Completeness at times',
-                    'SIAP Ambiguity at times', 'OSPA distances', 'Sum of Covariance Norms Metric']:
-    fig, ax = plt.subplots()
-
-    # Plot the metrics from each metric manager
-    for tracker_metrics, label, line in zip([s1_metrics, s2_metrics, meas_fusion_metrics,
-                                             track_fusion_metrics], labels, linestyles):
-        metrics = tracker_metrics[metric_name]
-        ax.plot([m.value for m in metrics.value], linewidth=2, label=label, linestyle=line)
-
-    # Set x and y labels and title
-    ax.set_xlabel("Time $(s)$")
-    if metric_name.startswith('OSPA'):
-        ax.set_title('OSPA Distance')
-        ax.set_ylabel('Distance')
-        ax.set_ylim(0, 12)  # change y axis range for OSPA distance
-    elif metric_name.startswith('Sum of'):
-        ax.set_title(metric_name)
-        ax.set_ylabel('Sum of Covariance Norms')
-    else:
-        ax.set_title(metric_name)
-        ax.set_ylabel(metric_name[5:-9])
-
-    # Add units to y axis where applicable
-    if metric_name.startswith('SIAP Position') or metric_name.startswith('SIAP Velocity') \
-       or metric_name.startswith('OSPA'):
-        ax.set_ylabel(ax.yaxis.get_label().get_text() + ' $(m)$')
-
-    # Add legend
-    ax.legend(loc='center left', bbox_to_anchor=(1.0, 0.5))
-
-
+# %%
 # Plot Track to Truth Ratio
+import matplotlib.pyplot as plt
 fig, ax = plt.subplots()
-times = sensor1_mm.list_timestamps()
+times = metric_manager.list_timestamps(metric_manager.generators[2])
 
-# Iterate through the metric managers. For each one, go through the list of all timesteps
+# Iterate through the trackers. For each one, go through the list of all timesteps
 # and calculate the ratio at that time
-for manager, label, line in zip([sensor1_mm, sensor2_mm, meas_fusion_mm, track_fusion_mm],
-                                labels, linestyles):
+for track_label, label in zip(track_labels, labels):
     ratios = []
     for time in times:
-        num_tracks = SIAPMetrics.num_tracks_at_time(manager=manager, timestamp=time)
-        num_truths = SIAPMetrics.num_truths_at_time(manager=manager, timestamp=time)
+        num_tracks = SIAPMetrics.num_tracks_at_time(metric_manager.states_sets[f'{track_label}_tracks'], timestamp=time)
+        num_truths = SIAPMetrics.num_truths_at_time(metric_manager.states_sets['truths'], timestamp=time)
         ratios.append(num_tracks / num_truths)
-    plt.plot(ratios, linewidth=2, label=label, linestyle=line)
+    plt.plot(ratios, linewidth=2, label=label, linestyle='--')
 
 ax.set_title('Track-to-Truth Ratio')
 ax.set_ylabel('Ratio')

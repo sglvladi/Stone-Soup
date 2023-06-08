@@ -4,8 +4,8 @@ import datetime
 import numpy as np
 import pytest
 
-from ..manager import SimpleManager
-from ..ospametric import GOSPAMetric, OSPAMetric
+from ..manager import MultiManager
+from ..ospametric import GOSPAMetric, OSPAMetric, _SwitchingLoss
 from ...types.detection import Detection
 from ...types.groundtruth import GroundTruthPath, GroundTruthState
 from ...types.state import State
@@ -16,7 +16,8 @@ def test_gospametric_extractstates():
     """Test GOSPA extract states."""
     generator = GOSPAMetric(
         c=10.0,
-        p=1)
+        p=1
+    )
     # Test state extraction
     time_start = datetime.datetime.now()
     detections = [Detection(state_vector=np.array([[i]]), timestamp=time_start)
@@ -39,7 +40,8 @@ def test_gospametric_compute_assignments(num_states):
     """Test GOSPA assignment algorithm."""
     generator = GOSPAMetric(
         c=10.0,
-        p=1)
+        p=1
+    )
     time_now = datetime.datetime.now()
     track_obj = Track([State(state_vector=[[i]], timestamp=time_now)
                       for i in range(num_states)])
@@ -91,7 +93,8 @@ def test_gospametric_cost_matrix():
     num_states = 5
     generator = GOSPAMetric(
         c=10.0,
-        p=1)
+        p=1
+    )
     time_now = datetime.datetime.now()
     track_obj = Track([State(state_vector=[[i]], timestamp=time_now)
                       for i in range(num_states)])
@@ -115,7 +118,8 @@ def test_gospametric_compute_gospa_metric():
     num_states = 5
     generator = GOSPAMetric(
         c=10.0,
-        p=1)
+        p=1
+    )
     time_now = datetime.datetime.now()
     track_obj = Track([State(state_vector=[[i]], timestamp=time_now)
                       for i in range(num_states)])
@@ -135,7 +139,8 @@ def test_gospametric_computemetric():
     """Test GOSPA compute metric."""
     generator = GOSPAMetric(
         c=10.0,
-        p=1)
+        p=1
+    )
     time = datetime.datetime.now()
     # Multiple tracks and truths present at two timesteps
     tracks = {Track(states=[State(state_vector=[[i + 0.5]], timestamp=time),
@@ -150,8 +155,8 @@ def test_gospametric_computemetric():
                                      seconds=1))])
               for i in range(5)}
 
-    manager = SimpleManager([generator])
-    manager.add_data(truths, tracks)
+    manager = MultiManager([generator])
+    manager.add_data({'groundtruth_paths': truths, 'tracks': tracks})
     main_metric = generator.compute_metric(manager)
 
     assert main_metric.title == "GOSPA Metrics"
@@ -179,7 +184,8 @@ def test_ospametric_extractstates():
     """Test OSPA metric extract states."""
     generator = OSPAMetric(
         c=10,
-        p=1)
+        p=1
+    )
 
     # Test state extraction
     time_start = datetime.datetime.now()
@@ -203,7 +209,8 @@ def test_ospametric_computecostmatrix():
     """Test OSPA metric compute cost matrix."""
     generator = OSPAMetric(
         c=10,
-        p=1)
+        p=1
+    )
 
     time = datetime.datetime.now()
     track = Track(states=[
@@ -241,7 +248,8 @@ def test_ospametric_computeospadistance():
     """Test OSPA metric compute OSPA distance."""
     generator = OSPAMetric(
         c=10,
-        p=1)
+        p=1
+    )
 
     time = datetime.datetime.now()
     track = Track(states=[
@@ -264,7 +272,8 @@ def test_ospametric_computemetric(p):
     """Test OSPA compute metric."""
     generator = OSPAMetric(
         c=10,
-        p=p)
+        p=p
+    )
 
     time = datetime.datetime.now()
     # Multiple tracks and truths present at two timesteps
@@ -280,8 +289,8 @@ def test_ospametric_computemetric(p):
                                      seconds=1))])
               for i in range(5)}
 
-    manager = SimpleManager([generator])
-    manager.add_data(truths, tracks)
+    manager = MultiManager([generator])
+    manager.add_data({'groundtruth_paths': truths, 'tracks': tracks})
     main_metric = generator.compute_metric(manager)
     first_association, second_association = main_metric.value
 
@@ -301,6 +310,66 @@ def test_ospametric_computemetric(p):
     assert second_association.generator == generator
 
 
+def test_switching_gospametric_computemetric():
+    """Test GOSPA compute metric."""
+    max_penalty = 2
+    switching_penalty = 3
+    p = 2
+    generator = GOSPAMetric(
+        c=max_penalty,
+        p=p,
+        switching_penalty=switching_penalty
+    )
+
+    time = datetime.datetime.now()
+    times = [time.now() + datetime.timedelta(seconds=i) for i in range(3)]
+    tracks = {Track(states=[State(state_vector=[[i]], timestamp=time) for i, time
+                            in zip([1, 2, 2], times)]),
+              Track(states=[State(state_vector=[[i]], timestamp=time) for i, time
+                            in zip([2, 1, 1], times)]),
+              Track(states=[State(state_vector=[[i]], timestamp=time) for i, time
+                            in zip([3, 100, 3], times)])}
+
+    truths = {GroundTruthPath(states=[State(state_vector=[[i]], timestamp=time)
+                                      for i, time in zip([1, 1, 1], times)]),
+              GroundTruthPath(states=[State(state_vector=[[i]], timestamp=time)
+                                      for i, time in zip([2, 2, 2], times)]),
+              GroundTruthPath(states=[State(state_vector=[[i]], timestamp=time)
+                                      for i, time in zip([3, 3, 3], times)])}
+
+    manager = MultiManager([generator])
+    manager.add_data({'groundtruth_paths': truths, 'tracks': tracks})
+    main_metric = generator.compute_metric(manager)
+    first_association, second_association, third_association = main_metric.value
+
+    assert main_metric.time_range.start_timestamp == times[0]
+
+    assert first_association.value['distance'] == 0
+    assert first_association.value['localisation'] == 0
+    assert first_association.value['missed'] == 0
+    assert first_association.value['false'] == 0
+    assert first_association.value['switching'] == 0
+    assert first_association.timestamp == times[0]
+    assert first_association.generator == generator
+
+    assert abs(second_association.value['distance'] - np.power(
+        max_penalty**p + (2.5**(1/p)*switching_penalty)**p, 1./p)) < 1e-9
+    assert second_association.value['localisation'] == 0
+    assert second_association.value['missed'] == 1*max_penalty
+    assert second_association.value['false'] == 1*max_penalty
+    assert abs(second_association.value['switching'] - 2.5**(1/p)*switching_penalty) < 1e-9
+    assert second_association.timestamp == times[1]
+    assert second_association.generator == generator
+
+    assert abs(third_association.value['distance'] - 0.5**(1/p)*switching_penalty) < 1e-9
+    assert third_association.value['localisation'] == 0
+    assert third_association.value['missed'] == 0
+    assert third_association.value['false'] == 0
+    assert abs(third_association.value['switching'] - 0.5**(1/p)*switching_penalty) < 1e-9
+    assert third_association.timestamp == times[2]
+    assert third_association.generator == generator
+
+
 @pytest.mark.parametrize(
     'p,first_value,second_value',
     ((1, 2.4, 2.16), (2, 4.49444, 4.47571), (np.inf, 10, 10)),
@@ -308,7 +377,8 @@ def test_ospametric_computemetric(p):
 def test_ospa_computemetric_cardinality_error(p, first_value, second_value):
     generator = OSPAMetric(
         c=10,
-        p=p)
+        p=p
+    )
 
     time = datetime.datetime.now()
     # Multiple tracks and truths present at two timesteps
@@ -322,8 +392,8 @@ def test_ospa_computemetric_cardinality_error(p, first_value, second_value):
                                  timestamp=time+datetime.timedelta(seconds=1))])
               for i in range(5)}
 
-    manager = SimpleManager([generator])
-    manager.add_data(truths, tracks)
+    manager = MultiManager([generator])
+    manager.add_data({'groundtruth_paths': truths, 'tracks': tracks})
     main_metric = generator.compute_metric(manager)
     first_association, second_association = main_metric.value
 
@@ -341,3 +411,51 @@ def test_ospa_computemetric_cardinality_error(p, first_value, second_value):
     assert second_association.value == pytest.approx(second_value)
     assert second_association.timestamp == time + datetime.timedelta(seconds=1)
     assert second_association.generator == generator
+
+
+@pytest.mark.parametrize("associations, expected_losses", [
+    ([
+        {0: 0, 1: 1, 2: 2},
+        {0: 0, 1: 1, 2: 2},
+        {0: 0, 1: 1, 2: None},
+        {0: 0, 1: 1, 2: 2},
+        {0: 1, 1: 0, 2: 2},
+        {1: 0, 0: 1, 2: 2},
+        {0: None, 1: 2, 2: 0},
+    ],  [0, 0, 0.5, 0.5, 2, 0, 2.5]),
+    ([
+        {0: 0, 1: 1, 2: 2},
+        {0: None, 1: None, 2: None},
+        {0: 3, 1: None, 2: None},
+    ], [0, 1.5, 0.5]),
+    ([
+        {0: None, 1: None, 2: None},
+        {0: 0, 1: 1, 2: 2},
+    ], [0, 0]),
+    ([  # The first time we associate with the track it should not count for loss
+        {0: None, 1: None, 2: None},
+        {0: 0, 1: 1, 2: 2},
+    ], [0, 0]),
+    ([  # The first time we associate with the track it should not count for loss
+        {0: 0},
+        {0: 0, 1: 1},
+        {0: 0, 1: 1, 2: 3}
+    ], [0, 0, 0]),
+    ([  # We don't want loss if we just didn't see it
+        {0: 0, 1: 1},
+        {0: 0},
+        {0: 0, 1: 1},
+        {0: 0, 1: 2}
+    ], [0, 0, 0, 1]),
+ ])
+def test_switching_loss(associations, expected_losses):
+    loss_factor = 1
+
+    switching_loss = _SwitchingLoss(loss_factor, 1)
+
+    with pytest.raises(RuntimeError) as _:
+        switching_loss.loss()   # Should raise error if no associations have been added yet.
+
+    for association, expected_loss in zip(associations, expected_losses):
+        switching_loss.add_associations(association)
+        assert switching_loss.loss() == expected_loss

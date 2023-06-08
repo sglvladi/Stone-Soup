@@ -76,7 +76,7 @@ class Orbital(Type):
         :math:`\omega` the argument of periapsis (radian), and
         :math:`\theta` the true anomaly (radian).
 
-        Coordinates = "TLE" (Two-Line Elements [1]_), initiates using input vector
+        Coordinates = "TLE" (Two-Line Elements [2]_), initiates using input vector
 
             .. math::
 
@@ -90,11 +90,11 @@ class Orbital(Type):
         :math:`n` the mean motion (radian / [time]).
 
         This can also be constructed by passing `state_vector=None` and using the metadata. In this
-        instance the metadata must conform to the TLE standard format [2]_ and be included in the
+        instance the metadata must conform to the TLE standard format [3]_ and be included in the
         metadata dictionary as 'line_1' and 'line_2'. In this latter instance any timestamp passed
         as an argument will be overwritten by the epoch of the TLE.
 
-        Coordinates = "Equinoctial" (equinoctial elements [2]_),
+        Coordinates = "Equinoctial" (equinoctial elements [3]_),
 
             .. math::
 
@@ -110,11 +110,11 @@ class Orbital(Type):
 
     References
     ----------
-    .. [1] NASA, Definition of Two-line Element Set Coordinate System, [spaceflight.nasa.gov](
+    .. [2] NASA, Definition of Two-line Element Set Coordinate System, [spaceflight.nasa.gov](
            https://spaceflight.nasa.gov/realdata/sightings/SSapplications/Post/JavaSSOP/
            SSOP_Help/tle_def.html)
 
-    .. [2] Broucke, R. A. & Cefola, P. J. 1972, Celestial Mechanics, Volume 5, Issue 3, pp. 303-310
+    .. [3] Broucke, R. A. & Cefola, P. J. 1972, Celestial Mechanics, Volume 5, Issue 3, pp. 303-310
 
     """
 
@@ -571,7 +571,8 @@ class Orbital(Type):
 
     @property
     def mean_motion(self):
-        r"""The mean motion, :math:`\frac{2 \pi}{T}`, where :math:`T` is the period, (rad / [time]).
+        r"""The mean motion, :math:`\frac{2 \pi}{T}`,
+        where :math:`T` is the period, (rad / [time]).
         """
         return 2 * np.pi / self.period
 
@@ -652,7 +653,7 @@ class Orbital(Type):
         :math:`i` the inclination (radian) :math:`\Omega` is the longitude of the ascending node
         (radian), :math:`e` is the orbital eccentricity (unitless), :math:`\omega` the argument of
         periapsis (radian), :math:`M_0` the mean anomaly (radian) :math:`n` the mean motion
-        (rad/[time]). [2]_"""
+        (rad/[time]). [3]_"""
         return StateVectors([np.array(self.inclination).flatten(),
                              np.array(self.longitude_ascending_node).flatten(),
                              self.eccentricity.flatten(),
@@ -666,7 +667,7 @@ class Orbital(Type):
         semi-major axis ([length]), :math:`h` and :math:`k` are the horizontal and vertical
         components of the eccentricity respectively (unitless), :math:`p` and :math:`q` are the
         horizontal and vertical components of the inclination respectively (radian) and
-        :math:`\lambda` is the mean longitude (radian). [3]_
+        :math:`\lambda` is the mean longitude (radian). [4]_
         """
         return StateVectors([self.semimajor_axis.flatten(),
                              self.equinoctial_h.flatten(),
@@ -722,7 +723,7 @@ class Orbital(Type):
                 + f"{self.eccentricity:7.7f}"[2:] + ' ' \
                 + f"{self.argument_periapsis*180/np.pi:8.4f}" + ' ' \
                 + f"{self.mean_anomaly*180/np.pi:8.4f}" + ' ' \
-                + f"{self.mean_motion/(2*np.pi) *3600*24:11.8f}" + f"{self.revolution_number:5.0f}"
+                + f"{self.mean_motion/(2*np.pi)*3600*24:11.8f}" + f"{self.revolution_number:5.0f}"
 
         line1 = line1 + str(TLEDictReader.checksum(line1))
         line2 = line2 + str(TLEDictReader.checksum(line2))
@@ -736,10 +737,11 @@ class OrbitalState(Orbital, State):
     Vector" (as traditionally understood in orbital mechanics), where :math:`\mathbf{r}` is the
     (3D) Cartesian position in the primary-centered inertial frame, while :math:`\dot{\mathbf{r}}`
     is the corresponding velocity vector. All methods provided by :class:`~.Orbital` are available.
-    Formulae for conversions are generally found in, or derived from [3]_.
+    Formulae for conversions are generally found in, or derived from [4]_.
+
     References
     ----------
-    .. [3] Curtis, H.D. 2010, Orbital Mechanics for Engineering Students (3rd Ed), Elsevier
+    .. [4] Curtis, H.D. 2010, Orbital Mechanics for Engineering Students (3rd Ed), Elsevier
            Aerospace Engineering Series
     """
 

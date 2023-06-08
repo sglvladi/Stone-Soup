@@ -91,7 +91,7 @@ def jacobian(fun, x,  **kwargs):
 
     # For numerical reasons the step size needs to large enough. Aim for 1e-8
     # relative to spacing between floating point numbers for each dimension
-    delta = 1e8*np.spacing(x.state_vector.astype(np.float_).ravel())
+    delta = 1e8*np.spacing(x.state_vector.astype(np.float64).ravel())
     # But at least 1e-8
     # TODO: Is this needed? If not, note special case at zero.
     delta[delta < 1e-8] = 1e-8
@@ -103,7 +103,7 @@ def jacobian(fun, x,  **kwargs):
     F = fun(x2, **kwargs)
 
     jac = np.divide(F[:, :ndim] - F[:, -1:], delta)
-    return jac.astype(np.float_)
+    return jac.astype(np.float64)
 
 
 def gauss2sigma(state, alpha=1.0, beta=2.0, kappa=None):
@@ -280,7 +280,7 @@ def unscented_transform(sigma_points_states, mean_weights, covar_weights,
 
     # Calculate cross-covariance
     cross_covar = (
-        (sigma_points-sigma_points[:, 0:1]) @ np.diag(mean_weights) @ (sigma_points_t-mean).T
+        (sigma_points-sigma_points[:, 0:1]) @ np.diag(covar_weights) @ (sigma_points_t-mean).T
     ).view(CovarianceMatrix)
 
     return mean, covar, cross_covar, sigma_points_t, mean_weights, covar_weights
@@ -402,6 +402,52 @@ def sphere2cart(rho, phi, theta):
     return (x, y, z)
 
 
+def cart2az_el_rg(x, y, z):
+    """Convert Cartesian to azimuth (phi), elevation(theta), and range(rho)
+
+    Parameters
+    ----------
+    x: float
+        The x coordinate
+    y: float
+        the y coordinate
+    z: float
+        the z coordinate
+
+    Returns
+    -------
+    (float, float, float)
+        A tuple of the form `(phi, theta, rho)`
+    """
+    rho = np.sqrt(x**2 + y**2 + z**2)
+    phi = np.arcsin(x / rho)
+    theta = np.arcsin(y / rho)
+    return phi, theta, rho
+
+
+def az_el_rg2cart(phi, theta, rho):
+    """Convert azimuth (phi), elevation(theta), and range(rho) to Cartesian
+
+    Parameters
+    ----------
+    phi: float
+        azimuth, expressed in radians
+    theta: float
+        Elevation expressed in radians, measured from x, y plane
+    rho: float
+        Range(a.k.a. radial distance)
+
+    Returns
+    -------
+    (float, float, float)
+        A tuple of the form `(phi, theta, rho)`
+    """
+    x = rho * np.sin(phi)
+    y = rho * np.sin(theta)
+    z = rho * np.sqrt(1.0 - np.sin(theta) ** 2 - np.sin(phi) ** 2)
+    return x, y, z
+
+
 def rotx(theta):
     r"""Rotation matrix for rotations around x-axis
 
@@ -509,6 +555,47 @@ def rotz(theta):
                      [zero, zero, one]])
 
 
+def gm_sample(means, covars, size, weights=None):
+    """Sample from a mixture of multi-variate Gaussians
+
+    Parameters
+    ----------
+    means : :class:`~.StateVector`, :class:`~.StateVectors`, :class:`np.ndarray` of shape \
+    (num_dims, num_components)
+        The means of GM components
+    covars : :class:`np.ndarray` of shape (num_components, num_dims, num_dims) or list of \
+    :class:`np.ndarray` of shape (num_dims, num_dims)
+        Covariance matrices of the GM components
+    size : int
+        Number of samples to return.
+    weights : :class:`np.ndarray` of shape (num_components, ), optional
+        The weights of the GM components. If not defined, assumed equal.
+
+    Returns
+    -------
+    : :class:`~.StateVectors` of shape (num_dims, :attr:`size`)"""
+
+    if isinstance(means, np.ndarray):
+        if len(means.shape) == 1:
+            means = StateVectors(np.array([means]).T)
+        else:
+            means = StateVectors(means)
+
+    if isinstance(means, StateVector):
+        means = means.view(StateVectors)
+
+    if isinstance(means, StateVectors) and weights is None:
+        weights = np.array([1/means.shape[1]]*means.shape[1])
+    elif weights is None:
+        weights = np.array([1/len(means)]*len(means))
+
+    n_samples = np.random.multinomial(size, weights)
+    samples = np.vstack([np.random.multivariate_normal(mean.ravel(), covar, sample)
+                         for (mean, covar, sample) in zip(means, covars, n_samples)]).T
+
+    return StateVectors(samples)
+
+
 def gm_reduce_single(means, covars, weights):
     """Reduce mixture of multi-variate Gaussians to single Gaussian
 
@@ -539,7 +626,7 @@ def gm_reduce_single(means, covars, weights):
 
     # Calculate covar
     delta_means = means - mean
-    covar = np.sum(covars*weights, axis=2, dtype=np.float_) + weights*delta_means@delta_means.T
+    covar = np.sum(covars*weights, axis=2, dtype=np.float64) + weights*delta_means@delta_means.T
 
     return mean.view(StateVector), covar.view(CovarianceMatrix)
 
@@ -586,6 +673,10 @@ def mod_elevation(x):
         x = np.pi - x
     elif N == 3:
         x = x - 2.0 * np.pi
+    elif N == 4:
+        # will only occur on occasions when first operation ('x = ..') returns 2pi to floating
+        # point limit.
+        x = 0.0
     return x
 
 
