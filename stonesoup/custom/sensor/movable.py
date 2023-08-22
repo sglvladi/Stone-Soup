@@ -17,6 +17,7 @@ from stonesoup.sensor.sensor import Sensor
 from stonesoup.types.array import CovarianceMatrix
 from stonesoup.types.detection import TrueDetection
 from stonesoup.types.groundtruth import GroundTruthState
+from stonesoup.types.numeric import Probability
 
 
 class MovableUAVCamera(Sensor):
@@ -35,6 +36,9 @@ class MovableUAVCamera(Sensor):
                     :class:`~.CartesianToElevationBearing` model")
     fov_radius: Union[float, List[float]] = Property(
         doc="The detection field of view radius of the sensor")
+    prob_detect: Probability = Property(
+        default=None,
+        doc="The probability of detection of the sensor. Defaults to 1.0")
     clutter_model: ClutterModel = Property(
         default=None,
         doc="An optional clutter generator that adds a set of simulated "
@@ -64,6 +68,8 @@ class MovableUAVCamera(Sensor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.prob_detect is None:
+            self.prob_detect = Probability(1)
         self._footprint = None
         if self.rfis is None:
             self.rfis = []
@@ -139,12 +145,15 @@ class MovableUAVCamera(Sensor):
                                       measurement_model=measurement_model,
                                       timestamp=truth.timestamp,
                                       groundtruth_path=truth)
-            detections.add(detection)
+
+            # Generate detection with probability of detection
+            if np.random.rand() <= self.prob_detect:
+                detections.add(detection)
 
         # Generate clutter at this time step
         if self.clutter_model is not None:
             self.clutter_model.measurement_model = measurement_model
-            clutter = self.clutter_model.function(ground_truths)
+            clutter = self.clutter_model.function(ground_truths, **kwargs)
             detections |= clutter
 
         return detections
