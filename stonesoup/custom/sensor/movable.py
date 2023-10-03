@@ -6,7 +6,8 @@ import geopy.distance
 from shapely import Point
 
 from stonesoup.base import Property
-from stonesoup.custom.functions import geodesic_point_buffer
+from stonesoup.custom.functions import geodesic_point_buffer, \
+    cover_rectangle_with_minimum_overlapping_circles
 from stonesoup.custom.sensor.action.location import LocationActionGenerator
 from stonesoup.models.clutter import ClutterModel
 from stonesoup.models.measurement.linear import LinearGaussian
@@ -56,10 +57,16 @@ class MovableUAVCamera(Sensor):
     fov_in_km: bool = Property(
         doc="Whether the FOV radius is in kilo-meters or degrees",
         default=True)
+    rfis: List = Property(
+        doc="The RFIs in the scene",
+        default=None
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._footprint = None
+        if self.rfis is None:
+            self.rfis = []
 
     @location_x.setter
     def location_x(self, value):
@@ -173,15 +180,46 @@ class MovableUAVCamera(Sensor):
         if start_timestamp is None:
             start_timestamp = self.timestamp
 
-        generators = {self._get_generator(name, property_, timestamp, start_timestamp)
-                      for name, property_ in self._actionable_properties.items()}
+        rois = [rfi.region_of_interest.corners for rfi in self.rfis]
+        possible_locations = []
+        footprint = self.footprint
+        # Get min max lat lon of the footprint
+        min_lon, min_lat, max_lon, max_lat = footprint.bounds
+        # NOTE: This is an approximation of asset fov in lat/long degrees (1 degree = 111km)
+        # asset_fov_ll = self.fov_radius / 111
+        asset_fov_ll = min((max_lat - min_lat), (max_lon - min_lon))
+        for roi in rois:
+            x1 = roi.corners[0].longitude
+            y1 = roi.corners[0].latitude
+            x2 = roi.corners[1].longitude
+            y2 = roi.corners[1].latitude
+            # For each roi, find the minimum number of overlapping circles required to cover it
+            possible_locations += cover_rectangle_with_minimum_overlapping_circles(
+                x1, y1, x2, y2, asset_fov_ll
+            )
+
+        possible_locations_x = [loc[0] for loc in possible_locations]
+        possible_locations_y = [loc[1] for loc in possible_locations]
+
+        generators = set()
+        for name, property_ in self._actionable_properties.items():
+            if name == 'location_x':
+                possible_values = possible_locations_x
+            else:
+                possible_values = possible_locations_y
+            generators.add(
+                self._get_generator(name, property_, timestamp, start_timestamp, possible_values)
+            )
+
+        # generators = {self._get_generator(name, property_, timestamp, start_timestamp, rois)
+        #               for name, property_ in self._actionable_properties.items()}
 
         return generators
 
-    def _get_generator(self, name, prop, timestamp, start_timestamp):
+    def _get_generator(self, name, prop, timestamp, start_timestamp, possible_values=None):
         """Returns the action generator associated with the """
         kwargs = {'owner': self, 'attribute': name, 'start_time': start_timestamp,
-                  'end_time': timestamp}
+                  'end_time': timestamp, 'possible_values': possible_values}
         if self.resolutions and name in self.resolutions.keys():
             kwargs['resolution'] = self.resolutions[name]
         if self.limits and name in self.limits.keys():

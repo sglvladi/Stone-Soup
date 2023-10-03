@@ -524,3 +524,49 @@ def geodesic_point_buffer(lat, lon, km):
         proj_wgs84)
     buf = Point(0, 0).buffer(km * 1000)  # distance in metres
     return transform(project, buf)
+
+
+def cover_rectangle_with_minimum_overlapping_circles(x1, y1, x2, y2, radius):
+    """
+    https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1343643
+
+    """
+    width = x2 - x1
+    height = y2 - y1
+
+    p = Point(x1 + width/2, y1 + height/2).buffer(radius)
+    pol = Polygon([(x1, y1), (x2, y1), (x2, y2), (x1, y2)])
+    intersection = p.intersection(pol)
+    if intersection.area >= 0.9*pol.area:
+        return [(x1 + width/2, y1 + height/2)]
+
+    # if width <= np.sqrt(3)/2*radius and height <= np.sqrt(3)/2*radius:
+    z1 = height / (np.sqrt(3) * radius)
+    re1 = z1 - math.floor(z1)
+    n = math.floor(z1)
+    if re1 <= 1/2:
+        n += 1
+    else:
+        n += 2
+
+    z2 = width / (3/2 * radius)
+    re2 = z2 - math.floor(z2)
+    m = math.floor(z2)
+    if re2 <= 2/3:
+        m += 1
+    else:
+        m += 2
+
+    centers = []
+
+    for k in range(1, n+1):
+        for l in range(1, m+1):
+            if l % 2 == 1:
+                center = ((0.5 + (l-1) * 3/2) * radius, (k-1)*np.sqrt(3)*radius)
+            else:
+                center = ((0.5 + (l-1) * 3/2) * radius, (k-1)*np.sqrt(3)*radius + np.sqrt(3)/2*radius)
+            offset_center = (center[0] + x1, center[1] + y1)
+            cp = Point(offset_center)
+            if cp.distance(pol) <= np.sqrt(3)/2*radius:
+                centers.append(offset_center)
+    return centers

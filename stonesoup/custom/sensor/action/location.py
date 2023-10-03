@@ -1,7 +1,7 @@
 import itertools
 
 import numpy as np
-from typing import Iterator
+from typing import Iterator, List
 
 from stonesoup.custom.functions import get_nearest
 from stonesoup.types.array import StateVector
@@ -44,11 +44,14 @@ class LocationActionGenerator(RealNumberActionGenerator):
     resolution: float = Property(default=10, doc="Resolution of action space")
     limits: StateVector = Property(doc="Min and max values of the action space",
                                    default=StateVector([-100, 100]))
-
+    possible_values: List = Property(doc="List of possible values for the action space",
+                                     default=None)
     _action_cls = ChangeLocationAction
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        if self.possible_values is not None:
+            self.possible_values = sorted(self.possible_values)
 
     @property
     def default_action(self):
@@ -94,15 +97,14 @@ class LocationActionGenerator(RealNumberActionGenerator):
         if isinstance(item, self._action_cls):
             item = item.target_value
 
-        possible_values = np.arange(self.min, self.max + self.resolution, self.resolution,
-                                    dtype=float)
+        possible_values = self._get_possible_values()
         possible_values = np.append(possible_values, self.current_value)
         possible_values.sort()
         return possible_values[0] <= item <= possible_values[-1]
 
     def __iter__(self) -> Iterator[ChangeLocationAction]:
         """Returns all possible ChangePanTiltAction types"""
-        possible_values = np.arange(self.min, self.max + self.resolution, self.resolution, dtype=float)
+        possible_values = self._get_possible_values()
 
         yield self.default_action
         for angle in possible_values:
@@ -115,9 +117,15 @@ class LocationActionGenerator(RealNumberActionGenerator):
     def action_from_value(self, value):
         if value not in self:
             return None
-        possible_values = np.arange(self.min, self.max + self.resolution, self.resolution, dtype=float)
+        possible_values = self._get_possible_values()
         possible_values = np.append(possible_values, self.current_value)
         angle = get_nearest(possible_values, value)
         return self._action_cls(generator=self,
                                 end_time=self.end_time,
                                 target_value=angle)
+
+    def _get_possible_values(self):
+        if self.possible_values is not None:
+            return np.array(self.possible_values)
+        else:
+            return np.arange(self.min, self.max + self.resolution, self.resolution, dtype=float)
