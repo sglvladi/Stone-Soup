@@ -180,7 +180,7 @@ class MovableUAVCamera(Sensor):
         if start_timestamp is None:
             start_timestamp = self.timestamp
 
-        rois = [rfi.region_of_interest.corners for rfi in self.rfis]
+        rois = [rfi.region_of_interest for rfi in self.rfis]
         possible_locations = []
         footprint = self.footprint
         # Get min max lat lon of the footprint
