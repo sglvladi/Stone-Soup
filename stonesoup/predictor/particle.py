@@ -10,6 +10,7 @@ from ._utils import predict_lru_cache
 from .kalman import KalmanPredictor, ExtendedKalmanPredictor
 from ..base import Property
 from ..models.transition import TransitionModel
+from ..proposal.base import Proposal
 from ..types.prediction import Prediction
 from ..types.state import GaussianState
 from ..sampler import Sampler
@@ -48,6 +49,57 @@ class ParticlePredictor(Predictor):
             time_interval = None
 
         new_state_vector = self.transition_model.function(
+            prior,
+            noise=True,
+            time_interval=time_interval,
+            **kwargs)
+
+        return Prediction.from_state(prior,
+                                     parent=prior,
+                                     state_vector=new_state_vector,
+                                     timestamp=timestamp,
+                                     transition_model=self.transition_model,
+                                     prior=prior)
+
+
+class ParticlePredictorWithProposal(ParticlePredictor):
+    """ParticlePredictorWithProposal class
+
+    An implementation of a Particle Filter predictor with a proposal.
+    """
+
+    proposal: Proposal = Property(
+        doc="A proposal object that generates samples from the proposal distribution.")
+
+    @property
+    def transition_model(self):
+        return self.proposal.transition_model
+
+    @predict_lru_cache()
+    def predict(self, prior, timestamp=None, **kwargs):
+        """Particle Filter prediction step
+
+        Parameters
+        ----------
+        prior : :class:`~.Particle
+            A prior state object
+        timestamp: :class:`datetime.datetime`, optional
+            A timestamp signifying when the prediction is performed
+            (the default is `None`)
+
+        Returns
+        -------
+        : :class:`~.ParticleStatePrediction`
+            The predicted state
+        """
+        # Compute time_interval
+        try:
+            time_interval = timestamp - prior.timestamp
+        except TypeError:
+            # TypeError: (timestamp or prior.timestamp) is None
+            time_interval = None
+
+        new_state_vector = self.proposal.rvs(
             prior,
             noise=True,
             time_interval=time_interval,

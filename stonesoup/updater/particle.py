@@ -12,6 +12,7 @@ from .kalman import KalmanUpdater, ExtendedKalmanUpdater
 from ..base import Property
 from ..functions import cholesky_eps, sde_euler_maruyama_integration
 from ..predictor.particle import MultiModelPredictor, RaoBlackwellisedMultiModelPredictor
+from ..proposal.base import Proposal
 from ..resampler import Resampler
 from ..regulariser import Regulariser
 from ..types.prediction import (
@@ -90,6 +91,78 @@ class ParticleUpdater(Updater):
         if self.constraint_func is not None:
             part_indx = self.constraint_func(predicted_state)
             new_weight[part_indx] = -1*np.inf
+
+        # Normalise the weights
+        new_weight -= logsumexp(new_weight)
+
+        predicted_state.log_weight = new_weight
+
+        # Resample
+        resample_flag = True
+        if self.resampler is not None:
+            resampled_state = self.resampler.resample(predicted_state)
+            if resampled_state == predicted_state:
+                resample_flag = False
+            predicted_state = resampled_state
+
+        if self.regulariser is not None and resample_flag:
+            prior = hypothesis.prediction.parent
+            predicted_state = self.regulariser.regularise(prior,
+                                                          predicted_state)
+
+        return predicted_state
+
+    @lru_cache()
+    def predict_measurement(self, state_prediction, measurement_model=None,
+                            **kwargs):
+
+        if measurement_model is None:
+            measurement_model = self.measurement_model
+
+        new_state_vector = measurement_model.function(state_prediction, **kwargs)
+
+        return MeasurementPrediction.from_state(
+            state_prediction, state_vector=new_state_vector, timestamp=state_prediction.timestamp)
+
+
+class ParticleUpdaterWithProposal(ParticleUpdater):
+
+    proposal: Proposal = Property(
+        default=None,
+        doc="Proposal to be used in the particle filter update step")
+
+    @property
+    def measurement_model(self):
+        return self.proposal.measurement_model
+
+    def update(self, hypothesis, **kwargs):
+        """Particle Filter update step
+
+        Parameters
+        ----------
+        hypothesis : :class:`~.Hypothesis`
+            Hypothesis with predicted state and associated detection used for
+            updating.
+
+        Returns
+        -------
+        : :class:`~.ParticleState`
+            The state posterior
+        """
+
+        predicted_state = Update.from_state(
+            state=hypothesis.prediction,
+            hypothesis=hypothesis,
+            timestamp=hypothesis.prediction.timestamp
+        )
+
+        new_weight = predicted_state.log_weight + self.proposal.log_weight_update(
+            hypothesis.measurement, predicted_state, hypothesis.prediction.prior, **kwargs)
+
+        # Apply constraints if defined
+        if self.constraint_func is not None:
+            part_indx = self.constraint_func(predicted_state)
+            new_weight[part_indx] = -1 * np.inf
 
         # Normalise the weights
         new_weight -= logsumexp(new_weight)
