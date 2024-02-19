@@ -154,6 +154,28 @@ class SimpleMeasurementInitiator(GaussianInitiator):
         return tracks
 
 
+class SimpleIMM_MeasurementInitiator(SimpleMeasurementInitiator):
+    # Assumes prior_state is a weighted gaussian mixture
+    def initiate(self, detections, **kwargs):
+        tmp_tracks = super().initiate(detections, **kwargs)
+        tracks = set()
+        for track in tmp_tracks:
+            priors = []
+            hypothesis = track.hypothesis
+            for item in self.prior_state.components:
+                tmp = WeightedGaussianStateUpdate(
+                            track.mean,
+                            track.covar,
+                            track.hypothesis,
+                            weight=item.weight,
+                            timestamp=track.timestamp)
+                priors.append(tmp)
+            gmsu = GaussianMixtureStateUpdate(priors, hypothesis)
+            tracks.add(Track(gmsu))
+        return tracks
+            
+       
+       
 class MultiMeasurementInitiator(GaussianInitiator):
     """Multi-measurement initiator.
 

@@ -1,3 +1,4 @@
+# -*- coding: utf-8 -*-
 """Mathematical functions used within Stone Soup"""
 import copy
 
@@ -678,6 +679,37 @@ def mod_elevation(x):
         # point limit.
         x = 0.0
     return x
+
+    
+def imm_merge(means, covars, weights):
+    """ Perform IMM components merging/mixing
+
+    Parameters
+    ----------
+    means: np.array of shape (num_dims, num_models)
+        The IMM means
+    covars: np.array of shape (num_models, num_dims, num_dims)
+        The IMM covariances
+    weights: np.array of shape (num_models, num_models)
+        The IMM mixing weights
+
+    Returns
+    -------
+    np.array of shape (num_dims, num_models)
+        The mixed IMM means
+    np.array of shape (num_models, num_dims, num_dims)
+        The mixed IMM covariances
+
+    """
+    means_k, covars_k = [], []
+    covars2 = np.moveaxis(covars,0,2)
+    means = means.view(StateVectors)
+    for w in weights:
+        mean,covar = gm_reduce_single(means, covars2, w)
+        means_k.append(mean)
+        covars_k.append(covar)
+
+    return np.concatenate(means_k, 1), np.array(covars_k)
 
 
 def build_rotation_matrix(angle_vector: np.ndarray):

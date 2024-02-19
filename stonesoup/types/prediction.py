@@ -218,3 +218,35 @@ class CompositeMeasurementPrediction(MeasurementPrediction, CompositeState):
 
 
 MeasurementPrediction.register(CompositeState)  # noqa: E305
+
+
+class GaussianMixtureStatePrediction(Prediction, GaussianMixtureState):
+    """ GaussianMixtureStatePrediction type
+
+    This is a simple Gaussian Mixture state prediction object, which, as the
+    name suggests, is described by a Gaussian distribution.
+    """
+
+
+class WeightedGaussianMeasurementPrediction(MeasurementPrediction,
+                                            WeightedGaussianState):
+    """ WeightedGaussianMeasurementPrediction type
+
+    An augmented GaussianMeasurementPrediction type that also incorporates a
+    weight.
+    """
+    cross_covar = Property(CovarianceMatrix,
+                           doc="The state-measurement cross covariance matrix",
+                           default=None)
+
+
+class GaussianMixtureMeasurementPrediction(MeasurementPrediction,
+                                           GaussianMixtureState):
+    """GaussianMixtureMeasurementPrediction type
+
+    A Gaussian Mixture measurement prediction that "quacks" both like a
+    GaussianMixtureState, as well as a GaussianMeasurementPrediction
+    """
+    cross_covar = Property(CovarianceMatrix,
+                           doc="The state-measurement cross covariance matrix",
+                           default=None)

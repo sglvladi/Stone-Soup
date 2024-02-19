@@ -62,6 +62,20 @@ class TaggedWeightedGaussianStateUpdate(Update, TaggedWeightedGaussianState):
     """
 
 
+class GaussianMixtureStateUpdate(Update, GaussianMixtureState):
+    """ GaussianMixtureStateUpdate type
+
+    This is GaussianMixtureStateUpdate type, which is can be views as a
+    wrapper around a collection of WeightedGaussianStateUpdate objects.
+    """
+
+    def __init__(self, components, *args, **kwargs):
+        super().__init__(components, *args, **kwargs)
+        if any([ not isinstance(component, Update)
+                 for component in components]):
+            raise TypeError("All components must be subclasses of Update")
+    
+    
 class GaussianMixtureUpdate(Update, GaussianMixture):
     """ GaussianMixtureUpdate type
 
