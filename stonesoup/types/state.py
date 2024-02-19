@@ -14,6 +14,7 @@ from .array import StateVector, CovarianceMatrix, PrecisionMatrix, StateVectors
 from .base import Type
 from .particle import Particle, MultiModelParticle, RaoBlackwellisedParticle
 from .numeric import Probability
+from ..functions import gm_reduce_single
 
 
 class State(Type):
@@ -602,7 +603,7 @@ class TaggedWeightedGaussianState(WeightedGaussianState):
 
 class GaussianMixtureState(Type):
     """Gaussian Mixture state"""
-    components: List[WeightedGaussianState] = Property(
+    components: typing.List[WeightedGaussianState] = Property(
                     doc='Gaussian Mixture components')
 
     @property

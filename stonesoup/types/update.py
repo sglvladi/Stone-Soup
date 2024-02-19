@@ -3,7 +3,7 @@ from typing import Sequence
 from .base import Type
 from .hypothesis import Hypothesis, CompositeHypothesis
 from .mixture import GaussianMixture
-from .state import CreatableFromState, CompositeState
+from .state import CreatableFromState, CompositeState, GaussianMixtureState
 from .state import State, GaussianState, ParticleState, EnsembleState, \
     SqrtGaussianState, InformationState, CategoricalState, ASDGaussianState, \
     WeightedGaussianState, TaggedWeightedGaussianState, \
