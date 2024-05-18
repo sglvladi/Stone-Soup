@@ -576,7 +576,7 @@ class RolloutPriorityRewardFunction2(RewardFunction):
 
         for rfi in self.rfis:
             config_metric += eval_rfi(rfi, tracks_copy, predicted_sensors,
-                                      use_variance=self.use_variance)
+                                      use_variance=self.use_variance, timestamp=timestamp)
 
         return config_metric, tracks_copy, predicted_sensors
 
