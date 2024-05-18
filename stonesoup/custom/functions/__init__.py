@@ -17,6 +17,7 @@ from shapely.geometry.base import BaseGeometry
 from vector3d.vector import Vector
 
 from reactive_isr_core.data import RFI, TaskType
+from reactive_isr_utils.linear_interpolate_over_time import InterpolateOverTime
 from stonesoup.sensor.sensor import Sensor
 from stonesoup.types.angle import Angle
 from stonesoup.types.state import ParticleState
@@ -442,7 +443,7 @@ def calculate_num_targets_dist(tracks: Set[Track], geom: BaseGeometry,
 
 
 def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
-             phd_state: ParticleState = None, use_variance=True):
+             phd_state: ParticleState = None, use_variance=True, timestamp=None):
     num_samples = 100
     mu_overall = 0
     var_overall = 0  # np.inf if len(valid_tracks) == 0  else 0
@@ -489,10 +490,15 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
         # times the probability of failure
         var_overall += p_success * (1 - p_success)
 
+    # Calculate priority
+    priority_interpolator = InterpolateOverTime(rfi.priority_over_time.priority,
+                                                rfi.priority_over_time.timescale)
+    priority = priority_interpolator.get_value(timestamp)
+
     if rfi.task_type == TaskType.COUNT:
         if mu_overall > 0 and var_overall < rfi.threshold_over_time.threshold[0]:
             # TODO: Need to select the priority
-            config_metric += rfi.priority_over_time.priority[0]
+            config_metric += priority
             if use_variance:
                 config_metric += 1 / var_overall
         elif mu_overall == 0 and var_overall == 0:
@@ -503,14 +509,14 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                 # p = geodesic_point_buffer(*center, radius)
                 p = sensor.footprint
                 aoi = max([geom.intersection(p).area / geom.area, aoi])
-            config_metric += aoi*rfi.priority_over_time.priority[0]
+            config_metric += aoi*priority
     elif rfi.task_type == TaskType.FOLLOW:
         for target in rfi.targets:
             track = next((track for track in tracks if track.id == str(target.target_UUID)), None)
             if track is not None:
                 var = track.covar[0, 0] + track.covar[2, 2]
                 if var < rfi.threshold_over_time.threshold[0]:
-                    config_metric += rfi.priority_over_time.priority[0]
+                    config_metric += priority
 
     return config_metric
 
