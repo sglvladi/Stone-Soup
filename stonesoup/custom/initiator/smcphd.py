@@ -1,3 +1,4 @@
+import warnings
 from copy import copy
 from typing import List, Any, Union, Callable
 
@@ -283,13 +284,17 @@ class SMCPHDFilter(Base):
         # Get probability of detection
         prob_detect = np.asfarray(self.prob_detect(prediction))
 
-        # Calculate w^{n,i} Eq. (20) of [2]
-        try:
-            Ck = np.log(prob_detect[:, np.newaxis]) + g \
-                 + np.log(prediction.weight[:, np.newaxis].astype(float))
-        except IndexError:
-            Ck = np.log(prob_detect) + g \
-                 + np.log(prediction.weight[:, np.newaxis].astype(float))
+        # Catch divide by zero warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'divide by zero encountered in log')
+            # Calculate w^{n,i} Eq. (20) of [2]
+            try:
+                Ck = np.log(prob_detect[:, np.newaxis]) + g \
+                     + np.log(prediction.weight[:, np.newaxis].astype(float))
+            except IndexError:
+                Ck = np.log(prob_detect) + g \
+                     + np.log(prediction.weight[:, np.newaxis].astype(float))
+
         C = logsumexp(Ck, axis=0)
         k = np.log([detection.metadata['clutter_density']
                     if 'clutter_density' in detection.metadata else self.clutter_intensity
@@ -486,13 +491,17 @@ class ISMCPHDFilter(SMCPHDFilter):
         # Get probability of detection
         prob_detect = np.asfarray(self.prob_detect(prediction))
 
-        # Calculate w^{n,i} Eq. (20) of [2]
-        try:
-            Ck = np.log(prob_detect[:, np.newaxis]) + g \
-                 + np.log(prediction.weight[:, np.newaxis].astype(float))
-        except IndexError:
-            Ck = np.log(prob_detect) + g \
-                 + np.log(prediction.weight[:, np.newaxis].astype(float))
+        # Catch divide by zero warnings
+        with warnings.catch_warnings():
+            warnings.filterwarnings('ignore', r'divide by zero encountered in log')
+            # Calculate w^{n,i} Eq. (20) of [2]
+            try:
+                Ck = np.log(prob_detect[:, np.newaxis]) + g \
+                     + np.log(prediction.weight[:, np.newaxis].astype(float))
+            except IndexError:
+                Ck = np.log(prob_detect) + g \
+                     + np.log(prediction.weight[:, np.newaxis].astype(float))
+
         C = logsumexp(Ck, axis=0)
         Ck_birth = np.tile(np.log(np.asfarray(birth_state.weight)[:, np.newaxis]), len(detections))
         C_birth = logsumexp(Ck_birth, axis=0)
