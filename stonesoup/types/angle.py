@@ -20,8 +20,8 @@ class Angle(Real):
     def degrees(self):
         return self.rad2deg()
 
-    def __init__(self, value):
-        self._value = self.mod_angle(value)
+    def __init__(self, value, skip_mod=False):
+        self._value = self.mod_angle(value) if not skip_mod else value
 
     def __hash__(self):
         return hash(self._value)
