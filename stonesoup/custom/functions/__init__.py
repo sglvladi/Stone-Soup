@@ -1,4 +1,5 @@
 import copy
+from datetime import datetime
 from functools import partial
 import math
 from typing import Set, List, Sequence
@@ -449,23 +450,24 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
     var_overall = 0  # np.inf if len(valid_tracks) == 0  else 0
     config_metric = 0
 
-    xmin, ymin = rfi.region_of_interest.corners[0].longitude, \
-        rfi.region_of_interest.corners[0].latitude
-    xmax, ymax = rfi.region_of_interest.corners[1].longitude, \
-        rfi.region_of_interest.corners[1].latitude
-    geom = Polygon([(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax)])
-    path_p = Path(geom.boundary.coords)
+    paths = []
+    for region in rfi.region_of_interest:
+        xmin, ymin = region.corners[0].longitude, region.corners[0].latitude
+        xmax, ymax = region.corners[1].longitude, region.corners[1].latitude
+        geom = Polygon([(xmin, ymin), (xmax, ymin), (xmax, ymax), (xmin, ymax)])
+        paths.append(Path(geom.boundary.coords))
 
-    target_types = [t.target_type.value for t in rfi.targets]
+    target_type = next((t.target_type.value for t in rfi.targets), None)
     valid_tracks = [track for track in tracks
-                    if not (target_types)
-                    or (target_types and any(item in track.metadata['target_type_confidences']
-                                             for item in target_types))]
+                    if not target_type
+                    or (target_type and target_type in track.metadata['target_type_confidences'])]
 
     # Calculate PHD density inside polygon
     if phd_state is not None:
         points = phd_state.state_vector[[0, 2], :].T
-        inside_points = path_p.contains_points(points)
+        inside_points = np.full(len(points), False)
+        for path_p in paths:
+            inside_points = np.logical_or(inside_points, path_p.contains_points(points))
         if np.sum(inside_points) > 0:
             # The mean of the PHD density inside the polygon is the sum of the weights of the
             # particles inside the polygon
@@ -473,29 +475,35 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
             # The variance of a Poisson distribution is equal to the mean
             var_overall = mu_overall
 
-    # Calculate number of tracks inside polygon
-    for track in valid_tracks:
-        # Sample points from the track state
-        points = multivariate_normal.rvs(mean=track.state_vector[[0, 2]].ravel(),
-                                         cov=track.covar[[0, 2], :][:, [0, 2]],
-                                         size=num_samples)
-        # Check which points are inside the polygon
-        inside_points = path_p.contains_points(points)
-        # Probability of existence inside the polygon is the fraction of points inside the polygon
-        # times the probability of existence
-        p_success = float(track.exist_prob) * (np.sum(inside_points) / num_samples)
-        # Mean of a Bernoulli distribution is equal to the probability of success
-        mu_overall += p_success
-        # Variance of a Bernoulli distribution is equal to the probability of success,
-        # times the probability of failure
-        var_overall += p_success * (1 - p_success)
-
     # Calculate priority
     priority_interpolator = InterpolateOverTime(rfi.priority_over_time.priority,
                                                 rfi.priority_over_time.timescale)
     priority = priority_interpolator.get_value(timestamp)
 
     if rfi.task_type == TaskType.COUNT:
+        # Calculate number of tracks inside polygon
+        for track in valid_tracks:
+            # Sample points from the track state
+            points = multivariate_normal.rvs(mean=track.state_vector[[0, 2]].ravel(),
+                                             cov=track.covar[[0, 2], :][:, [0, 2]],
+                                             size=num_samples)
+            # Check which points are inside the polygon
+            inside_points = np.full(len(points), False)
+            for path_p in paths:
+                inside_points = np.logical_or(inside_points, path_p.contains_points(points))
+            # Class probability
+            if target_type:
+                class_prob = float(track.metadata['target_type_confidences'][target_type])
+            else:
+                class_prob = 1
+            # Probability of existence inside the polygon is the fraction of points inside the polygon
+            # times the probability of existence
+            p_success = float(track.exist_prob) * class_prob * (np.sum(inside_points) / num_samples)
+            # Mean of a Bernoulli distribution is equal to the probability of success
+            mu_overall += p_success
+            # Variance of a Bernoulli distribution is equal to the probability of success,
+            # times the probability of failure
+            var_overall += p_success * (1 - p_success)
         if mu_overall > 0 and var_overall < rfi.threshold_over_time.threshold[0]:
             # TODO: Need to select the priority
             config_metric += priority
@@ -517,6 +525,31 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                 var = track.covar[0, 0] + track.covar[2, 2]
                 if var < rfi.threshold_over_time.threshold[0]:
                     config_metric += priority
+    elif rfi.task_type == TaskType.FIND:
+        # Calculate number of tracks inside polygon
+        for track in valid_tracks:
+            # Sample points from the track state
+            points = multivariate_normal.rvs(mean=track.state_vector[[0, 2]].ravel(),
+                                             cov=track.covar[[0, 2], :][:, [0, 2]],
+                                             size=num_samples)
+            # Check which points are inside the polygon
+            inside_points = np.full(len(points), False)
+            for path_p in paths:
+                inside_points = np.logical_or(inside_points, path_p.contains_points(points))
+            # Class probability
+            if target_type:
+                class_prob = float(track.metadata['target_type_confidences'][target_type])
+            else:
+                class_prob = 1
+            # Probability of existence inside the polygon is the fraction of points inside the polygon
+            # times the probability of existence
+            p_success = float(track.exist_prob) * class_prob * (
+                        np.sum(inside_points) / num_samples)
+            # Variance of a Bernoulli distribution is equal to the probability of success,
+            # times the probability of failure
+            # var = p_success * (1 - p_success)
+            if p_success > rfi.threshold_over_time.threshold[0]:
+                config_metric += priority
 
     return config_metric
 
