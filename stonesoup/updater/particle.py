@@ -50,6 +50,11 @@ class ParticleUpdater(Updater):
             "should accept a :class:`~.ParticleState` object and return an array-like "
             "object of logical indices. "
     )
+    normalise: bool = Property(
+        default=True,
+        doc="Normalise the weights after the update step. Default is `True`."
+    )
+
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -93,7 +98,8 @@ class ParticleUpdater(Updater):
             new_weight[part_indx] = -1*np.inf
 
         # Normalise the weights
-        new_weight -= logsumexp(new_weight)
+        norm_constant = logsumexp(new_weight)
+        new_weight -= norm_constant
 
         predicted_state.log_weight = new_weight
 
@@ -108,6 +114,10 @@ class ParticleUpdater(Updater):
         if self.regulariser is not None and resample_flag:
             predicted_state = self.regulariser.regularise(predicted_state.parent,
                                                           predicted_state)
+
+        if not self.normalise:
+            # De-normalise the weights
+            predicted_state.log_weight += norm_constant
 
         return predicted_state
 
