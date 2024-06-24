@@ -189,21 +189,33 @@ class JPDAwithLBP(JPDA):
     vol 50(4), pp. 2942-2959, 2014.
     """
 
+    export_probabilities: bool = Property(
+        default=False,
+        doc='export the probability of association, it might break if used in a standard tracker '
+            '[add the warning]')
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+
+
     def associate(self, tracks, detections, timestamp, **kwargs):
         """Associate tracks and detections
 
         Parameters
         ----------
-        tracks : set of :class:`stonesoup.types.track.Track`
+        tracks : set of :class:`~.Track`
             Tracks which detections will be associated to.
-        detections : set of :class:`stonesoup.types.detection.Detection`
+        detections : set of :class:`~.Detection`
             Detections to be associated to tracks.
         timestamp : :class:`datetime.datetime`
             Timestamp to be used for missed detections and to predict to.
+        export_probabilities: :class:`bool` keyword to export the probability of association
+            from multi-hypotheses generation, it can be used for visualisation purposes. If called 
+            in a :class:`~.Tracker` it might result in error.
 
         Returns
         -------
-        : mapping of :class:`stonesoup.types.track.Track` : :class:`stonesoup.types.hypothesis.Hypothesis`
+        : mapping of :class:`~.Track` : :class:`~.Hypothesis`
             Mapping of track to Hypothesis
         """  # noqa: E501
 
@@ -215,7 +227,8 @@ class JPDAwithLBP(JPDA):
         if not hypotheses or not detections:  # No tracks or no detections
             return hypotheses
         else:
-            return self._compute_multi_hypotheses(tracks, detections, hypotheses, timestamp)
+            return self._compute_multi_hypotheses(tracks, detections, hypotheses, timestamp,
+                                                  self.export_probabilities)
 
     @staticmethod
     def _calc_likelihood_matrix(tracks, detections, hypotheses):
@@ -223,9 +236,9 @@ class JPDAwithLBP(JPDA):
 
         Parameters
         ----------
-        tracks: list of :class:`stonesoup.types.track.Track`
+        tracks: list of :class:`~.Track`
             Current tracked objects
-        detections : list of :class:`stonesoup.types.detection.Detection`
+        detections : list of :class:`~.Detection`
             Retrieved measurements
         hypotheses: dict
             Key value pairs of tracks with associated detections
@@ -335,7 +348,7 @@ class JPDAwithLBP(JPDA):
         return assoc_prob_matrix.astype(float)
 
     @classmethod
-    def _compute_multi_hypotheses(cls, tracks, detections, hypotheses, time):
+    def _compute_multi_hypotheses(cls, tracks, detections, hypotheses, time, export_probabilities):
 
         # Tracks and detections must be in a list, so we can keep track of their order
         track_list = list(tracks)
@@ -385,5 +398,7 @@ class JPDAwithLBP(JPDA):
                         probability=pro_detect_assoc))
 
             new_hypotheses[track] = MultipleHypothesis(single_measurement_hypotheses, True, 1)
-
-        return new_hypotheses
+        if export_probabilities:  # if true
+            return new_hypotheses, assoc_prob_matrix
+        else:
+            return new_hypotheses
