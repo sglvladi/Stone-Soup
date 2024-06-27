@@ -100,13 +100,15 @@ class _BaseFuseTracker(Base):
 
             tracks = set(tracks)
             unassoc_detections = set(detections) - assoc_detections
-            if isinstance(sensor_scan.sensor_id, str):
-                tracks |= self.initiator.initiate(unassoc_detections, sensor_scan.timestamp,
-                                                  sensor_scan.timestamp,
-                                                  sensor_id=sensor_scan.sensor_id)
-            else:
-                tracks |= self.initiator.initiate(unassoc_detections, current_start_time,
-                                                  current_end_time, sensor_id=sensor_scan.sensor_id)
+            # NOTE: The lines below have been commented out due to the fact that the RISR
+            #       node ids are strings and where hitting the wrong section of the code.
+            # if isinstance(sensor_scan.sensor_id, str):
+            #     tracks |= self.initiator.initiate(unassoc_detections, sensor_scan.timestamp,
+            #                                       sensor_scan.timestamp,
+            #                                       sensor_id=sensor_scan.sensor_id)
+            # else:
+            tracks |= self.initiator.initiate(unassoc_detections, current_start_time,
+                                              current_end_time, sensor_id=sensor_scan.sensor_id)
         try:
             self.initiator.current_end_time = current_end_time
         except AttributeError:
