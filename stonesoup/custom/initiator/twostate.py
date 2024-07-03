@@ -17,7 +17,6 @@ class TwoStateInitiator(Base):
 
     def __init__(self, *args, **kwargs):
         super(TwoStateInitiator, self).__init__(*args, **kwargs)
-        self._max_track_id = 0
 
     prior: GaussianState = Property(doc='The prior used to initiate fused tracks')
     transition_model: TransitionModel = Property(doc='The transition model')
@@ -37,9 +36,8 @@ class TwoStateInitiator(Base):
             hyp = SingleProbabilityHypothesis(prediction=prior, measurement=detection,
                                               probability=Probability(1.0))
             state = self.updater.update(hyp)
-            track = Track([state], id=self._max_track_id)
+            track = Track([state])
             track.exist_prob = Probability(1)
-            self._max_track_id += 1
             new_tracks.add(track)
 
         return new_tracks
