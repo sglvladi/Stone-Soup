@@ -2,7 +2,9 @@ from typing import Union
 
 import numpy as np
 
+from stonesoup.base import Property
 from stonesoup.models.measurement import MeasurementModel
+from stonesoup.models.transition import TransitionModel
 from stonesoup.proposal.base import Proposal
 from stonesoup.types.array import StateVector, StateVectors
 from stonesoup.types.detection import Detection
@@ -16,6 +18,10 @@ class PriorAsProposal(Proposal):
     This proposal uses the dynamics model to predict the next state, and then
     uses the predicted state as the prior for the measurement model.
     """
+    transition_model: TransitionModel = Property(
+        doc="The transition model used to make the prediction")
+    measurement_model: MeasurementModel = Property(
+        doc="The measurement model used to evaluate the likelihood")
 
     def rvs(self, state: State, **kwargs) -> Union[StateVector, StateVectors]:
         """Generate samples from the proposal.
@@ -48,20 +54,20 @@ class PriorAsProposal(Proposal):
         """
         return self.prior_pdf(new_state, old_state, **kwargs)
 
-    def loglikelihood(self, measurement: Detection, state: State, **kwargs) -> Union[float, np.ndarray]:
-        """Evaluate the log likelihood of a state given the proposal.
+    def prior_pdf(self, new_state: State, old_state: State, **kwargs) -> Union[Probability, np.ndarray]:
+        """Evaluate the probability density function of a state given the proposal.
         Parameters
         ----------
-        measurement: :class:`~.State`
-            The state to evaluate the log likelihood of a state given the proposal.
-        state: :class:`~.State`
-            The state to evaluate the log likelihood of a state given the proposal.
+        state1: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        state2: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
         Returns
         -------
         : float
-            The log likelihood of the state given the proposal.
+            The probability density function of the state given the proposal.
         """
-        return self._get_measurement_model(measurement).logpdf(measurement, state, **kwargs)
+        return self.transition_model.pdf(new_state, old_state, **kwargs)
 
     def prior_logpdf(self, new_state: State, old_state: State, **kwargs) -> Union[float, np.ndarray]:
         """Evaluate the log likelihood of a state given the proposal.
@@ -90,35 +96,3 @@ class PriorAsProposal(Proposal):
             The log probability density function of the state given the proposal.
         """
         return self.prior_logpdf(state1, state2, **kwargs)
-
-    def weight_update(self, measurement: Detection, new_state: State, old_state: State, **kwargs) \
-            -> Union[Probability, np.ndarray]:
-        """Evaluate the likelihood of a state given the proposal.
-        Parameters
-        ----------
-        measurement: :class:`~.State`
-            The state to evaluate the likelihood of a state given the proposal.
-        state: :class:`~.State`
-            The state to evaluate the likelihood of a state given the proposal.
-        Returns
-        -------
-        : float
-            The likelihood of the state given the proposal.
-        """
-        return self.likelihood(measurement, new_state, **kwargs)
-
-    def log_weight_update(self, measurement: Detection, new_state: State, old_state: State, **kwargs) \
-            -> Union[float, np.ndarray]:
-        """Evaluate the log likelihood of a state given the proposal.
-        Parameters
-        ----------
-        measurement: :class:`~.State`
-            The state to evaluate the log likelihood of a state given the proposal.
-        state: :class:`~.State`
-            The state to evaluate the log likelihood of a state given the proposal.
-        Returns
-        -------
-        : float
-            The log likelihood of the state given the proposal.
-        """
-        return self.loglikelihood(measurement, new_state, **kwargs)
