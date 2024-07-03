@@ -212,7 +212,9 @@ class TrackletExtractor(Base, BufferedGenerator):
         if not cnt:
             return None
 
-        tracklet = Tracklet(id=track.id, states=states, init_metadata={'sensor_id': sensor_id})
+        init_metadata = deepcopy(track.metadata)
+        init_metadata['sensor_id'] = sensor_id
+        tracklet = Tracklet(id=track.id, states=states, init_metadata=init_metadata)
 
         return tracklet
 
