@@ -67,9 +67,9 @@ class TrackletExtractor(Base, BufferedGenerator):
     def extract(self, alltracks, timestamp):
         if not len(self._fuse_times) or timestamp - self._fuse_times[-1] >= self.fuse_interval:
             # Append current fuse time to fuse times
-            self._fuse_times.append(timestamp)
             self._tracklets = self.get_tracklets_seq(alltracks, timestamp)
             self.current = (timestamp, self._tracklets)
+            self._fuse_times.append(timestamp)
         return self._tracklets
 
     def get_tracklets_seq(self, alltracks, timestamp):
@@ -137,7 +137,10 @@ class TrackletExtractor(Base, BufferedGenerator):
         nupd = np.sum(np.logical_and(track_times > start_time, track_times <= end_time))
         if nupd > 0:
             # Indices of end-states that are just before the start and end times
-            ind0 = np.flatnonzero(filtered_times <= start_time)[-1]
+            ind0_list = np.flatnonzero(filtered_times <= start_time)
+            if not len(ind0_list):
+                return
+            ind0 = ind0_list[-1]
             ind1 = np.flatnonzero(filtered_times <= end_time)[-1]
             # The end states
             end_states = [track.states[ind0], track.states[ind1]]
