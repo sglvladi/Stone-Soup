@@ -27,9 +27,13 @@ class ParticlePredictor(Predictor):
 
     An implementation of a Particle Filter predictor.
     """
+    proposal: Proposal = Property(
+        default=None,
+        doc="A proposal object that generates samples from the proposal distribution. If `None`,"
+            "the transition model is used to generate samples.")
 
     @predict_lru_cache()
-    def predict(self, prior, timestamp=None, **kwargs):
+    def predict(self, prior, timestamp=None, detection=None, **kwargs):
         """Particle Filter prediction step
 
         Parameters
@@ -52,11 +56,19 @@ class ParticlePredictor(Predictor):
             # TypeError: (timestamp or prior.timestamp) is None
             time_interval = None
 
-        new_state_vector = self.transition_model.function(
-            prior,
-            noise=True,
-            time_interval=time_interval,
-            **kwargs)
+        if self.proposal is None:
+            new_state_vector = self.transition_model.function(
+                prior,
+                noise=True,
+                time_interval=time_interval,
+                **kwargs)
+        else:
+            new_state_vector = self.proposal.rvs(prior,
+                                                 noise=True,
+                                                 time_interval=time_interval,
+                                                 detection=detection,
+                                                 **kwargs)
+
 
         return Prediction.from_state(prior,
                                      parent=prior,

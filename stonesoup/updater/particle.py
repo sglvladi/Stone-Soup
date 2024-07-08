@@ -42,7 +42,10 @@ class ParticleUpdater(Updater):
             'resampled. If the :class:`~.Resampler` is not defined but a '
             ':class:`~.Regulariser` is, then regularisation will be conducted under the '
             'assumption that the user intends for this to occur.')
-
+    proposal: Proposal = Property(
+        default=None,
+        doc="Proposal to be used in the particle filter update step. If `None`, "
+            "then the bootstrap particle filter update step will be performed.")
     constraint_func: Callable = Property(
         default=None,
         doc="Callable, user defined function for applying "
@@ -86,8 +89,30 @@ class ParticleUpdater(Updater):
         else:
             measurement_model = hypothesis.measurement.measurement_model
 
-        new_weight = predicted_state.log_weight + measurement_model.logpdf(
-            hypothesis.measurement, predicted_state, **kwargs)
+        # p(y_k|x_k)
+        loglikelihood = measurement_model.logpdf(hypothesis.measurement, predicted_state,
+                                                 **kwargs)
+
+        if self.proposal is None:
+            # w_k = w_k-1 * p(y_k|x_k)
+            new_weight = predicted_state.log_weight + loglikelihood
+        else:
+            time_interval = hypothesis.measurement.timestamp -\
+                            hypothesis.prediction.timestamp
+
+            # p(x_k|x_k-1)
+            prior_logpdf = self.proposal.prior_logpdf(predicted_state,
+                                                      hypothesis.prediction.prior,
+                                                      time_interval,
+                                                      **kwargs)
+
+            # q(x_k|x_k-1, y_k)
+            prop_logpdf = self.proposal.logpdf(predicted_state,
+                                               hypothesis.prediction.prior,
+                                               hypothesis.measurement,
+                                               **kwargs)
+            # w_k = w_k-1 * ( p(y_k|x_k) * p(x_k|x_k-1) / q(x_k|x_k-1, y_k) )
+            new_weight = predicted_state.log_weight + prior_logpdf + loglikelihood - prop_logpdf
 
         # Apply constraints if defined
         if self.constraint_func is not None:
@@ -664,11 +689,6 @@ class ParticleUpdaterWithProposal(ParticleUpdater):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-    #
-    #     if self.proposal is None:
-    #         self.proposal = PriorAsProposal()
-
-   # print(proposal.transition_model)
 
 
     @property
