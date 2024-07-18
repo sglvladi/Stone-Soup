@@ -56,7 +56,8 @@ class Proposal(Base):
         """
         raise NotImplementedError
 
-    def prior_pdf(self, new_state: State, old_state: State, **kwargs) -> Union[Probability, np.ndarray]:
+    def prior_pdf(self, new_state: State, old_state: State, **kwargs) \
+            -> Union[Probability, np.ndarray]:
         r"""Proposal prior probability density function
         Evaluates the prior probability density function of a state given the proposal.
         Parameters
@@ -74,6 +75,7 @@ class Proposal(Base):
 
     def logpdf(self, new_state: State, old_state: State, measurement: Detection = None, **kwargs) \
             -> Union[float, np.ndarray]:
+#
         r"""Proposal log probability density function
         Evaluates the log probability density function of a state given the proposal.
         Parameters
@@ -89,7 +91,8 @@ class Proposal(Base):
         """
         return np.log(self.pdf(new_state, old_state, measurement, **kwargs))
 
-    def prior_logpdf(self, new_state: State, old_state: State, **kwargs) -> Union[float, np.ndarray]:
+    def prior_logpdf(self, new_state: State, old_state: State, **kwargs) \
+            -> Union[float, np.ndarray]:
         r"""Proposal prior log probability density function
         Evaluates the prior log probability density function of a state given the proposal.
         Parameters

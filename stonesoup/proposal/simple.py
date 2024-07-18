@@ -1,6 +1,7 @@
 from typing import Union
 
 import numpy as np
+from scipy.stats import multivariate_normal
 
 from stonesoup.base import Property
 from stonesoup.models.measurement import MeasurementModel
@@ -9,7 +10,14 @@ from stonesoup.proposal.base import Proposal
 from stonesoup.types.array import StateVector, StateVectors
 from stonesoup.types.detection import Detection
 from stonesoup.types.numeric import Probability
-from stonesoup.types.state import State
+from stonesoup.types.state import State, GaussianState, SqrtGaussianState, ParticleState
+from stonesoup.types.prediction import Prediction
+from stonesoup.updater.base import Updater
+from stonesoup.predictor.base import Predictor
+from stonesoup.predictor.kalman import SqrtKalmanPredictor
+from stonesoup.types.hypothesis import SingleHypothesis
+from stonesoup.types.numeric import Probability
+from stonesoup.types.particle import Particle
 
 
 class PriorAsProposal(Proposal):
@@ -33,10 +41,21 @@ class PriorAsProposal(Proposal):
         : 2-D array of shape (:attr:`ndim`, ``num_samples``)
             A set of Np samples, generated from the model's noise
             distribution.
-        """
-        return self.transition_model.function(state, **kwargs)
 
-    def pdf(self, new_state: State, old_state: State, **kwargs) -> Union[Probability, np.ndarray]:
+        """
+
+        new_state = self.transition_model.function(state, **kwargs)
+        # temp_state = ParticleState(state_vector=new_state)
+        # print(kwargs['detection'])
+        # prior_logpdf = self.prior_logpdf(temp_state, state, **kwargs)
+        # loglikelihood = self.measurement_model.logpdf(kwargs['detection'], temp_state, **kwargs)
+        # prop_logpdf = self.logpdf(temp_state, state, **kwargs)
+        # new_weights = state.log_weights + prior_logpdf + loglikelihood - prop_logpdf
+        return new_state # , new_weights
+
+
+    def pdf(self, new_state: State, old_state: State, measurement: Detection = None,
+            **kwargs) -> Union[Probability, np.ndarray]:
         """Evaluate the probability density function of a state given the proposal.
         Parameters
         ----------
@@ -51,7 +70,8 @@ class PriorAsProposal(Proposal):
         """
         return self.prior_pdf(new_state, old_state, **kwargs)
 
-    def prior_pdf(self, new_state: State, old_state: State, **kwargs) -> Union[Probability, np.ndarray]:
+    def prior_pdf(self, new_state: State, old_state: State, measurement: Detection = None, **kwargs) \
+            -> Union[Probability, np.ndarray]:
         """Evaluate the probability density function of a state given the proposal.
         Parameters
         ----------
@@ -66,7 +86,8 @@ class PriorAsProposal(Proposal):
         """
         return self.transition_model.pdf(new_state, old_state, **kwargs)
 
-    def prior_logpdf(self, new_state: State, old_state: State, **kwargs) -> Union[float, np.ndarray]:
+    def prior_logpdf(self, new_state: State, old_state: State, measurement: Detection = None, **kwargs) \
+            -> Union[float, np.ndarray]:
         """Evaluate the log likelihood of a state given the proposal.
         Parameters
         ----------
@@ -79,7 +100,8 @@ class PriorAsProposal(Proposal):
         """
         return self.transition_model.logpdf(new_state, old_state, **kwargs)
 
-    def logpdf(self, state1: State, state2: State, **kwargs) -> Union[float, np.ndarray]:
+    def logpdf(self, state1: State, state2: State, measurement: Detection = None, **kwargs) \
+            -> Union[float, np.ndarray]:
         """Evaluate the log probability density function of a state given the proposal.
         Parameters
         ----------
@@ -92,21 +114,21 @@ class PriorAsProposal(Proposal):
         : float
             The log probability density function of the state given the proposal.
         """
-        return self.prior_logpdf(state1, state2, **kwargs)
+        return self.prior_logpdf(state1, state2, measurement, **kwargs)
 
 
 class KFasProposal(Proposal):
-    pass
-
-
-class RWProposal(PriorAsProposal, Proposal):
-    """Random Walk proposal, proposal that uses the random walk to propagate
-    the particles states.
-
+    """This proposal should inherit the Kalman properties
+        to perform the various steps required
     """
+    predictor: Predictor = Property(
+        doc="predictor to use the various values")
+    updater: Updater = Property(
+        doc="Updater used for update the values")
 
     def rvs(self, state: State, **kwargs) -> Union[StateVector, StateVectors]:
         """Generate samples from the proposal.
+            Use the kalman filter predictor
         Parameters
         ----------
         state: :class:`~.State`
@@ -117,107 +139,121 @@ class RWProposal(PriorAsProposal, Proposal):
             A set of Np samples, generated from the model's noise
             distribution.
         """
-#        return self.transition_model.function(state, **kwargs)  # this is the transition model
-        return multivariate_normal.rvs(
-            np.zeros(state.ndim), state.covar, 1, random_state=None)
 
+        # get the number of particles
+        number_particles = state.state_vector.shape[1]
+        old_weight = state.log_weight
 
-# class HMCProposal(Proposal):
-#     """Hamiltonian monte carlo proposal
-#         Fixed step Hamiltonian Monte Carlo proposal distribution for an SMC-sampler.
-#         Moves samples around the target using the leapfrog integration method over a fixed
-#         number of steps and a fixed step-size. In HMC omentum is usually used in Hamiltonian
-#         MCMC, but here we assume (for the time being) that the mass is the identity matrix,
-#         we therefore refer to it as velocity since momentum = mass * velocity
-#
-#     """
-#
-#     D: int = Property(
-#         default=None,
-#         doc="Distribution dimension")
-#     target: np.array = Property(
-#         default=None,
-#         doc="Target distribution")
-#     h: float = Property(
-#         default=0.5,
-#         doc="Step size used by Leapfrog integration")
-#     steps: int = Property(
-#         default=100,
-#         doc="Number of steps used by the leapfrog integration")
-#     v_dist = Property(
-#         default=None,
-#         doc="Velocity distribution")
-#
-#     # missing at the moment both element wise gradient and v_distribution needs to
-#     # be more specified, a well the target needs to be a function
-#
-#         # Set a gradient object which we call each time we require it inside Leapfrog
-#     #    self.grad = egrad(self.target.logpdf)
-#
-#         # Define an initial velocity disitrbution
-#      #   self.v_dist = multivariate_normal(mean=np.zeros(D), cov=Cov * np.eye(D))
-#
-#     def __init__(self, *args, **kwargs):
-#         super().__init__(*args, **kwargs)
-#         # maybe here I need to put the velocity distribution
-#
-#     def pdf(self, v, v_cond=None):
-#         """
-#             Calculate pdf of velocity distribution
-#         """
-#
-#         return self.v_dist.pdf(v)
-#
-#     def logpdf(self, v, v_cond=None):
-#         """
-#             Calculate logpdf of velocity distribution
-#         """
-#
-#         return self.v_dist.logpdf(v)
-#
-#     def rvs(self, x_cond):
-#         """
-#             Returns a new sample state at the end of the integer number
-#             of Leapfrog steps.
-#         """
-#
-#         # Unpack position, initial velocity, and initial gradient
-#         x = x_cond[0, :]
-#         v = x_cond[1, :]
-#         grad_x = x_cond[2, :]
-#
-#         x_new, v_new = self.generate_HMC_samples(x, v, grad_x)
-#         return x_new, v_new, self.h * self.steps
-#
-#     def generate_HMC_samples(self, x, v, grad_x):
-#         """
-#             Handles the fixed step HMC proposal by generating a new sample after a
-#             number of Leapfrog steps.
-#         """
-#
-#         # Main leapfrog loop
-#         for k in range(0, self.steps):
-#             x, v, grad_x = self.leapfrog(x, v, grad_x)
-#
-#         return x, v
-#
-#     def leapfrog(self, x, v, grad_x):
-#         """
-#             Performs a single Leapfrog step returning the final position,
-#             velocity and gradient.
-#         """
-#
-#         v = np.add(v, (self.h / 2) * grad_x)
-#         x = np.add(x, self.h * v)
-#         grad_x = self.grad(x)
-#         v = np.add(v, (self.h / 2) * grad_x)
-#
-#         return x, v, grad_x
-#
-#     def v_rvs(self, size):
-#         """
-#             Draw a number of samples equal to size from the velocity-
-#             momentum distribution
-#         """
-#
-#         return self.v_dist.rvs(size)
+        if not isinstance(kwargs['detection'], type(None)):
+            temp_timestamp = kwargs['detection'].timestamp
+        else:
+            temp_timestamp = state.timestamp
+
+        if isinstance(self.predictor, SqrtKalmanPredictor):
+            kalman_prediction = self.predictor.predict(
+                SqrtGaussianState(state.mean, state.covar, state.timestamp),
+                timestamp=temp_timestamp, noise=kwargs['noise'])
+        else:
+            kalman_prediction = self.predictor.predict(
+                GaussianState(state.mean, state.covar, state.timestamp),
+                timestamp=temp_timestamp, noise=kwargs['noise'])
+
+        # ok now I have the new state in KF shape
+        posterior_state = self.updater.update(SingleHypothesis(kalman_prediction, kwargs['detection']))
+        # need to sample from the posterior now
+
+        samples = multivariate_normal.rvs(
+            np.array(posterior_state.state_vector).reshape(-1),
+            posterior_state.covar,
+            size=number_particles)
+
+#        print(samples.shape)
+        particles = [Particle(sample.reshape(-1, 1),
+                              weight=1) for sample in samples]
+
+        pred_state = ParticleState(state_vector=None,
+                                   particle_list=particles,
+                                   timestamp=temp_timestamp)
+
+        # p(y_k|x_k)
+        # loglikelihood = measurement_model.logpdf(kwargs['detection'], pred_state,
+        #                                          **kwargs)
+        #
+        # # p(x_k|x_k-1)
+        # prior_logpdf = self.prior_logpdf(pred_state,
+        #                                  state,  # acting as prior
+        #                                  kwargs['detection'],
+        #                                  **kwargs)
+        #
+        # # q(x_k|x_k-1, y_k)
+        # prop_logpdf = self.logpdf(predicted_state,
+        #                           state,
+        #                           kwargs['detection'],
+        #                           **kwargs)
+        #
+        # new_weights = old_weight +  prior_logpdf + loglikelihood - prop_logpdf
+
+        return pred_state.state_vector
+
+    def prior_pdf(self, new_state: State, old_state: State, measurement: Detection = None, **kwargs) \
+            -> Union[Probability, np.ndarray]:
+        """Evaluate the probability density function of a state given the proposal.
+        Parameters
+        ----------
+        state1: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        state2: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        Returns
+        -------
+        : float
+            The probability density function of the state given the proposal.
+        """
+        return self.predictor.transition_model.pdf(new_state, old_state, **kwargs)
+
+    def pdf(self, new_state: State, old_state: State, measurement: Detection = None,
+            **kwargs) -> Union[Probability, np.ndarray]:
+        """Evaluate the probability density function of a state given the proposal.
+        Parameters
+        ----------
+        state1: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        state2: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        Returns
+        -------
+        : float
+            The probability density function of the state given the proposal.
+        """
+
+        return self.prior_pdf(new_state, old_state, measurement,  **kwargs)
+
+    def prior_logpdf(self, new_state: State, old_state: State, measurement: Detection = None, **kwargs) \
+            -> Union[float, np.ndarray]:
+        """Evaluate the log likelihood of a state given the proposal.
+        Parameters
+        ----------
+        state: :class:`~.StateVector`
+            The state to evaluate the log likelihood of a state given the proposal.
+        Returns
+        -------
+        : float
+            The log likelihood of the state given the proposal.
+        """
+        return self.predictor.transition_model.logpdf(new_state, old_state, **kwargs)
+
+    def logpdf(self, state1: State, state2: State, measurement: Detection = None, **kwargs) \
+            -> Union[float, np.ndarray]:
+        """Evaluate the log probability density function of a state given the proposal.
+        Parameters
+        ----------
+        state1: :class:`~.State`
+            The state to evaluate the log probability density function of a state given the proposal.
+        state2: :class:`~.State`
+            The state to evaluate the log probability density function of a state given the proposal.
+        Returns
+        -------
+        : float
+            The log probability density function of the state given the proposal.
+        """
+        return self.prior_logpdf(state1, state2, measurement, **kwargs)

@@ -62,13 +62,12 @@ class ParticlePredictor(Predictor):
                 noise=True,
                 time_interval=time_interval,
                 **kwargs)
-        else:
+         else:
             new_state_vector = self.proposal.rvs(prior,
                                                  noise=True,
                                                  time_interval=time_interval,
                                                  detection=detection,
                                                  **kwargs)
-
 
         return Prediction.from_state(prior,
                                      parent=prior,
