@@ -526,6 +526,7 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                 if var < rfi.threshold_over_time.threshold[0]:
                     config_metric += priority
     elif rfi.task_type == TaskType.FIND:
+        p_success = 0
         # Calculate number of tracks inside polygon
         for track in valid_tracks:
             # Sample points from the track state
@@ -550,6 +551,16 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
             # var = p_success * (1 - p_success)
             if p_success > rfi.threshold_over_time.threshold[0]:
                 config_metric += priority
+        if p_success ==0:
+            aoi = 0
+            for sensor in sensors:
+                # center = (sensor.position[1], sensor.position[0])
+                # radius = sensor.fov_radius
+                # p = geodesic_point_buffer(*center, radius)
+                p = sensor.footprint
+                aoi = max([geom.intersection(p).area / geom.area, aoi])
+            config_metric += aoi * priority
+
 
     return config_metric
 
