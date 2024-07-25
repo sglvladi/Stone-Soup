@@ -158,10 +158,14 @@ class KFasProposal(Proposal):
                 GaussianState(state.mean, state.covar, state.timestamp),
                 timestamp=temp_timestamp, noise=kwargs['noise'])
 
-        # ok now I have the new state in KF shape
-        posterior_state = self.updater.update(SingleHypothesis(kalman_prediction, kwargs['detection']))
-        # need to sample from the posterior now
+        if not isinstance(kwargs['detection'], type(None)):
+            # in case we don't have the detection
+            posterior_state = self.updater.update(SingleHypothesis(kalman_prediction, kwargs['detection']))
+        else:
+            #print('not updated')
+            posterior_state = kalman_prediction  # keep the prediction
 
+        # need to sample from the posterior now
         samples = multivariate_normal.rvs(
             np.array(posterior_state.state_vector).reshape(-1),
             posterior_state.covar,
@@ -192,6 +196,139 @@ class KFasProposal(Proposal):
         #                           **kwargs)
         #
         # new_weights = old_weight +  prior_logpdf + loglikelihood - prop_logpdf
+        return pred_state.state_vector
+
+    def prior_pdf(self, new_state: State, old_state: State, measurement: Detection = None, **kwargs) \
+            -> Union[Probability, np.ndarray]:
+        """Evaluate the probability density function of a state given the proposal.
+        Parameters
+        ----------
+        state1: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        state2: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        Returns
+        -------
+        : float
+            The probability density function of the state given the proposal.
+        """
+        return self.predictor.transition_model.pdf(new_state, old_state, **kwargs)
+
+    def pdf(self, new_state: State, old_state: State, measurement: Detection = None,
+            **kwargs) -> Union[Probability, np.ndarray]:
+        """Evaluate the probability density function of a state given the proposal.
+        Parameters
+        ----------
+        state1: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        state2: :class:`~.State`
+            The state to evaluate the probability density function of a state given the proposal.
+        Returns
+        -------
+        : float
+            The probability density function of the state given the proposal.
+        """
+
+        return self.prior_pdf(new_state, old_state, measurement,  **kwargs)
+
+    def prior_logpdf(self, new_state: State, old_state: State, measurement: Detection = None, **kwargs) \
+            -> Union[float, np.ndarray]:
+        """Evaluate the log likelihood of a state given the proposal.
+        Parameters
+        ----------
+        state: :class:`~.StateVector`
+            The state to evaluate the log likelihood of a state given the proposal.
+        Returns
+        -------
+        : float
+            The log likelihood of the state given the proposal.
+        """
+        return self.predictor.transition_model.logpdf(new_state, old_state, **kwargs)
+
+    def logpdf(self, state1: State, state2: State, measurement: Detection = None, **kwargs) \
+            -> Union[float, np.ndarray]:
+        """Evaluate the log probability density function of a state given the proposal.
+        Parameters
+        ----------
+        state1: :class:`~.State`
+            The state to evaluate the log probability density function of a state given the proposal.
+        state2: :class:`~.State`
+            The state to evaluate the log probability density function of a state given the proposal.
+        Returns
+        -------
+        : float
+            The log probability density function of the state given the proposal.
+        """
+        return self.prior_logpdf(state1, state2, measurement, **kwargs)
+
+
+class LocalKFasProposal(Proposal):
+    """
+       Local kalman filter proposal
+    """
+    predictor: Predictor = Property(
+        doc="predictor to use the various values")
+    updater: Updater = Property(
+        doc="Updater used for update the values")
+
+    def rvs(self, state: State, **kwargs) -> Union[StateVector, StateVectors]:
+        """Generate samples from the proposal.
+            Use the kalman filter predictor
+        Parameters
+        ----------
+        state: :class:`~.State`
+            The state to generate samples from.
+        Returns
+        -------
+        : 2-D array of shape (:attr:`ndim`, ``num_samples``)
+            A set of Np samples, generated from the model's noise
+            distribution.
+        """
+
+        # get the number of particles
+        number_particles = state.state_vector.shape[1]
+        old_weight = state.log_weight
+
+        predictions, updates = [], []
+        if not isinstance(kwargs['detection'], type(None)):
+            temp_timestamp = kwargs['detection'].timestamp
+        else:
+            temp_timestamp = state.timestamp
+
+        if isinstance(self.predictor, SqrtKalmanPredictor):
+
+            # loop over the particles
+            for iparticle in range(number_particles):
+                predictions.append(self.predictor.predict(
+                    SqrtGaussianState(state.state_vector[:, iparticle],
+                                      state.covar,
+                                      state.timestamp),
+                    timestamp=temp_timestamp,
+                    noise=kwargs['noise']))
+        else:
+            for iparticle in range(number_particles):
+                predictions.append(self.predictor.predict(
+                    GaussianState(state.state_vector[:, iparticle],
+                                  state.covar,
+                                  state.timestamp),
+                    timestamp=temp_timestamp,
+                    noise=kwargs['noise']))
+
+        if not isinstance(kwargs['detection'], type(None)):
+
+            # in case we don't have the detection
+            for prediction in predictions:
+                updates.append(self.updater.update(
+                    SingleHypothesis(prediction, kwargs['detection'])))
+        else:
+            updates = predictions  # keep the prediction
+
+        particles = [Particle(sample.state_vector.reshape(-1, 1),
+                              weight=1) for sample in updates]
+
+        pred_state = ParticleState(state_vector=None,
+                                   particle_list=particles,
+                                   timestamp=temp_timestamp)
 
         return pred_state.state_vector
 
