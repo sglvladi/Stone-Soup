@@ -14,10 +14,9 @@ from stonesoup.models.measurement.linear import LinearGaussian
 from stonesoup.sensor.action import ActionGenerator
 from stonesoup.sensor.actionable import ActionableProperty
 from stonesoup.sensor.sensor import Sensor
-from stonesoup.types.array import CovarianceMatrix
+from stonesoup.types.array import CovarianceMatrix, StateVector
 from stonesoup.types.detection import TrueDetection
 from stonesoup.types.groundtruth import GroundTruthState
-from stonesoup.types.numeric import Probability
 
 
 class MovableUAVCamera(Sensor):
@@ -36,22 +35,14 @@ class MovableUAVCamera(Sensor):
                     :class:`~.CartesianToElevationBearing` model")
     fov_radius: Union[float, List[float]] = Property(
         doc="The detection field of view radius of the sensor")
-    prob_detect: Probability = Property(
-        default=None,
-        doc="The probability of detection of the sensor. Defaults to 1.0")
     clutter_model: ClutterModel = Property(
         default=None,
         doc="An optional clutter generator that adds a set of simulated "
             ":class:`Clutter` objects to the measurements at each time step. "
             "The clutter is simulated according to the provided distribution.")
-    location_x: float = ActionableProperty(
-        doc="The sensor x location. Defaults to zero",
-        default=0,
-        generator_cls=LocationActionGenerator
-    )
-    location_y: float = ActionableProperty(
-        doc="The sensor y location. Defaults to zero",
-        default=0,
+    location: StateVector = ActionableProperty(
+        doc="The sensor location. Defaults to zero",
+        default=None,
         generator_cls=LocationActionGenerator
     )
     limits: dict = Property(
@@ -68,28 +59,18 @@ class MovableUAVCamera(Sensor):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.prob_detect is None:
-            self.prob_detect = Probability(1)
         self._footprint = None
         if self.rfis is None:
             self.rfis = []
 
-    @location_x.setter
-    def location_x(self, value):
-        self._property_location_x = value
+    @location.setter
+    def location(self, value):
+        self._property_location = value
         if not self.movement_controller:
             return
         new_position = self.movement_controller.position.copy()
-        new_position[0] = value
-        self.movement_controller.position = new_position
-
-    @location_y.setter
-    def location_y(self, value):
-        self._property_location_y = value
-        if not self.movement_controller:
-            return
-        new_position = self.movement_controller.position.copy()
-        new_position[1] = value
+        new_position[0] = value[0]
+        new_position[1] = value[1]
         self.movement_controller.position = new_position
 
     @property
@@ -129,7 +110,7 @@ class MovableUAVCamera(Sensor):
             if self.fov_in_km:
                 # distance = geopy.distance.distance(np.flip(self.position[0:2]),
                 #                                    np.flip(measurement_vector[0:2])).km
-                if not self.footprint.contains(Point(measurement_vector[0:2])):
+                if not self._footprint.contains(Point(measurement_vector[0:2])):
                     continue
             else:
                 # Normalise measurement vector relative to sensor position
@@ -145,15 +126,12 @@ class MovableUAVCamera(Sensor):
                                       measurement_model=measurement_model,
                                       timestamp=truth.timestamp,
                                       groundtruth_path=truth)
-
-            # Generate detection with probability of detection
-            if np.random.rand() <= self.prob_detect:
-                detections.add(detection)
+            detections.add(detection)
 
         # Generate clutter at this time step
         if self.clutter_model is not None:
             self.clutter_model.measurement_model = measurement_model
-            clutter = self.clutter_model.function(ground_truths, **kwargs)
+            clutter = self.clutter_model.function(ground_truths)
             detections |= clutter
 
         return detections
@@ -189,7 +167,7 @@ class MovableUAVCamera(Sensor):
         if start_timestamp is None:
             start_timestamp = self.timestamp
 
-        rois = [rfi.region_of_interest for rfi in self.rfis]
+        rois = [roi for rfi in self.rfis for roi in rfi.region_of_interest]
         possible_locations = []
         footprint = self.footprint
         # Get min max lat lon of the footprint
@@ -206,18 +184,11 @@ class MovableUAVCamera(Sensor):
             possible_locations += cover_rectangle_with_minimum_overlapping_circles(
                 x1, y1, x2, y2, asset_fov_ll
             )
-
-        possible_locations_x = [loc[0] for loc in possible_locations]
-        possible_locations_y = [loc[1] for loc in possible_locations]
-
+        possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
         generators = set()
         for name, property_ in self._actionable_properties.items():
-            if name == 'location_x':
-                possible_values = possible_locations_x
-            else:
-                possible_values = possible_locations_y
             generators.add(
-                self._get_generator(name, property_, timestamp, start_timestamp, possible_values)
+                self._get_generator(name, property_, timestamp, start_timestamp, possible_locations)
             )
 
         # generators = {self._get_generator(name, property_, timestamp, start_timestamp, rois)

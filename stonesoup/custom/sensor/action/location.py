@@ -50,8 +50,6 @@ class LocationActionGenerator(RealNumberActionGenerator):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        if self.possible_values is not None:
-            self.possible_values = sorted(self.possible_values)
 
     @property
     def default_action(self):
@@ -99,30 +97,26 @@ class LocationActionGenerator(RealNumberActionGenerator):
 
         possible_values = self._get_possible_values()
         possible_values = np.append(possible_values, self.current_value)
-        possible_values.sort()
-        return possible_values[0] <= item <= possible_values[-1]
+        return len(np.flatnonzero(possible_values == item)) > 0
 
     def __iter__(self) -> Iterator[ChangeLocationAction]:
         """Returns all possible ChangePanTiltAction types"""
         possible_values = self._get_possible_values()
-
         yield self.default_action
-        for angle in possible_values:
-            if angle == self.current_value:
-                continue
+        for value in possible_values:
             yield self._action_cls(generator=self,
                                    end_time=self.end_time,
-                                   target_value=angle)
+                                   target_value=value)
 
     def action_from_value(self, value):
-        if value not in self:
-            return None
-        possible_values = self._get_possible_values()
-        possible_values = np.append(possible_values, self.current_value)
-        angle = get_nearest(possible_values, value)
+        # if value not in self:
+        #     return None
+        # possible_values = self._get_possible_values()
+        # possible_values = np.append(possible_values, self.current_value)
+        # value = get_nearest(possible_values, value)
         return self._action_cls(generator=self,
                                 end_time=self.end_time,
-                                target_value=angle)
+                                target_value=value)
 
     def _get_possible_values(self):
         if self.possible_values is not None:
