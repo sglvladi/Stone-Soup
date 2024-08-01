@@ -13,7 +13,7 @@ from stonesoup.types.groundtruth import GroundTruthState, GroundTruthPath
 from stonesoup.types.state import GaussianState
 from stonesoup.types.array import StateVector
 from stonesoup.types.detection import Detection
-from stonesoup.proposal.simple import PriorAsProposal, KFasProposal, LocalKFasProposal
+from stonesoup.proposal.simple import PriorAsProposal, KFasProposal # , LocalKFasProposal
 
 from stonesoup.models.measurement.nonlinear import CartesianToBearingRange
 from stonesoup.models.measurement.linear import LinearGaussian
@@ -87,10 +87,12 @@ updater = ParticleUpdater(measurement_model=measurement_model,
 
 x = PriorAsProposal(transition_model, measurement_model)
 y = KFasProposal(UnscentedKalmanPredictor(transition_model),
-                 UnscentedKalmanUpdater(measurement_model))
+                 UnscentedKalmanUpdater(measurement_model),
+                 scheme='global')
 
-zz = LocalKFasProposal(UnscentedKalmanPredictor(transition_model),
-                 UnscentedKalmanUpdater(measurement_model))
+zz = KFasProposal(UnscentedKalmanPredictor(transition_model),
+                  UnscentedKalmanUpdater(measurement_model),
+                  scheme='local')
 
 predictor1 = ParticlePredictor(transition_model, proposal=x)
 updater1 = ParticleUpdater(resampler=resampler, measurement_model=measurement_model, proposal=x)
