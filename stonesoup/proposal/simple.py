@@ -120,7 +120,7 @@ class PriorAsProposal(Proposal):
 
 class KalmanFilterProposalScheme(Enum):
     """Kalman Filter proposal scheme enumeration"""
-    GLOBAL = 'global'  #: Global KF scheme
+    GLOBAL = 'global'    #: Global KF scheme
     LOCAL = 'local'      #: Local KF scheme
 
 
