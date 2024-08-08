@@ -198,19 +198,18 @@ class KFasProposal(Proposal):
                 size=number_particles)
 
             particles = [Particle(sample.reshape(-1, 1),
-                                  weight=1) for sample in samples]
+                                  weight=1/len(samples)) for sample in samples]
 
             pred_state = ParticleState(state_vector=None,
                                        particle_list=particles,
                                        timestamp=temp_timestamp)
 
         else:
-            # Local proposal
-
             # Null covariance
             null_covar = np.zeros([state.state_vector.shape[0], state.state_vector.shape[0]])
-            covar = np.ones([state.state_vector.shape[0], state.state_vector.shape[0]])
+            #covar = np.ones([state.state_vector.shape[0], state.state_vector.shape[0]])
 
+            covar = state.covar
             predictions, updates = [], []
 
             if isinstance(self.predictor, SqrtKalmanPredictor):
@@ -243,7 +242,7 @@ class KFasProposal(Proposal):
             particles = [Particle(multivariate_normal.rvs(
                 np.array(sample.state_vector).reshape(-1),
                 cov=covar, size=1),
-                weight=1) for sample in updates]
+                weight=1/len(updates)) for sample in updates]
 
             pred_state = ParticleState(state_vector=None,
                                        particle_list=particles,
