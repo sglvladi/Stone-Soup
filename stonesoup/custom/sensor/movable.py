@@ -18,6 +18,7 @@ from stonesoup.types.array import CovarianceMatrix, StateVector
 from stonesoup.types.detection import TrueDetection
 from stonesoup.types.groundtruth import GroundTruthState
 
+from reactive_isr_core.data import JisrTask
 
 class MovableUAVCamera(Sensor):
     """A movable UAV camera sensor."""
