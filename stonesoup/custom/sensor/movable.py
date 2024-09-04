@@ -56,6 +56,10 @@ class MovableUAVCamera(Sensor):
         doc="The RFIs in the scene",
         default=None
     )
+    collection_task: JisrTask = Property(
+        doc="The collection task",
+        default=None,
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -186,6 +190,10 @@ class MovableUAVCamera(Sensor):
                 x1, y1, x2, y2, asset_fov_ll
             )
         possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
+        # Add the collection task location to the possible locations
+        if self.collection_task and self.collection_task.is_relevant(timestamp):
+            loc = self.collection_task.to_location()
+            possible_locations.append(StateVector(*loc))
         generators = set()
         for name, property_ in self._actionable_properties.items():
             generators.add(
