@@ -67,9 +67,9 @@ class TrackletExtractor(Base, BufferedGenerator):
     def extract(self, alltracks, timestamp):
         if not len(self._fuse_times) or timestamp - self._fuse_times[-1] >= self.fuse_interval:
             # Append current fuse time to fuse times
+            self._fuse_times.append(timestamp)
             self._tracklets = self.get_tracklets_seq(alltracks, timestamp)
             self.current = (timestamp, self._tracklets)
-            self._fuse_times.append(timestamp)
         return self._tracklets
 
     def get_tracklets_seq(self, alltracks, timestamp):
