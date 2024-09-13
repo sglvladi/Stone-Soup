@@ -29,6 +29,10 @@ class TwoStateInitiator(Base):
                                                          self.transition_model,
                                                          end_time - start_time)
 
+        # Ensure Matrix is positive-definite
+        if not isPD(init_cov):
+            init_cov = nearestPD(init_cov)
+
         prior = TwoStateGaussianState(init_mean, init_cov, start_time=start_time,
                                       end_time=end_time)
         new_tracks = set()
@@ -99,9 +103,8 @@ class TwoStateMeasurementInitiator(TwoStateInitiator):
             hyp = SingleProbabilityHypothesis(prediction=prior, measurement=detection,
                                               probability=Probability(1.0))
             state = self.updater.update(hyp)
-            track = Track([state], id=self._max_track_id)
+            track = Track([state])
             track.exist_prob = Probability(1)
-            self._max_track_id += 1
             new_tracks.add(track)
 
         return new_tracks
