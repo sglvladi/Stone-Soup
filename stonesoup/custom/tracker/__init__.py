@@ -19,12 +19,14 @@ from stonesoup.models.measurement import MeasurementModel
 from stonesoup.models.transition import TransitionModel
 from stonesoup.predictor.kalman import KalmanPredictor
 from stonesoup.resampler.particle import SystematicResampler
+from stonesoup.sampler.particle import ParticleSampler
 from stonesoup.types.array import StateVectors
 from stonesoup.types.mixture import GaussianMixture
 from stonesoup.types.numeric import Probability
 from stonesoup.types.state import State, ParticleState
 from stonesoup.types.update import GaussianStateUpdate
 from stonesoup.updater.kalman import KalmanUpdater
+from stonesoup.custom.functions import birth_func
 
 
 class _BaseTracker(Base):
@@ -113,8 +115,13 @@ class SMCPHD_JIPDA(_BaseTracker):
         self._associator = JIPDAWithEHM2(self._hypothesiser)
 
         resampler = SystematicResampler()
+        birth_params = {
+            'birth_density': self.birth_density
+        }
+        birth_sampler = ParticleSampler(birth_func, params=birth_params,
+                                        ndim_state=self.transition_model.ndim_state)
         if self.use_ismcphd:
-            phd_filter = ISMCPHDFilter(birth_density=self.birth_density,
+            phd_filter = ISMCPHDFilter(birth_density=birth_sampler,
                                        transition_model=self.transition_model,
                                        measurement_model=self.measurement_model,
                                        prob_detect=self.prob_detect,
@@ -259,7 +266,12 @@ class SMCPHD_IGNN(_BaseTracker):
         self._associator = GNNWith2DAssignment(self._hypothesiser)
 
         resampler = SystematicResampler()
-        phd_filter = ISMCPHDFilter(birth_density=self.birth_density,
+        birth_params = {
+            'birth_density': self.birth_density
+        }
+        birth_sampler = ParticleSampler(birth_func, params=birth_params,
+                                        ndim_state=self.transition_model.ndim_state)
+        phd_filter = ISMCPHDFilter(birth_density=birth_sampler,
                                    transition_model=self.transition_model,
                                    measurement_model=self.measurement_model,
                                    prob_detect=self.prob_detect,

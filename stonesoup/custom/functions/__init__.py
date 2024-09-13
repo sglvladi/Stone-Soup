@@ -776,3 +776,9 @@ def cover_rectangle_with_minimum_overlapping_circles(x1, y1, x2, y2, radius):
             if cp.distance(pol) <= np.sqrt(3)/2*radius:
                 centers.append(offset_center)
     return centers
+
+
+def birth_func(birth_density, num_samples):
+    return multivariate_normal.rvs(birth_density.state_vector.ravel(),
+                                   birth_density.covar,
+                                   size=num_samples).T
