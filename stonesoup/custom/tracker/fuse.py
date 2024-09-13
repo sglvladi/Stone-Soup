@@ -45,10 +45,6 @@ class _BaseFuseTracker(Base):
             print('Scans out of order! Skipping a scan...')
             return tracks, current_end_time
 
-        if hasattr(self.initiator, 'predict'):
-            self.initiator.predict(new_start_time, new_end_time)
-            self.initiator.current_end_time = new_end_time
-
         # Predict two-state tracks forward
         for track in tracks:
             self.predict_track(track, current_end_time, new_start_time, new_end_time,
@@ -67,14 +63,6 @@ class _BaseFuseTracker(Base):
             # Update tracks
             for track in tracks:
                 self.update_track(track, associations[track], scan.id)
-
-            # Initiate new tracks on unassociated detections
-            if isinstance(self.associator, JPDA):
-                assoc_detections = set(
-                    [h.measurement for hyp in associations.values() for h in hyp if h])
-            else:
-                assoc_detections = set(
-                    [hyp.measurement for hyp in associations.values() if hyp])
 
             tracks = set(tracks)
 
@@ -265,6 +253,8 @@ class FuseTracker2(_BaseFuseTracker):
 
     tracklet_extractor: TrackletExtractor = Property(doc='The tracklet extractor')
     pseudomeas_extractor: PseudoMeasExtractor = Property(doc='The pseudo-measurement extractor')
+    fill_empty_scans: bool = Property(doc='Flag to enable tracker to fill empty scans',
+                                      default=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -280,7 +270,14 @@ class FuseTracker2(_BaseFuseTracker):
         tracklets = self.tracklet_extractor.extract(alltracks, timestamp)
         # Extract pseudo-measurements
         scans = self.pseudomeas_extractor.extract(tracklets, timestamp)
-        if not len(scans) and self._current_end_time and timestamp - self._current_end_time >= self.tracklet_extractor.fuse_interval:
+
+        # NOTE: The line below was added to ensure tracks are being propagated even when there
+        #       have been no scans. However, it seems to cause issues with scans being out of
+        #       order.
+        if (self.fill_empty_scans and
+                (not len(scans) and self._current_end_time
+                 and timestamp - self._current_end_time >= self.tracklet_extractor.fuse_interval)):
+            print('Empty Scan!')
             scans = [Scan(self._current_end_time, timestamp, [])]
 
         for scan in scans:
