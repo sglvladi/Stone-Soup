@@ -11,8 +11,7 @@ from stonesoup.custom.functions import geodesic_point_buffer, \
 from stonesoup.custom.sensor.action.location import LocationActionGenerator
 from stonesoup.models.clutter import ClutterModel
 from stonesoup.models.measurement.linear import LinearGaussian
-from stonesoup.sensor.action import ActionGenerator
-from stonesoup.sensor.actionable import ActionableProperty
+from stonesoup.sensormanager.action import ActionGenerator, ActionableProperty
 from stonesoup.sensor.sensor import Sensor
 from stonesoup.types.array import CovarianceMatrix, StateVector
 from stonesoup.types.detection import TrueDetection

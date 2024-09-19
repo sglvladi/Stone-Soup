@@ -8,7 +8,7 @@ from stonesoup.types.array import StateVector
 
 from stonesoup.base import Property
 
-from stonesoup.sensor.action import Action, RealNumberActionGenerator
+from stonesoup.sensormanager.action import Action, RealNumberActionGenerator
 
 
 class ChangeLocationAction(Action):
