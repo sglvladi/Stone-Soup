@@ -607,10 +607,9 @@ class ISMCPHDInitiator(SMCPHDInitiator):
         log_intensity_per_hyp = logsumexp(log_weights_per_hyp, axis=0)
         print(np.exp(log_intensity_per_hyp))
         # Find detections with intensity above threshold and initiate
-        valid_inds = np.flatnonzero(np.exp(log_intensity_per_hyp) > self.threshold)
-        for idx in valid_inds:
-            if not idx:
-                continue
+        valid_inds = np.flatnonzero(np.exp(log_intensity_per_hyp[1:]) > self.threshold)
+        while len(valid_inds):
+            idx = valid_inds[0] + 1
 
             particles_sv = copy(
                 prediction.state_vector[:, :len(prediction) - len(prediction.birth_idx)])
@@ -631,12 +630,14 @@ class ISMCPHDInitiator(SMCPHDInitiator):
                                               timestamp=timestamp)
 
             # if np.trace(track_state.covar) < 10:
-            weights_per_hyp[:, idx] = Probability(0)
+            log_weights_per_hyp[:, idx] = -np.inf
             track = Track([track_state])
             track.exist_prob = Probability(log_intensity_per_hyp[idx], log_value=True)
             tracks.add(track)
 
             weights[idx - 1] = 0
+            log_intensity_per_hyp = logsumexp(log_weights_per_hyp, axis=0)
+            valid_inds = np.flatnonzero(np.exp(log_intensity_per_hyp[1:]) > self.threshold)
 
         # Update filter
         self._state = self.filter.update(prediction, detections, timestamp, weights)
