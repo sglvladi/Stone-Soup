@@ -144,26 +144,12 @@ class SMCPHD_JIPDA(_BaseTracker):
                                       num_samples=self.num_samples,
                                       resampler=resampler,
                                       birth_scheme=self.birth_scheme)
+
         # Sample prior state from birth density
-        if isinstance(self.birth_density, GaussianMixture):
-            state_vector = np.zeros((self.transition_model.ndim_state, 0))
-            particles_per_component = self.num_samples // len(self.birth_density)
-            for i, component in enumerate(self.birth_density):
-                if i == len(self.birth_density) - 1:
-                    particles_per_component += self.num_samples % len(self.birth_density)
-                particles_component = multivariate_normal.rvs(
-                    component.mean.ravel(),
-                    component.covar,
-                    particles_per_component).T
-                state_vector = np.hstack((state_vector, particles_component))
-            state_vector = StateVectors(state_vector)
-        else:
-            state_vector = StateVectors(
-                multivariate_normal.rvs(self.birth_density.state_vector.ravel(),
-                                        self.birth_density.covar,
-                                        size=self.num_samples).T)
-        weight = np.full((self.num_samples,), Probability(1 / self.num_samples)) * self.birth_rate
-        state = ParticleState(state_vector=state_vector, weight=weight, timestamp=self.start_time)
+        state = birth_sampler.sample(timestamp=self.start_time,
+                                     params={'num_samples': self.num_samples})
+        state.weight = np.full((self.num_samples,),
+                               Probability(self.birth_rate / self.num_samples))
 
         if self.use_ismcphd:
             self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=state)
@@ -284,12 +270,10 @@ class SMCPHD_IGNN(_BaseTracker):
                                    birth_scheme=self.birth_scheme)
 
         # Sample prior state from birth density
-        state_vector = StateVectors(
-            multivariate_normal.rvs(self.birth_density.state_vector.ravel(),
-                                    self.birth_density.covar,
-                                    size=self.num_samples).T)
-        weight = np.full((self.num_samples,), Probability(1 / self.num_samples))
-        state = ParticleState(state_vector=state_vector, weight=weight, timestamp=self.start_time)
+        state = birth_sampler.sample(timestamp=self.start_time,
+                                     params={'num_samples': self.num_samples})
+        state.weight = np.full((self.num_samples,),
+                               Probability(self.birth_rate / self.num_samples))
 
         self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=state)
 
