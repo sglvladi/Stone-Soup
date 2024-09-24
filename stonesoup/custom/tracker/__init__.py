@@ -155,7 +155,7 @@ class SMCPHD_JIPDA(_BaseTracker):
                 multivariate_normal.rvs(self.birth_density.state_vector.ravel(),
                                         self.birth_density.covar,
                                         size=self.num_samples).T)
-        weight = np.full((self.num_samples,), Probability(1 / self.num_samples)) * self.birth_rate
+        weight = np.full((self.num_samples,), Probability(self.birth_rate / self.num_samples))
         state = ParticleState(state_vector=state_vector, weight=weight, timestamp=self.start_time)
 
         if self.use_ismcphd:
@@ -276,7 +276,7 @@ class SMCPHD_IGNN(_BaseTracker):
             multivariate_normal.rvs(self.birth_density.state_vector.ravel(),
                                     self.birth_density.covar,
                                     size=self.num_samples).T)
-        weight = np.full((self.num_samples,), Probability(1 / self.num_samples))
+        weight = np.full((self.num_samples,), Probability(self.birth_rate / self.num_samples))
         state = ParticleState(state_vector=state_vector, weight=weight, timestamp=self.start_time)
 
         self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=state)
