@@ -1,4 +1,5 @@
 import datetime
+from itertools import product as it_prod
 from typing import Union, List, Set
 
 import numpy as np
@@ -7,7 +8,7 @@ from shapely import Point
 
 from stonesoup.base import Property
 from stonesoup.custom.functions import geodesic_point_buffer, \
-    cover_rectangle_with_minimum_overlapping_circles
+    cover_rectangle_with_minimum_overlapping_circles, is_valid_track
 from stonesoup.custom.sensor.action.location import LocationActionGenerator
 from stonesoup.models.clutter import ClutterModel
 from stonesoup.models.measurement.linear import LinearGaussian
@@ -18,7 +19,8 @@ from stonesoup.types.array import CovarianceMatrix, StateVector
 from stonesoup.types.detection import TrueDetection
 from stonesoup.types.groundtruth import GroundTruthState
 
-from reactive_isr_core.data import JisrTask
+from reactive_isr_core.data import JisrTask, BeliefState
+
 
 class MovableUAVCamera(Sensor):
     """A movable UAV camera sensor."""
@@ -56,6 +58,10 @@ class MovableUAVCamera(Sensor):
     rfis: List = Property(
         doc="The RFIs in the scene",
         default=None
+    )
+    belief_state: BeliefState = Property(
+        doc="The latest belief state",
+        default=None,
     )
     collection_task: JisrTask = Property(
         doc="The collection task",
@@ -195,6 +201,16 @@ class MovableUAVCamera(Sensor):
         if self.collection_task and self.collection_task.is_relevant(timestamp):
             loc = self.collection_task.to_location()
             possible_locations.append(StateVector(*loc))
+
+        # Add locations for follow RFIs
+        for rfi in started_rfis:
+            if rfi.task_type != 'follow' or self.belief_state is None:
+                continue
+            for target in rfi.targets:
+                for uuid, track in self.belief_state.targets.items():
+                    if target.target_UUID == uuid or target.target_type in track.target_type_confidences:
+                        possible_locations.append(StateVector([track.location.longitude, track.location.latitude]))
+
         generators = set()
         for name, property_ in self._actionable_properties.items():
             generators.add(
