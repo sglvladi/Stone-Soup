@@ -4,6 +4,9 @@ from functools import partial
 import math
 from typing import Set, List, Sequence
 
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
+
 import numpy as np
 from numpy import linalg as la
 from scipy.linalg import block_diag
