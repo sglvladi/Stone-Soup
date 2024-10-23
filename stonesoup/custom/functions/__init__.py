@@ -456,7 +456,7 @@ def get_class_prob(track, target_type):
 
 
 def is_valid_track(track, target) -> bool:
-    if track.id == str(target.target_UUID):
+    if track.id == target.target_UUID:
         return True
     return get_class_prob(track, target.target_type) > 0
 
