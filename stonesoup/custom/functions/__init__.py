@@ -541,6 +541,7 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
             tracks = set(track for track in tracks if is_valid_track(track, target))
             for track in tracks:
                 var = track.covar[0, 0] + track.covar[2, 2]
+                print(var)
                 if var < rfi.threshold_over_time.threshold[0]:
                     config_metric += priority
     elif rfi.task_type == TaskType.FIND:

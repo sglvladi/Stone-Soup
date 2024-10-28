@@ -73,7 +73,7 @@ class MovableUAVCamera(Sensor):
         self._footprint = None
         if self.rfis is None:
             self.rfis = []
-        self._follow_assets = ['AthenaAIUGV', 'WildcatHMA2_IMINT']
+        self._follow_assets = ['WildcatHMA2_IMINT']
         self._find_count_assets = ['Inflatable_Raiding_Craft', 'Offshore_Raiding_Craft']
 
     @property
