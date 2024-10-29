@@ -232,9 +232,6 @@ class MovableUAVCamera(Sensor):
                 self._get_generator(name, property_, timestamp, start_timestamp, possible_locations)
             )
 
-        # generators = {self._get_generator(name, property_, timestamp, start_timestamp, rois)
-        #               for name, property_ in self._actionable_properties.items()}
-
         return generators
 
     def _get_generator(self, name, prop, timestamp, start_timestamp, possible_values=None):
