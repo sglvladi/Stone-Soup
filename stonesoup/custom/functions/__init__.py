@@ -530,12 +530,13 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
         elif mu_overall == 0 and var_overall == 0:
             aoi = 0
             for sensor in sensors:
-                # center = (sensor.position[1], sensor.position[0])
-                # radius = sensor.fov_radius
-                # p = geodesic_point_buffer(*center, radius)
-                p = sensor.footprint
-                aoi = max([geom.intersection(p).area / geom.area, aoi])
-            config_metric += aoi*priority
+                if sensor.name in ['Inflatable_Raiding_Craft', 'lobster.scout0', 'mdm.zeno']:
+                    # center = (sensor.position[1], sensor.position[0])
+                    # radius = sensor.fov_radius
+                    # p = geodesic_point_buffer(*center, radius)
+                    p = sensor.footprint
+                    aoi = max([geom.intersection(p).area / geom.area, aoi])
+                    config_metric += aoi*priority
     elif rfi.task_type == TaskType.FOLLOW:
         for target in rfi.targets:
             tracks = set(track for track in tracks if is_valid_track(track, target))
@@ -573,12 +574,13 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
         if p_success == 0:
             aoi = 0
             for sensor in sensors:
-                # center = (sensor.position[1], sensor.position[0])
-                # radius = sensor.fov_radius
-                # p = geodesic_point_buffer(*center, radius)
-                p = sensor.footprint
-                aoi = max([geom.intersection(p).area / geom.area, aoi])
-            config_metric += aoi * priority
+                if sensor.name in ['Offshore_Raiding_Craft']:
+                    # center = (sensor.position[1], senso1r.position[0])
+                    # radius = sensor.fov_radius
+                    # p = geodesic_point_buffer(*center, radius)
+                    p = sensor.footprint
+                    aoi = max([geom.intersection(p).area / geom.area, aoi])
+                    config_metric += aoi * priority
 
 
     return config_metric
