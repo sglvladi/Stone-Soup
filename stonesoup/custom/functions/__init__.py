@@ -530,7 +530,7 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
         elif mu_overall == 0 and var_overall == 0:
             aoi = 0
             for sensor in sensors:
-                if sensor.name in ['Inflatable_Raiding_Craft', 'lobster.scout0', 'mdm.zeno']:
+                if sensor.name in ['Inflatable_Raiding_Craft', 'lobster.scout0', 'mdm.zeno', 'cmre.bruno']:
                     # center = (sensor.position[1], sensor.position[0])
                     # radius = sensor.fov_radius
                     # p = geodesic_point_buffer(*center, radius)
