@@ -73,6 +73,21 @@ class MovableUAVCamera(Sensor):
         self._footprint = None
         if self.rfis is None:
             self.rfis = []
+        self._follow_assets = ['WildcatHMA2_IMINT', 'Drone_Solo_1', '1ZNBJAB00C00MQ', 'Dstl_Tarot', 'UAS-Autel-Drone-Ops']
+        self._find_assets = ['Offshore_Raiding_Craft']
+        self._count_assets = ['Inflatable_Raiding_Craft', 'lobster.scout0', 'mdm.zeno', 'cmre.bruno', 'cmre.biondo']
+
+    @property
+    def is_follow_asset(self) -> bool:
+        return self.name in self._follow_assets
+
+    @property
+    def is_find_asset(self) -> bool:
+        return self.name in self._find_assets
+
+    @property
+    def is_count_asset(self) -> bool:
+        return self.name in self._count_assets
 
     @location.setter
     def location(self, value):
@@ -179,7 +194,14 @@ class MovableUAVCamera(Sensor):
             start_timestamp = self.timestamp
 
         started_rfis = [rfi for rfi in self.rfis if rfi.status == "started"]
-        rois = [roi for rfi in started_rfis for roi in rfi.region_of_interest]
+        valid_rfis = []
+        if self.is_follow_asset:
+            valid_rfis += [rfi for rfi in started_rfis if rfi.task_type == 'follow']
+        if self.is_find_asset:
+            valid_rfis += [rfi for rfi in started_rfis if rfi.task_type == 'find']
+        if self.is_count_asset:
+            valid_rfis += [rfi for rfi in started_rfis if rfi.task_type == 'count']
+        rois = [roi for rfi in valid_rfis for roi in rfi.region_of_interest if rfi.task_type != 'follow']
         possible_locations = []
         footprint = self.footprint
         # Get min max lat lon of the footprint
@@ -203,7 +225,7 @@ class MovableUAVCamera(Sensor):
             possible_locations.append(StateVector(*loc))
 
         # Add locations for follow RFIs
-        for rfi in started_rfis:
+        for rfi in valid_rfis:
             if rfi.task_type != 'follow' or self.belief_state is None:
                 continue
             for target in rfi.targets:
@@ -216,9 +238,6 @@ class MovableUAVCamera(Sensor):
             generators.add(
                 self._get_generator(name, property_, timestamp, start_timestamp, possible_locations)
             )
-
-        # generators = {self._get_generator(name, property_, timestamp, start_timestamp, rois)
-        #               for name, property_ in self._actionable_properties.items()}
 
         return generators
 
