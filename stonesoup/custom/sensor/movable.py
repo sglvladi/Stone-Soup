@@ -74,15 +74,20 @@ class MovableUAVCamera(Sensor):
         if self.rfis is None:
             self.rfis = []
         self._follow_assets = ['WildcatHMA2_IMINT', 'Drone_Solo_1', '1ZNBJAB00C00MQ', 'Dstl_Tarot']
-        self._find_count_assets = ['Inflatable_Raiding_Craft', 'Offshore_Raiding_Craft']
+        self._find_assets = ['Offshore_Raiding_Craft']
+        self._count_assets = ['Inflatable_Raiding_Craft', 'lobster.scout0', 'mdm.zeno']
 
     @property
     def is_follow_asset(self) -> bool:
         return self.name in self._follow_assets
 
     @property
-    def is_find_count_asset(self) -> bool:
-        return self.name in self._find_count_assets
+    def is_find_asset(self) -> bool:
+        return self.name in self._find_assets
+
+    @property
+    def is_count_asset(self) -> bool:
+        return self.name in self._count_assets
 
     @location.setter
     def location(self, value):
@@ -192,8 +197,10 @@ class MovableUAVCamera(Sensor):
         valid_rfis = []
         if self.is_follow_asset:
             valid_rfis = [rfi for rfi in started_rfis if rfi.task_type == 'follow']
-        elif self.is_find_count_asset:
-            valid_rfis = [rfi for rfi in started_rfis if rfi.task_type != 'follow']
+        elif self.is_find_asset:
+            valid_rfis = [rfi for rfi in started_rfis if rfi.task_type == 'find']
+        elif self.is_count_asset:
+            valid_rfis = [rfi for rfi in started_rfis if rfi.task_type == 'count']
         rois = [roi for rfi in valid_rfis for roi in rfi.region_of_interest if rfi.task_type != 'follow']
         possible_locations = []
         footprint = self.footprint
