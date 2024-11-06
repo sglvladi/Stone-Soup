@@ -7,7 +7,7 @@ from shapely import Point
 
 from stonesoup.base import Property
 from stonesoup.custom.functions import geodesic_point_buffer, \
-    cover_rectangle_with_minimum_overlapping_circles
+    cover_rectangle_with_minimum_overlapping_circles, is_valid_track
 from stonesoup.custom.sensor.action.location import LocationActionGenerator
 from stonesoup.models.clutter import ClutterModel
 from stonesoup.models.measurement.linear import LinearGaussian
@@ -17,6 +17,8 @@ from stonesoup.sensor.sensor import Sensor
 from stonesoup.types.array import CovarianceMatrix, StateVector
 from stonesoup.types.detection import TrueDetection
 from stonesoup.types.groundtruth import GroundTruthState
+
+from reactive_isr_core.data import BeliefState
 
 
 class MovableUAVCamera(Sensor):
@@ -55,6 +57,10 @@ class MovableUAVCamera(Sensor):
     rfis: List = Property(
         doc="The RFIs in the scene",
         default=None
+    )
+    belief_state: BeliefState = Property(
+        doc="The latest belief state",
+        default=None,
     )
 
     def __init__(self, *args, **kwargs):
@@ -186,6 +192,16 @@ class MovableUAVCamera(Sensor):
                 x1, y1, x2, y2, asset_fov_ll
             )
         possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
+
+        # Add locations for follow RFIs
+        for rfi in started_rfis:
+            if rfi.task_type != 'follow' or self.belief_state is None:
+                continue
+            for target in rfi.targets:
+                for uuid, track in self.belief_state.targets.items():
+                    if target.target_UUID == uuid or target.target_type in track.target_type_confidences:
+                        possible_locations.append(StateVector([track.location.longitude, track.location.latitude]))
+
         generators = set()
         for name, property_ in self._actionable_properties.items():
             generators.add(
