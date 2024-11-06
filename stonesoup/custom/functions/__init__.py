@@ -443,6 +443,21 @@ def calculate_num_targets_dist(tracks: Set[Track], geom: BaseGeometry,
     return mu_overall, var_overall
 
 
+def get_class_prob(track, target_type):
+    try:
+        class_prob = float(track.metadata['target_type_confidences'][target_type])
+    except KeyError:
+        # If target_type is not found, then it is 0
+        class_prob = 0
+    return class_prob
+
+
+def is_valid_track(track, target) -> bool:
+    if track.id == str(target.target_UUID):
+        return True
+    return get_class_prob(track, target.target_type) > 0
+
+
 def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
              phd_state: ParticleState = None, use_variance=True, timestamp=None):
     num_samples = 100
@@ -493,7 +508,7 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                 inside_points = np.logical_or(inside_points, path_p.contains_points(points))
             # Class probability
             if target_type:
-                class_prob = float(track.metadata['target_type_confidences'][target_type])
+                class_prob = get_class_prob(track, target_type)
             else:
                 class_prob = 1
             # Probability of existence inside the polygon is the fraction of points inside the polygon
@@ -520,8 +535,8 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
             config_metric += aoi*priority
     elif rfi.task_type == TaskType.FOLLOW:
         for target in rfi.targets:
-            track = next((track for track in tracks if track.id == str(target.target_UUID)), None)
-            if track is not None:
+            tracks = set(track for track in tracks if is_valid_track(track, target))
+            for track in tracks:
                 var = track.covar[0, 0] + track.covar[2, 2]
                 if var < rfi.threshold_over_time.threshold[0]:
                     config_metric += priority
@@ -551,7 +566,7 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
             # var = p_success * (1 - p_success)
             if p_success > rfi.threshold_over_time.threshold[0]:
                 config_metric += priority
-        if p_success ==0:
+        if p_success == 0:
             aoi = 0
             for sensor in sensors:
                 # center = (sensor.position[1], sensor.position[0])
