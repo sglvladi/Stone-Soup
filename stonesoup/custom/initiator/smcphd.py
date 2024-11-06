@@ -512,13 +512,15 @@ class ISMCPHDFilter(SMCPHDFilter):
         C_plus = np.logaddexp(C, k)
         L = np.logaddexp(C_plus, C_birth)
 
-        weights_per_hyp = np.full((num_samples + birth_state.state_vector.shape[1],
-                                   len(detections) + 1), -np.inf)
-        weights_per_hyp[:num_samples, 0] = np.log(1 - prob_detect) + np.log(
-            np.asfarray(prediction.weight))
-        if len(detections):
-            weights_per_hyp[:num_samples, 1:] = np.log(np.asfarray(meas_weights)) + Ck - L
-            weights_per_hyp[num_samples:, 1:] = np.log(np.asfarray(meas_weights)) + Ck_birth - L
+        with np.errstate(divide='ignore'):
+            weights_per_hyp = np.full((num_samples + birth_state.state_vector.shape[1],
+                                       len(detections) + 1), -np.inf)
+            weights_per_hyp[:num_samples, 0] = np.log(1 - prob_detect) + np.log(
+                np.asfarray(prediction.weight))
+            if len(detections):
+                weights_per_hyp[:num_samples, 1:] = np.log(np.asfarray(meas_weights)) + Ck - L
+                weights_per_hyp[num_samples:, 1:] = np.log(np.asfarray(meas_weights)) + Ck_birth - L
+
         return Probability.from_log_ufunc(weights_per_hyp)
 
 
