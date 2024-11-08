@@ -2,12 +2,12 @@ import datetime
 from typing import Union, List, Set
 
 import numpy as np
-import geopy.distance
 from shapely import Point
 
 from stonesoup.base import Property
 from stonesoup.custom.functions import geodesic_point_buffer, \
-    cover_rectangle_with_minimum_overlapping_circles, is_valid_track
+    cover_rectangle_with_minimum_overlapping_circles, is_valid_track, calculate_bearing, \
+    compute_reachable_point
 from stonesoup.custom.sensor.action.location import LocationActionGenerator
 from stonesoup.models.clutter import ClutterModel
 from stonesoup.models.measurement.linear import LinearGaussian
@@ -61,6 +61,14 @@ class MovableUAVCamera(Sensor):
     belief_state: BeliefState = Property(
         doc="The latest belief state",
         default=None,
+    )
+    max_speed: float = Property(
+        doc="The maximum speed of the sensor",
+        default=None
+    )
+    constrain_speed: bool = Property(
+        doc="Whether to constrain actions based on the speed of the sensor",
+        default=False
     )
 
     def __init__(self, *args, **kwargs):
@@ -202,10 +210,21 @@ class MovableUAVCamera(Sensor):
                     if target.target_UUID == uuid or target.target_type in track.target_type_confidences:
                         possible_locations.append(StateVector([track.location.longitude, track.location.latitude]))
 
+        # Constrain actions based on speed
+        new_possible_locations = []
+        if self.constrain_speed and self.max_speed:
+            time = (timestamp - self.movement_controller.state.timestamp).total_seconds()
+            for loc in possible_locations:
+                # Compute the reachable point based on the current location and the max speed
+                new_loc = compute_reachable_point(*self.position[0:2], *loc, self.max_speed, time)
+                new_possible_locations.append(StateVector(new_loc))
+            possible_locations = new_possible_locations
+
         generators = set()
         for name, property_ in self._actionable_properties.items():
             generators.add(
-                self._get_generator(name, property_, timestamp, start_timestamp, possible_locations)
+                self._get_generator(name, property_, timestamp, start_timestamp,
+                                    possible_locations)
             )
 
         # generators = {self._get_generator(name, property_, timestamp, start_timestamp, rois)

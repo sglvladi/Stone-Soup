@@ -1,11 +1,6 @@
-import copy
-from datetime import datetime
 from functools import partial
 import math
 from typing import Set, List, Sequence
-
-import warnings
-warnings.simplefilter(action='ignore', category=FutureWarning)
 
 import numpy as np
 from numpy import linalg as la
@@ -19,6 +14,8 @@ from scipy.special import logsumexp
 from scipy.stats import multivariate_normal
 from shapely.geometry.base import BaseGeometry
 from vector3d.vector import Vector
+from geopy.distance import geodesic
+from geopy import Point as GeoPoint
 
 from reactive_isr_core.data import RFI, TaskType
 from reactive_isr_utils.linear_interpolate_over_time import InterpolateOverTime
@@ -26,6 +23,9 @@ from stonesoup.sensor.sensor import Sensor
 from stonesoup.types.angle import Angle
 from stonesoup.types.state import ParticleState
 from stonesoup.types.track import Track
+
+import warnings
+warnings.simplefilter(action='ignore', category=FutureWarning)
 
 
 class CameraCalculator:
@@ -794,3 +794,70 @@ def cover_rectangle_with_minimum_overlapping_circles(x1, y1, x2, y2, radius):
             if cp.distance(pol) <= np.sqrt(3)/2*radius:
                 centers.append(offset_center)
     return centers
+
+
+def calculate_bearing(lon1, lat1, lon2, lat2):
+    """Calculate the initial bearing from geo point A to point B"""
+    # bearing = Geodesic.WGS84.Inverse(lat1, lon1, lat2, lon2)['azi1']
+    # bearing = (bearing + 360) % 360
+
+    lat1, lon1, lat2, lon2 = map(np.radians, [lat1, lon1, lat2, lon2])
+    dlon = lon2 - lon1
+
+    x = np.sin(dlon) * np.cos(lat2)
+    y = np.cos(lat1) * np.sin(lat2) - np.sin(lat1) * np.cos(lat2) * np.cos(dlon)
+
+    initial_bearing = np.arctan2(x, y)
+    initial_bearing = np.degrees(initial_bearing)
+    bearing = (initial_bearing + 360) % 360  # Normalize to 0-360 degrees
+
+    return bearing
+
+
+def compute_reachable_point(lon1, lat1, lon2, lat2, max_speed, time):
+    """
+    Compute the furthest point reachable within a given time and maximum speed
+    between two latitude/longitude positions.
+
+    Parameters
+    ----------
+    lon1 : float
+        Longitude of the starting point.
+    lat1 : float
+        Latitude of the starting point.
+    lon2 : float
+        Longitude of the destination point.
+    lat2 : float
+        Latitude of the destination point.
+    max_speed : float
+        Maximum speed of the vehicle in m/s.
+    time : float
+        Time limit in seconds.
+
+    Returns
+    -------
+    float, float
+        Longitude and latitude of the reachable point.
+    """
+    # Calculate the distance that can be traveled within the time limit
+    max_distance = max_speed * time / 1000  # distance = speed * time, in kilometers
+
+    # Starting and destination points
+    start = GeoPoint(lat1, lon1)
+    destination = GeoPoint(lat2, lon2)
+
+    # Calculate the total distance between the start and destination
+    total_distance = geodesic(start, destination).kilometers
+
+    # If max_distance is greater than or equal to total_distance, return the destination
+    if np.isclose(max_distance, total_distance) or max_distance > total_distance:
+        return lon2, lat2
+
+    # Calculate the bearing from start to destination
+    bearing = calculate_bearing(lon1, lat1, lon2, lat2)
+    print(bearing)
+
+    # Calculate the reachable point
+    reachable_point = geodesic(kilometers=max_distance).destination(start, bearing)
+
+    return reachable_point.longitude, reachable_point.latitude
