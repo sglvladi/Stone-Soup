@@ -3,7 +3,7 @@ import itertools
 import numpy as np
 from typing import Iterator, List
 
-from stonesoup.custom.functions import get_nearest
+from stonesoup.custom.functions import get_nearest, compute_reachable_point
 from stonesoup.types.array import StateVector
 
 from stonesoup.base import Property
@@ -28,11 +28,17 @@ class ChangeLocationAction(Action):
         -------
         Any
             The new value of the dwell centre"""
-
-        if timestamp >= self.end_time:
-            return self.target_value  # target direction
+        # Check if the sensor has constraints on speed
+        sensor = self.generator.owner
+        if sensor.constrain_speed and sensor.max_speed:
+            time = (timestamp - sensor.movement_controller.state.timestamp).total_seconds()
+            new_loc = compute_reachable_point(*sensor.position[0:2], *self.target_value, sensor.max_speed, time)
+            return StateVector(new_loc)
         else:
-            return init_value  # same direction
+            if timestamp >= self.end_time:
+                return self.target_value  # target direction
+            else:
+                return init_value  # same direction
 
 
 class LocationActionGenerator(RealNumberActionGenerator):
@@ -109,11 +115,6 @@ class LocationActionGenerator(RealNumberActionGenerator):
                                    target_value=value)
 
     def action_from_value(self, value):
-        # if value not in self:
-        #     return None
-        # possible_values = self._get_possible_values()
-        # possible_values = np.append(possible_values, self.current_value)
-        # value = get_nearest(possible_values, value)
         return self._action_cls(generator=self,
                                 end_time=self.end_time,
                                 target_value=value)
