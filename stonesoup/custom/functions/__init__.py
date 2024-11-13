@@ -534,7 +534,11 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                 # radius = sensor.fov_radius
                 # p = geodesic_point_buffer(*center, radius)
                 p = sensor.footprint
-                aoi = max([geom.intersection(p).area / geom.area, aoi])
+                with warnings.catch_warnings():
+                    # Suppress warnings about empty geometries
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
+                    intersection = geom.intersection(p)
+                aoi = max([intersection.area / geom.area, aoi])
             config_metric += aoi*priority
     elif rfi.task_type == TaskType.FOLLOW:
         for target in rfi.targets:
@@ -576,7 +580,11 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                 # radius = sensor.fov_radius
                 # p = geodesic_point_buffer(*center, radius)
                 p = sensor.footprint
-                aoi = max([geom.intersection(p).area / geom.area, aoi])
+                with warnings.catch_warnings():
+                    # Suppress warnings about empty geometries
+                    warnings.simplefilter("ignore", category=RuntimeWarning)
+                    intersection = geom.intersection(p)
+                aoi = max([intersection.area / geom.area, aoi])
             config_metric += aoi * priority
 
 
