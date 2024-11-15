@@ -53,6 +53,10 @@ class SystematicResampler(Resampler):
 
         new_particles = particles[index]
         new_particles.log_weight = np.full((nparts, ), np.log(1/nparts))
+
+        if hasattr(particles, 'target_type_confidences'):
+            new_particles.target_type_confidences = [particles.target_type_confidences[i]
+                                                     for i in index]
         return new_particles
 
 

@@ -1,5 +1,5 @@
 import warnings
-from copy import copy
+from copy import copy, deepcopy
 from typing import List, Any, Union, Callable
 
 import numpy as np
@@ -344,6 +344,10 @@ class ISMCPHDFilter(SMCPHDFilter):
                                            timestamp=timestamp, particle_list=None,
                                            transition_model=self.transition_model)
         prediction.birth_idx = state.birth_idx if hasattr(state, 'birth_idx') else []
+        try:
+            prediction.target_type_confidences = state.target_type_confidences
+        except AttributeError:
+            prediction.target_type_confidences = [{} for _ in range(len(prediction))]
         return prediction
 
     def update(self, prediction, detections, timestamp, meas_weights=None):
@@ -392,9 +396,15 @@ class ISMCPHDFilter(SMCPHDFilter):
         log_post_weights_pers = log_post_weights[:num_persistent]
         log_post_weights_birth = log_post_weights[num_persistent:]
 
+        # Create update object
+        update = copy(prediction)
+
+        # Compute target type confidences
+        update.target_type_confidences = self.compute_target_type_confidences(
+            update, detections, weights_per_hyp, log_post_weights)
+
         # Resample persistent
         log_num_targets_pers = logsumexp(log_post_weights_pers)  # N_{k|k}
-        update = copy(prediction)
         # Normalize weights
         update.weight = Probability.from_log_ufunc(log_post_weights_pers - log_num_targets_pers)
         if self.resampler is not None:
@@ -424,6 +434,7 @@ class ISMCPHDFilter(SMCPHDFilter):
                 particle_list=None,
                 hypothesis=hypothesis,
                 timestamp=timestamp)
+            full_update.target_type_confidences = update.target_type_confidences + update2.target_type_confidences
         else:
             full_update = Update.from_state(
                 state=prediction,
@@ -440,6 +451,7 @@ class ISMCPHDFilter(SMCPHDFilter):
         num_birth = round(float(self.prob_birth) * self.num_samples)
         birth_particles = np.zeros((prediction.state_vector.shape[0], 0))
         birth_weights = np.zeros((0,))
+        birth_classifications = []
         if len(detections):
             num_birth_per_detection = num_birth // len(detections)
             for i, detection in enumerate(detections):
@@ -461,6 +473,7 @@ class ISMCPHDFilter(SMCPHDFilter):
                                                                allow_singular=True)
                 birth_particles = np.hstack((birth_particles, birth_particles_i))
                 birth_weights = np.hstack((birth_weights, birth_weights_i))
+                birth_classifications += [detection.metadata['target_type_confidences']]*num_birth_per_detection
         else:
             birth_particles = multivariate_normal.rvs(self.birth_density.mean.ravel(),
                                                       self.birth_density.covar,
@@ -470,6 +483,7 @@ class ISMCPHDFilter(SMCPHDFilter):
                                                     self.birth_density.covar,
                                                     allow_singular=True) * Probability(
                 self.birth_rate / num_birth)
+            birth_classifications = [{} for _ in range(num_birth)]
         # birth_weights = np.full((num_birth,), Probability(self.birth_rate / num_birth))
         birth_particles = StateVectors(birth_particles)
         birth_state = Prediction.from_state(prediction,
@@ -477,6 +491,7 @@ class ISMCPHDFilter(SMCPHDFilter):
                                             weight=birth_weights,
                                             timestamp=timestamp, particle_list=None,
                                             transition_model=self.transition_model)
+        birth_state.target_type_confidences = birth_classifications
         return birth_state
 
     def get_weights_per_hypothesis(self, prediction, detections, meas_weights, birth_state,
@@ -522,6 +537,33 @@ class ISMCPHDFilter(SMCPHDFilter):
                 weights_per_hyp[num_samples:, 1:] = np.log(np.asfarray(meas_weights)) + Ck_birth - L
 
         return Probability.from_log_ufunc(weights_per_hyp)
+
+    def compute_target_type_confidences(self, update, detections, weights_per_hyp, log_post_weights):
+        # Update Target Type Confidences
+        updated_target_type_confidences = deepcopy(update.target_type_confidences)
+        norm_weights_per_hyp = np.exp(
+            np.log(weights_per_hyp).astype(float).T - log_post_weights).T
+        new_target_types = set()
+        for i, sv in enumerate(update.state_vector):
+            target_type_confidences = updated_target_type_confidences[i]
+            for type, value in target_type_confidences.items():
+                target_type_confidences[type] *= norm_weights_per_hyp[i, 0]
+            for j, detection in enumerate(detections):
+                for target_type, val in detection.metadata['target_type_confidences'].items():
+                    weight = norm_weights_per_hyp[i, j + 1]
+                    if weight == 0:
+                        continue
+                    if target_type in new_target_types:
+                        weight = norm_weights_per_hyp[i, j + 1] / np.sum(
+                            norm_weights_per_hyp[i, 1:])
+                    try:
+                        target_type_confidences[target_type] += weight * val
+                    except KeyError:
+                        weight = norm_weights_per_hyp[i, j + 1] / np.sum(
+                            norm_weights_per_hyp[i, 1:])
+                        target_type_confidences[target_type] = weight * val
+                        new_target_types.add(target_type)
+        return updated_target_type_confidences
 
 
 class SMCPHDInitiator(Initiator):
