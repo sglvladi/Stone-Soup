@@ -49,6 +49,9 @@ class SystematicResampler(Resampler):
                                           weight=particles.weight[index],
                                           timestamp=particles.timestamp),
                                       timestamp=particles.timestamp)
+        if hasattr(particles, 'target_type_confidences'):
+            new_particles.target_type_confidences = [particles.target_type_confidences[i]
+                                                     for i in index]
         return new_particles
 
 
