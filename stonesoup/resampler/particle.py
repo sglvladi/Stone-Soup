@@ -50,8 +50,10 @@ class SystematicResampler(Resampler):
                                           timestamp=particles.timestamp),
                                       timestamp=particles.timestamp)
         if hasattr(particles, 'target_type_confidences'):
-            new_particles.target_type_confidences = [particles.target_type_confidences[i]
-                                                     for i in index]
+            new_particles.target_type_confidences = {
+                key: particles.target_type_confidences[key][index]
+                for key in particles.target_type_confidences
+            }
         return new_particles
 
 
