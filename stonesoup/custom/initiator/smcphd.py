@@ -22,6 +22,8 @@ from stonesoup.types.state import State
 from stonesoup.types.track import Track
 from stonesoup.types.update import Update, GaussianStateUpdate
 
+from reactive_isr_core.data import TargetType
+
 
 class SMCPHDFilter(Base):
     """
@@ -347,7 +349,9 @@ class ISMCPHDFilter(SMCPHDFilter):
         try:
             prediction.target_type_confidences = state.target_type_confidences
         except AttributeError:
-            prediction.target_type_confidences = [{} for _ in range(len(prediction))]
+            prediction.target_type_confidences = {
+                target_type: np.zeros((len(prediction),)) for target_type in TargetType
+            }
         return prediction
 
     def update(self, prediction, detections, timestamp, meas_weights=None):
@@ -434,7 +438,11 @@ class ISMCPHDFilter(SMCPHDFilter):
                 particle_list=None,
                 hypothesis=hypothesis,
                 timestamp=timestamp)
-            full_update.target_type_confidences = update.target_type_confidences + update2.target_type_confidences
+            full_update.target_type_confidences = {
+                target_type: np.hstack((update.target_type_confidences[target_type],
+                                        update2.target_type_confidences[target_type]))
+                for target_type in TargetType
+            }
         else:
             full_update = Update.from_state(
                 state=prediction,
@@ -451,7 +459,10 @@ class ISMCPHDFilter(SMCPHDFilter):
         num_birth = round(float(self.prob_birth) * self.num_samples)
         birth_particles = np.zeros((prediction.state_vector.shape[0], 0))
         birth_weights = np.zeros((0,))
-        birth_classifications = []
+        birth_classifications = {
+            target_type: np.zeros((num_birth,)) for target_type in TargetType
+        }
+        particles_created = 0
         if len(detections):
             num_birth_per_detection = num_birth // len(detections)
             for i, detection in enumerate(detections):
@@ -473,7 +484,10 @@ class ISMCPHDFilter(SMCPHDFilter):
                                                                allow_singular=True)
                 birth_particles = np.hstack((birth_particles, birth_particles_i))
                 birth_weights = np.hstack((birth_weights, birth_weights_i))
-                birth_classifications += [detection.metadata['target_type_confidences']]*num_birth_per_detection
+                for target_type, val in detection.metadata['target_type_confidences'].items():
+                    start, end = particles_created, particles_created + num_birth_per_detection
+                    birth_classifications[target_type][start:end] = val
+                particles_created += num_birth_per_detection
         else:
             birth_particles = multivariate_normal.rvs(self.birth_density.mean.ravel(),
                                                       self.birth_density.covar,
@@ -540,29 +554,22 @@ class ISMCPHDFilter(SMCPHDFilter):
 
     def compute_target_type_confidences(self, update, detections, weights_per_hyp, log_post_weights):
         # Update Target Type Confidences
-        updated_target_type_confidences = deepcopy(update.target_type_confidences)
-        norm_weights_per_hyp = np.exp(
-            np.log(weights_per_hyp).astype(float).T - log_post_weights).T
-        new_target_types = set()
-        for i, sv in enumerate(update.state_vector):
-            target_type_confidences = updated_target_type_confidences[i]
-            for type, value in target_type_confidences.items():
-                target_type_confidences[type] *= norm_weights_per_hyp[i, 0]
-            for j, detection in enumerate(detections):
-                for target_type, val in detection.metadata['target_type_confidences'].items():
-                    weight = norm_weights_per_hyp[i, j + 1]
-                    if weight == 0:
-                        continue
-                    if target_type in new_target_types:
-                        weight = norm_weights_per_hyp[i, j + 1] / np.sum(
-                            norm_weights_per_hyp[i, 1:])
-                    try:
-                        target_type_confidences[target_type] += weight * val
-                    except KeyError:
-                        weight = norm_weights_per_hyp[i, j + 1] / np.sum(
-                            norm_weights_per_hyp[i, 1:])
-                        target_type_confidences[target_type] = weight * val
-                        new_target_types.add(target_type)
+        num_samples = len(update)
+        norm_weights_per_hyp = np.exp(np.log(weights_per_hyp).astype(float).T - log_post_weights).T
+        updated_target_type_confidences = {
+            target_type: np.hstack(
+                (np.atleast_2d(update.target_type_confidences[target_type] * norm_weights_per_hyp[:num_samples, 0]).T,
+                 np.zeros((len(update), len(detections)))))
+            for target_type in TargetType
+        }
+        for j, detection in enumerate(detections):
+            for target_type, val in detection.metadata['target_type_confidences'].items():
+                updated_target_type_confidences[target_type][:, j+1] = val * norm_weights_per_hyp[:num_samples, j + 1]
+
+        for target_type in TargetType:
+            updated_target_type_confidences[target_type] = np.sum(
+                updated_target_type_confidences[target_type], axis=1)
+
         return updated_target_type_confidences
 
 
