@@ -184,17 +184,20 @@ class MovableUAVCamera(Sensor):
         started_rfis = [rfi for rfi in self.rfis if rfi.status == "started"]
         rois = [roi for rfi in started_rfis for roi in rfi.region_of_interest]
         possible_locations = []
-        footprint = self.footprint
-        # Get min max lat lon of the footprint
-        min_lon, min_lat, max_lon, max_lat = footprint.bounds
-        # NOTE: This is an approximation of asset fov in lat/long degrees (1 degree = 111km)
-        # asset_fov_ll = self.fov_radius / 111
-        asset_fov_ll = min((max_lat - min_lat), (max_lon - min_lon))
         for roi in rois:
             x1 = roi.corners[0].longitude
             y1 = roi.corners[0].latitude
             x2 = roi.corners[1].longitude
             y2 = roi.corners[1].latitude
+            roi_center = [(x1 + x2) / 2, (y1 + y2) / 2]
+            # Compute fov radius at center of roi
+            # NOTE: We assume the the fov in lat/long degrees is the same across the whole roi
+            footprint = geodesic_point_buffer(*roi_center, self.fov_radius)
+            # Get min max lat lon of the footprint
+            min_lon, min_lat, max_lon, max_lat = footprint.bounds
+            # NOTE: This is an approximation of asset fov in lat/long degrees (1 degree = 111km)
+            # asset_fov_ll = self.fov_radius / 111
+            asset_fov_ll = min((max_lat - min_lat), (max_lon - min_lon))
             # For each roi, find the minimum number of overlapping circles required to cover it
             possible_locations += cover_rectangle_with_minimum_overlapping_circles(
                 x1, y1, x2, y2, asset_fov_ll
