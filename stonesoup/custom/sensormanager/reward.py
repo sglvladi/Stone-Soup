@@ -417,7 +417,7 @@ class RolloutPriorityRewardFunction2(RewardFunction):
             self.rfis = []
 
     def __call__(self, config: Mapping[Sensor, Sequence[Action]], tracks: Set[Track],
-                 metric_time: datetime.datetime, *args, **kwargs):
+                 metric_time: datetime.datetime, phd_density=None, *args, **kwargs):
         """
         For a given configuration of sensors and actions this reward function calculates the
         potential uncertainty reduction of each track by
@@ -444,8 +444,8 @@ class RolloutPriorityRewardFunction2(RewardFunction):
         end_time = metric_time + self.timesteps * self.interval
 
         # Reward value
-        config_metric, updated_tracks, predicted_sensors = self._compute_metric(config, tracks,
-                                                                                metric_time)
+        config_metric, updated_tracks, predicted_sensors = \
+            self._compute_metric(config, tracks, metric_time, phd_density)
 
         if metric_time == end_time:
             return config_metric
@@ -491,7 +491,7 @@ class RolloutPriorityRewardFunction2(RewardFunction):
         return np.max(rewards)
 
     def _compute_metric(self, config: Mapping[Sensor, Sequence[Action]], tracks: Set[Track],
-                        timestamp: datetime.datetime):
+                        timestamp: datetime.datetime, phd_density=None):
 
         # Reward value
         config_metric = 0
@@ -575,7 +575,7 @@ class RolloutPriorityRewardFunction2(RewardFunction):
                         track.exist_prob = non_det_weight / (non_exist_weight + non_det_weight)
 
         for rfi in self.rfis:
-            config_metric += eval_rfi(rfi, tracks_copy, predicted_sensors,
+            config_metric += eval_rfi(rfi, tracks_copy, predicted_sensors, phd_density,
                                       use_variance=self.use_variance, timestamp=timestamp)
 
         return config_metric, tracks_copy, predicted_sensors

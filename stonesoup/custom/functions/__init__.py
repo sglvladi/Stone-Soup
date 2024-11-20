@@ -464,8 +464,8 @@ def is_valid_track(track, target) -> bool:
 def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
              phd_state: ParticleState = None, use_variance=True, timestamp=None):
     num_samples = 100
-    mu_overall = 0
-    var_overall = 0  # np.inf if len(valid_tracks) == 0  else 0
+    mu_confirmed = 0
+    var_confirmed = 0
     config_metric = 0
 
     paths = []
@@ -481,17 +481,24 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                     or (target_type and target_type in track.metadata['target_type_confidences'])]
 
     # Calculate PHD density inside polygon
+    mu_phd = 0
+    var_phd = 0
     if phd_state is not None:
         points = phd_state.state_vector[[0, 2], :].T
         inside_points = np.full(len(points), False)
+        if target_type:
+            type_points = phd_state.target_type_confidences[target_type] > 0.8
+        else:
+            type_points = np.full(len(points), True)
         for path_p in paths:
             inside_points = np.logical_or(inside_points, path_p.contains_points(points))
-        if np.sum(inside_points) > 0:
+        valid_points = np.logical_and(inside_points, type_points)
+        if np.sum(valid_points) > 0:
             # The mean of the PHD density inside the polygon is the sum of the weights of the
             # particles inside the polygon
-            mu_overall = np.exp(logsumexp(np.log(phd_state.weight[inside_points].astype(float))))
+            mu_phd = np.exp(logsumexp(np.log(phd_state.weight[inside_points].astype(float))))
             # The variance of a Poisson distribution is equal to the mean
-            var_overall = mu_overall
+            var_phd = mu_phd
 
     # Calculate priority
     priority_interpolator = InterpolateOverTime(rfi.priority_over_time.priority,
@@ -518,17 +525,21 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
             # times the probability of existence
             p_success = float(track.exist_prob) * class_prob * (np.sum(inside_points) / num_samples)
             # Mean of a Bernoulli distribution is equal to the probability of success
-            mu_overall += p_success
+            mu_confirmed += p_success
             # Variance of a Bernoulli distribution is equal to the probability of success,
             # times the probability of failure
-            var_overall += p_success * (1 - p_success)
-        if mu_overall > 0 and var_overall < rfi.threshold_over_time.threshold[0]:
-            # TODO: Need to select the priority
+            var_confirmed += p_success * (1 - p_success)
+
+        mu_overall = mu_confirmed + mu_phd
+        var_overall = var_confirmed + var_phd
+        if mu_confirmed > 0 and var_overall <= rfi.threshold_over_time.threshold[0]:
             config_metric += priority
             if use_variance:
                 config_metric += 1 / var_overall
-        elif mu_overall == 0 and var_overall == 0:
+        elif (mu_confirmed == 0 and var_confirmed == 0) or var_overall > rfi.threshold_over_time.threshold[0]:
             aoi = 0
+            # Discount priority if no tracks are found
+            discount_factor = 0.5 if var_overall == 0 else 1
             for sensor in sensors:
                 # center = (sensor.position[1], sensor.position[0])
                 # radius = sensor.fov_radius
@@ -539,7 +550,7 @@ def eval_rfi(rfi: RFI, tracks: Sequence[Track], sensors: Sequence[Sensor],
                     warnings.simplefilter("ignore", category=RuntimeWarning)
                     intersection = geom.intersection(p)
                 aoi = max([intersection.area / geom.area, aoi])
-            config_metric += aoi*priority
+            config_metric += discount_factor*aoi*priority
     elif rfi.task_type == TaskType.FOLLOW:
         for target in rfi.targets:
             tracks = set(track for track in tracks if is_valid_track(track, target))
