@@ -2,6 +2,7 @@ import numpy as np
 import numpy.random as npr
 from scipy.stats import multivariate_normal as mvn
 from scipy.stats import uniform
+from copy import deepcopy
 
 from stonesoup.base import Property
 from stonesoup.types.array import StateVector, StateVectors
@@ -107,6 +108,17 @@ class NUTS(Proposal):
         else:
             timestamp = state.timestamp + time_interval
 
+        if time_interval.total_seconds() == 0:
+            return Prediction.from_state(state,
+                                         parent=state,
+                                         state_vector=state.state_vector,
+                                         timestamp=state.timestamp,
+                                         transition_model=self.transition_model,
+                                         prior=state)
+
+        # copy the old state for the parent
+        previous_state = deepcopy(state)
+
         # state is the prior - propagate
         new_state = self.transition_model.function(state,
                                                    time_interval=time_interval,
@@ -141,8 +153,8 @@ class NUTS(Proposal):
         # q(x_k|x_k-1)
         #q = 1
 
-        final = Prediction.from_state(state,
-                                      parent=state,
+        final = Prediction.from_state(previous_state,
+                                      parent=previous_state,
                                       state_vector=x_new.state_vector,
                                       timestamp=timestamp,
                                       transition_model=self.transition_model,
@@ -172,8 +184,9 @@ class NUTS(Proposal):
     def Integrate_LF_vec(self, state, new_state_pred, v, grad_x, direction, h, time_interval, measurement):
         h = h.reshape(self.N, 1) # reshape the h?
         v = v + direction * (h / 2) * grad_x
-        state.state_vector = np.asarray(state.state_vector.T + direction * h * \
-                             np.einsum('bij,bj->bi', self.inv_MM, v)).T
+        einsum = np.einsum('bij,bj->bi', self.inv_MM, v)
+        state.state_vector = (state.state_vector.T + direction * h * \
+                             einsum).T
 
         grad_x = self.grad_target_proposal(state, new_state_pred, measurement, time_interval)
         v = v + direction * (h / 2) * grad_x
