@@ -2,7 +2,7 @@ import numpy as np
 import numpy.random as npr
 from scipy.stats import multivariate_normal as mvn
 from scipy.stats import uniform
-from copy import deepcopy
+from copy import deepcopy, copy
 
 from stonesoup.base import Property
 from stonesoup.types.array import StateVector, StateVectors
@@ -22,7 +22,7 @@ class NUTS(Proposal):
     measurement_model: MeasurementModel = Property(
         doc="The measurement model used to evaluate the likelihood")
     MaxTreeDepth: int = Property(
-        default=5,
+        default=10,
         doc="Maximum tree depth NUTS can take to stop excessive tree "
             "growth.")
     DeltaMax: int = Property(
@@ -117,7 +117,10 @@ class NUTS(Proposal):
                                          prior=state)
 
         # copy the old state for the parent
-        previous_state = deepcopy(state)
+       # previous_state = deepcopy(state)
+        previous_state = copy(state)  ## ! we might have issues with parent
+
+        previous_state.state_vector = deepcopy(state.state_vector)
 
         # state is the prior - propagate
         new_state = self.transition_model.function(state,
