@@ -26,8 +26,8 @@ setup(name='stonesoup',
       ],
       packages=find_packages(exclude=('docs', '*.tests')),
       install_requires=[
-          'ruamel.yaml>=0.15.45', 'scipy', 'matplotlib', 'utm', 'pymap3d',
-          'pymongo', 'kafka-python'],
+          'ruamel.yaml>=0.15.45', 'scipy==1.6.0', 'matplotlib', 'utm', 'pymap3d',
+          'pymongo', 'kafka-python', 'basemap', 'rtree'],
       extras_require={
           'dev': [
               'pytest-flake8', 'pytest-cov', 'Sphinx', 'sphinx_rtd_theme',
