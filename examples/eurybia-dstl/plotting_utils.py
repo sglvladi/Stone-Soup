@@ -5,28 +5,30 @@ from matplotlib.patches import Ellipse
 
 
 def plot_gnd(tracks, ref_lat, ref_lon, ax, coord='gps'):
-    for track in tracks:
-        # x = [state.state_vector[0] for state in track.states]
-        # y = [state.state_vector[2] for state in track.states]
-        x = track.state_vector[0]
-        y = track.state_vector[2]
+    # for track in tracks:
+    #     # x = [state.state_vector[0] for state in track.states]
+    #     # y = [state.state_vector[2] for state in track.states]
+    #     x = track.state_vector[0]
+    #     y = track.state_vector[2]
+    #
+    #     lat = x.copy()
+    #     lon = y.copy()
+    #
+    #     if coord == 'gps':
+    #         for ii in range(0, len(x)):
+    #             out = pm.enu2geodetic(x[ii], y[ii], 0, ref_lat, ref_lon, 0)
+    #             lat[ii] = out[0]
+    #             lon[ii] = out[1]
+    #
+    #         ax.plot(lon, lat, 'k.', linewidth=5, label='Target Truth')
+    #
+    #     elif coord == 'xyz':
+    #         ax.plot(x, y, 'k-', label='Target Truth')
+    data = np.array([state.state_vector for state in sorted(tracks, key=lambda x: x.timestamp)])
+    ax.plot(data[:, 0], data[:, 2], 'k-', label='Target Truth')
 
-        lat = x.copy()
-        lon = y.copy()
 
-        if coord == 'gps':
-            for ii in range(0, len(x)):
-                out = pm.enu2geodetic(x[ii], y[ii], 0, ref_lat, ref_lon, 0)
-                lat[ii] = out[0]
-                lon[ii] = out[1]
-
-            ax.plot(lon, lat, 'k.', linewidth=5, label='Target Truth')
-
-        elif coord == 'xyz':
-            ax.plot(x, y, 'k.', linewidth=5, label='Target Truth')
-
-
-def plot_platform(states, ref_lat, ref_lon, ax, coord='gps', color='b-', lab='platform'):
+def plot_platform(states, ref_lat, ref_lon, ax, coord='gps', color='b-', lab=None):
     x = [state[0] for state in states]
     y = [state[1] for state in states]
 
