@@ -35,7 +35,7 @@ from stonesoup.hypothesiser.probability import ELINTHypothesiser, ELINTHypothesi
 from stonesoup.initiator.elint import ELINTInitiator, AisElintVisibilityInitiator
 from stonesoup.models.transition.linear import (
     RandomWalk, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
-from stonesoup.initiator.simple import LinearMeasurementInitiator
+# from stonesoup.initiator.simple import LinearMeasurementInitiator
 from stonesoup.deleter.time import UpdateTimeDeleter
 from stonesoup.dataassociator.neighbour import (
     NearestNeighbour, GlobalNearestNeighbour, GNNWith2DAssignment)
@@ -129,7 +129,7 @@ if __name__ == '__main__':
     from mpl_toolkits.basemap import Basemap
 
     plt.rcParams['figure.figsize'] = (12, 8)
-    plt.style.use('seaborn-colorblind')
+    # plt.style.use('seaborn-colorblind')
     fig = plt.figure()
 
 
