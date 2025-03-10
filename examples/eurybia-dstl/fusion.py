@@ -31,7 +31,7 @@ from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.types.numeric import Probability
 from stonesoup.types.state import GaussianState
 from stonesoup.types.update import Update
-from stonesoup.updater.kalman import UnscentedKalmanUpdater
+from stonesoup.updater.kalman import UnscentedKalmanUpdater, ExtendedKalmanUpdater
 from stonesoup.updater.twostate import TwoStateKalmanUpdater
 
 from plotting_utils import plot_gnd, plot_platform
@@ -40,15 +40,23 @@ from plotting_utils import plot_gnd, plot_platform
 plot_coord = 'xyz'
 ref_lat=49.725
 ref_lon=-4.85
-stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
+# stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
+stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
 stanag_config = 'NIAGSparse'
 stanag_meta_header_name = 'LatencyHeader'
 rx_plat_id_selects = [1, 2]
 
-q_factor = 0.1
-rerr = 100**2
-time_steps_since_update = 10
-init_threshold = 5
+q_factor = 0.01
+decay_factor = 0.0001
+# rerr = 850**2
+rerr = 200**2
+berr = np.radians(1)**2
+prob_detect = 0.9
+clutter_density = 1e-3
+time_steps_since_update = 5
+init_threshold = 10
+use_prior = False
+use_ukf = False
 bias_prior = GaussianState(StateVector([0., 0., 0., 0., 0., 0.]),
                            CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi / 6, 50.]) ** 2))
 
@@ -62,6 +70,7 @@ for rx_plat_id_select in rx_plat_id_selects:
                                           time_field = None,
                                           snr_threshold=10,
                                           rerr=rerr,
+                                          berr=berr,
                                           endianness = 0,
                                           stanag_msg_directory=stanag_msg_directory,
                                           reference_lat = ref_lat,
@@ -72,16 +81,22 @@ for rx_plat_id_select in rx_plat_id_selects:
     readers.append(contacts_reader)
 
     # Transition model
-    bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, 0.0001),
-                                                                   OrnsteinUhlenbeck(q_factor, 0.0001),
-                                                                   NthDerivativeDecay(0, 1e-6, 5),
-                                                                   NthDerivativeDecay(0, 1e-4, 5)])
+    bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, decay_factor),
+                                                                   OrnsteinUhlenbeck(q_factor, decay_factor),
+                                                                   NthDerivativeDecay(0, 1e-6, decay_factor),
+                                                                   NthDerivativeDecay(0, 1e-4, decay_factor)])
     # Predictor and Updater
-    predictor = UnscentedKalmanPredictor(bias_transition_model)
-    updater = UnscentedKalmanUpdater(None, True)
+    if not use_ukf:
+        predictor = ExtendedKalmanPredictor(bias_transition_model)
+        updater = ExtendedKalmanUpdater(None, True)
+    else:
+        predictor = UnscentedKalmanPredictor(bias_transition_model)
+        updater = UnscentedKalmanUpdater(None, True)
 
     # Initiator components
-    hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
+    # hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
+    hypothesiser_init = PDAHypothesiser(predictor, updater, clutter_density, prob_detect)
+    hypothesiser_init = DistanceGater(hypothesiser_init, Mahalanobis(), 10)
     data_associator_init = GNNWith2DAssignment(hypothesiser_init)
     time_steps_since_update = 10
     deleter_init = UpdateTimeStepsDeleter(time_steps_since_update=time_steps_since_update)
@@ -92,7 +107,7 @@ for rx_plat_id_select in rx_plat_id_selects:
     deleter1 = UpdateTimeStepsDeleter(10)
     deleter2 = MeasurementCovarianceBasedDeleter([np.pi / 4, 5e6])
     deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
-    hypothesiser = PDAHypothesiser(predictor, updater, 1e-4, .9)
+    hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect)
     hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
     data_associator = JPDAWithEHM2(hypothesiser)
 
@@ -110,8 +125,8 @@ transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_fa
 # Tracklet extractor & Pseudo measurement extractor
 tracklet_extractor = TrackletExtractor(trackers=trackers,
                                        transition_model=transition_model,
-                                       fuse_interval=datetime.timedelta(minutes=7))
-detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3], use_prior=False)
+                                       fuse_interval=datetime.timedelta(minutes=2))
+detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3], use_prior=use_prior)
 
 # Predictor and Updater
 two_state_predictor = TwoStatePredictor(transition_model)
@@ -121,7 +136,7 @@ two_state_updater = TwoStateKalmanUpdater(None, True)
 hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,
                                             updater=two_state_updater,
                                             clutter_spatial_density=1e-10,
-                                            prob_detect=Probability(.7),
+                                            prob_detect=Probability(.9),
                                             prob_gate=Probability(0.99))
 hypothesiser1 = DistanceGater(hypothesiser1, Mahalanobis(), 10)
 fuse_associator = JPDAWithEHM2(hypothesiser1)
@@ -156,25 +171,34 @@ for time, ctracks in fuse_tracker:
     ax.cla()
     ax.set_xlabel('East')
     ax.set_ylabel('North')
-    ax.set_xlim([0, 25000])
-    ax.set_ylim([0, 75000])
+    ax.set_xlim([-15000, 15000])
+    ax.set_ylim([-15000, 15000])
     print(f'Time: {time} | Number of tracks: {len(ctracks)}')
-    plot_gnd(test_ground_truths, ref_lat, ref_lon, ax, plot_coord)
+
+    ax.plot([], [], 'bo', label='TX')
+    ax.plot([], [], 'mo', label='RX')
     for reader in readers:
-        plot_platform(reader.truth_TX, ref_lat, ref_lon, ax, plot_coord, 'b', 'TX')
-        plot_platform(reader.truth_RX, ref_lat, ref_lon, ax, plot_coord, 'm', 'RX')
+        plot_platform(reader.truth_TX, ref_lat, ref_lon, ax, plot_coord, 'b', )
+        plot_platform(reader.truth_RX, ref_lat, ref_lon, ax, plot_coord, 'm', )
+
+    # Pl
+    plot_gnd(test_ground_truths, ref_lat, ref_lon, ax, plot_coord)
+    ax.plot([], [], 'bx', label='Detections')
     for detection in all_detections:
         x, y = detection.measurement_model.inverse_function(detection)[[0, 2]]
         ax.plot(x, y, 'bx')
     # plot_tracks(ctracks, ax=ax)
     for i, (tracklets, color) in enumerate(zip(tracklet_extractor.current[1], colors)):
+        ax.plot([], [], f':.{color}', label=f'Sensor {i} Tracklets')
         for tracklet in tracklets:
             data = np.array([s.mean for s in tracklet.states if isinstance(s, Update)])
             if data.shape[1] > 8:
                 idx = [6, 8]
             else:
                 idx = [4, 6]
-            plt.plot(data[:, idx[0]], data[:, idx[1]], f':{color}')
+            plt.plot(data[:, idx[0]], data[:, idx[1]], f':.{color}')
+
+    plt.plot([], [], '-*m', label='Fused Tracks')
     for track in ctracks:
         data = np.array([state.state_vector for state in track])
         plt.plot(data[:, 4], data[:, 6], '-*m')
@@ -185,7 +209,7 @@ for time, ctracks in fuse_tracker:
     #     num_steps = len(data)
     #     ax2.plot([i for i in range(num_steps)], data[:, -2], 'r-')
     #     ax2.plot([i for i in range(num_steps)], data[:, -1], 'c-')
-
+    ax.legend()
     plt.pause(.1)
 
 plt.show(block=True)

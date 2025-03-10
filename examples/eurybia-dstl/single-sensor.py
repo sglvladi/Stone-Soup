@@ -32,28 +32,39 @@ from plotting_utils import plot_tracks, plot_gnd, plot_platform
 plot_coord = 'xyz'
 ref_lat=49.725
 ref_lon=-4.85
-stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
+# stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
+stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
 stanag_config = 'NIAGSparse'
 stanag_meta_header_name = 'LatencyHeader'
 rx_plat_id_select = 1
 
 q_factor = 0.1
-rerr = 100**2
-time_steps_since_update = 10
+# rerr = 100**2
+rerr = 200**2
+berr = np.radians(1)**2
+prob_detect = 0.9
+clutter_density = 1e-3
+time_steps_since_update = 5
+use_ukf = True
 bias_prior = GaussianState(StateVector([0., 0., 0., 0., 0., 0.]),
                            CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi/6, 50])**2))
 
 # Transition model
 bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, 0.0001),
                                                                OrnsteinUhlenbeck(q_factor, 0.0001),
-                                                               NthDerivativeDecay(0, 1e-6, 5),
-                                                               NthDerivativeDecay(0, 1e-4, 5)])
+                                                               NthDerivativeDecay(0, 1e-6, 0.0001),
+                                                               NthDerivativeDecay(0, 1e-4, 0.0001)])
 # Predictor and Updater
-predictor = UnscentedKalmanPredictor(bias_transition_model)
-updater = UnscentedKalmanUpdater(None, True)
+# Predictor and Updater
+if not use_ukf:
+    predictor = ExtendedKalmanPredictor(bias_transition_model)
+    updater = ExtendedKalmanUpdater(None, True)
+else:
+    predictor = UnscentedKalmanPredictor(bias_transition_model)
+    updater = UnscentedKalmanUpdater(None, True)
 
 # Initiator components
-hypothesiser_init = PDAHypothesiser(predictor, updater, 1e-4, .7)
+hypothesiser_init = PDAHypothesiser(predictor, updater, clutter_density, prob_detect)
 hypothesiser_init = DistanceGater(hypothesiser_init, Mahalanobis(), 10)
 data_associator_init = GNNWith2DAssignment(hypothesiser_init)
 deleter_init = UpdateTimeStepsDeleter(time_steps_since_update=time_steps_since_update)
@@ -64,7 +75,7 @@ initiator = MultiMeasurementInitiator(bias_prior, None, deleter_init,
 deleter1 = UpdateTimeStepsDeleter(10)
 deleter2 = MeasurementCovarianceBasedDeleter([np.pi/4, 5e6])
 deleter = CompositeDeleter([deleter1, deleter2], intersect=False)
-hypothesiser = PDAHypothesiser(predictor, updater, 1e-4, .7)
+hypothesiser = PDAHypothesiser(predictor, updater, clutter_density, prob_detect)
 hypothesiser = DistanceGater(hypothesiser, Mahalanobis(), 10)
 data_associator = JPDAWithEHM2(hypothesiser)
 
@@ -74,6 +85,7 @@ contacts_reader = STANAGContactReader(stanag_msg_directory,
                                       time_field = None,
                                       snr_threshold=10,
                                       rerr=rerr,
+                                      berr=berr,
                                       endianness = 0,
                                       stanag_msg_directory=stanag_msg_directory,
                                       reference_lat = ref_lat,
@@ -93,38 +105,47 @@ test_ground_truths = set()
 
 
 fig2 = plt.figure(figsize=(10, 10))
-ax2 = fig2.add_subplot(1, 1, 1)
+ax2, ax3 = fig2.subplots(2, 1)
 
 for time, ctracks in bias_tracker:
 
     all_tracks.update(ctracks)
     all_detections.update(contacts_reader.detections)
     test_ground_truths.update(set([gt for gt in contacts_reader.ground_truth if
-                                   time - datetime.timedelta(seconds=300) <= gt.timestamp <= time]))
+                                   gt.timestamp <= time]))
     detections = contacts_reader.detections
 
     ax.cla()
     ax.set_xlabel('East')
     ax.set_ylabel('North')
-    ax.set_xlim([0, 25000])
-    ax.set_ylim([0, 75000])
+    # ax.set_xlim([0, 25000])
+    # ax.set_ylim([0, 75000])
+    ax.set_xlim([-25000, 25000])
+    ax.set_ylim([-25000, 25000])
     print(f'Time: {time} | Number of tracks: {len(ctracks)}')
     plot_gnd(test_ground_truths, ref_lat, ref_lon, ax, plot_coord)
     plot_platform(contacts_reader.truth_TX, ref_lat, ref_lon, ax, plot_coord, 'b', 'TX')
     plot_platform(contacts_reader.truth_RX, ref_lat, ref_lon, ax, plot_coord, 'm', 'RX')
-    for detection in all_detections:
+    for detection in detections:
         inv_det = detection.measurement_model.inverse_function(detection)
         ax.plot(inv_det[0], inv_det[2], 'bx')
     plot_tracks(ctracks, ax=ax)
-    plot_tracks(bias_tracker.initiator.holding_tracks, ax=ax)
+    # plot_tracks(bias_tracker.initiator.holding_tracks, ax=ax)
 
     ax2.cla()
     for track in ctracks:
         data = np.array([state.state_vector for state in track.states])
         num_steps = len(data)
         ax2.plot([i for i in range(num_steps)], data[:, -2], 'r-')
-        ax2.plot([i for i in range(num_steps)], data[:, -1], 'c-')
+        sd = np.sqrt(np.squeeze([state.covar[-2, -2] for state in track.states]))
+        ax2.fill_between([i for i in range(num_steps)], data[:, -2].ravel() - sd, data[:, -2].ravel() + sd, facecolor='g', alpha=0.5)
+        ax3.plot([i for i in range(num_steps)], data[:, -1], 'c-')
+        sd = np.sqrt(np.squeeze([state.covar[-1, -1] for state in track.states]))
+        ax3.fill_between([i for i in range(num_steps)], data[:, -1].ravel() - sd, data[:, -1].ravel() + sd, facecolor='g', alpha=0.5)
+
 
     plt.pause(.1)
+
+a=2
 
 plt.show(block=True)
