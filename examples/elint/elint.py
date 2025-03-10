@@ -32,7 +32,7 @@ from stonesoup.hypothesiser.probability import ELINTHypothesiser, ELINTHypothesi
 from stonesoup.initiator.elint import ELINTInitiator
 from stonesoup.models.transition.linear import (
     RandomWalk, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
-from stonesoup.initiator.simple import LinearMeasurementInitiator
+# from stonesoup.initiator.simple import LinearMeasurementInitiator
 from stonesoup.deleter.time import UpdateTimeDeleter
 from stonesoup.dataassociator.neighbour import (
     NearestNeighbour, GlobalNearestNeighbour, GNNWith2DAssignment)
@@ -126,7 +126,7 @@ if __name__ == '__main__':
     from mpl_toolkits.basemap import Basemap
 
     plt.rcParams['figure.figsize'] = (12, 8)
-    plt.style.use('seaborn-colorblind')
+    # plt.style.use('seaborn-colorblind')
     fig = plt.figure()
 
     def plot_map(timestamp):
@@ -309,7 +309,7 @@ if __name__ == '__main__':
     ################################################################################
 
     tracks = set()  # Main set of tracks
-    file_path = r"C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\MATLAB\ELINT\smalldata2   0tracks_elint_LV.mat"
+    file_path = r"C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\MATLAB\ELINT\smalldata20tracks_elint_LV.mat"
     detector = BasicELINTDetectionReader(path=file_path, )
 
 
