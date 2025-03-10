@@ -1,6 +1,6 @@
 from ..types.update import Update
 from .kalman import KalmanUpdater, ExtendedKalmanUpdater
-
+from ..functions import isPD, nearestPD
 
 class TwoStateKalmanUpdater(ExtendedKalmanUpdater):
 
@@ -53,6 +53,10 @@ class TwoStateKalmanUpdater(ExtendedKalmanUpdater):
         if self.force_symmetric_covariance:
             posterior_covariance = \
                 (posterior_covariance + posterior_covariance.T)/2
+
+        # Ensure matrix is positive-definite
+        if not isPD(posterior_covariance):
+            posterior_covariance = nearestPD(posterior_covariance)
 
         return Update.from_state(
             hypothesis.prediction,

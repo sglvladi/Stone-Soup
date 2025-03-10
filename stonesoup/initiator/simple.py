@@ -5,6 +5,7 @@ from .base import GaussianInitiator, ParticleInitiator, Initiator
 from ..base import Property
 from ..dataassociator import DataAssociator
 from ..deleter import Deleter
+from ..functions import isPD, nearestPD
 from ..models.base import NonLinearModel, ReversibleModel
 from ..models.measurement import MeasurementModel
 from ..types.hypothesis import SingleHypothesis
@@ -132,6 +133,8 @@ class SimpleMeasurementInitiator(GaussianInitiator):
             prior_covar[mapped_dimensions, :] = 0
             C0 = inv_model_matrix @ model_covar @ inv_model_matrix.T
             C0 = C0 + prior_covar + np.diag(np.array([self.diag_load] * C0.shape[0]))
+            if not isPD(C0):
+                C0 = nearestPD(C0)
             tracks.add(Track([GaussianStateUpdate(
                 prior_state_vector + state_vector,
                 C0,
