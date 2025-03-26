@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 import numpy as np
 import utm
 import warnings
@@ -38,14 +40,7 @@ from stonesoup.tracker.simple import Tracker
 from stonesoup.types.detection import Detection
 from stonesoup.types.array import StateVector, CovarianceMatrix
 from stonesoup.types.update import GaussianMixtureUpdate
-from stonesoup.types.groundtruth import GroundTruthState
-
-
-
-
-
-
-
+from stonesoup.types.groundtruth import GroundTruthState, GroundTruthPath
 
 
 class STANAGContactReader(DetectionReader, _CSVReader):
@@ -75,7 +70,7 @@ class STANAGContactReader(DetectionReader, _CSVReader):
     extractReferenceData: int = Property(default = 1, doc = 'Toggle to extract reference data from contact. Starts as true then made false once data extracted')
 
     with_bias: bool = Property(default=False, doc='Flag to indicate if the reader should include bias in the measurement model')
-
+    update_rate: timedelta = Property(default=None, doc='Default update rate for sensor')
 
     def read_stanag_files(self, rx_plat_id_select=None, truth_tx_plat_unit=(1,1), truth_rx_plat_unit=(1,1), config_subfolder='TrialMercury', meta_header_name=None):
         self.stanag_msg_set = STANAG_MSG_SET.from_directory(str(self.stanag_msg_directory), endianness=self.endianness,
@@ -166,12 +161,14 @@ class STANAGContactReader(DetectionReader, _CSVReader):
         return
 
 
-    def get_stanag_ground_truth_from_SM01(self, target_plat_unit_id=(4,1)):
+    def get_stanag_ground_truth_from_SM01(self, target_plat_unit_id=None):
 
-        self.ground_truth = []
+        if target_plat_unit_id is None:
+            target_plat_unit_id = [(4,1)]
+        self.ground_truth = {id: GroundTruthPath([], id=id) for id in target_plat_unit_id}
         for sm01_msg_time, sm01_msg in self.sm01_stanag_msgs:
             plat_id, unit_id = sm01_msg.msg_header['PlatformID'], sm01_msg.msg_header['UnitID']
-            if (plat_id, unit_id) != target_plat_unit_id:
+            if (plat_id, unit_id) not in target_plat_unit_id:
                 continue
             time = STANAG_MSG_UTIL.guess_time_from_hundredths(sm01_msg_time, 100*sm01_msg.msg_header['TimeStamp'])# + timedelta(minutes=17.5)
             
@@ -185,8 +182,10 @@ class STANAGContactReader(DetectionReader, _CSVReader):
 
             state_vector = StateVector([cart_x, cart_x_dot, cart_y, cart_y_dot])
             
-            if (plat_id, unit_id) == target_plat_unit_id:
-                self.ground_truth.append(GroundTruthState(state_vector=state_vector, timestamp=time + datetime.timedelta(seconds=0)))
+            if (plat_id, unit_id) in target_plat_unit_id:
+                self.ground_truth[(plat_id, unit_id)].append(
+                    GroundTruthState(state_vector=state_vector, timestamp=time + datetime.timedelta(seconds=0))
+                )
         return
 
 
@@ -200,6 +199,12 @@ class STANAGContactReader(DetectionReader, _CSVReader):
             if previous_time is not None and previous_time != detection_dict['time']:
                 yield previous_time, detections
                 detections = set()
+                if self.update_rate is not None:
+                    while detection_dict['time']-previous_time > self.update_rate:
+                        previous_time+=self.update_rate
+                        yield previous_time, detections
+
+
 
             previous_time = detection_dict['time']
             
