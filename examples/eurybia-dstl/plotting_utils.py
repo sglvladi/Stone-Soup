@@ -24,8 +24,11 @@ def plot_gnd(tracks, ref_lat, ref_lon, ax, coord='gps'):
     #
     #     elif coord == 'xyz':
     #         ax.plot(x, y, 'k-', label='Target Truth')
-    data = np.array([state.state_vector for state in sorted(tracks, key=lambda x: x.timestamp)])
-    ax.plot(data[:, 0], data[:, 2], 'k-', label='Target Truth')
+    if not tracks:
+        return
+    for track in tracks:
+        data = np.array([state.state_vector for state in sorted(track, key=lambda x: x.timestamp)])
+        ax.plot(data[:, 0], data[:, 2], 'k-', label='Target Truth')
 
 
 def plot_platform(states, ref_lat, ref_lon, ax, coord='gps', color='b-', lab=None):
@@ -100,3 +103,27 @@ def plot_tracks(tracks, show_error=True, ax=None):
             plot_cov_ellipse(track.state.covar[[0, 2], :][:, [0, 2]],
                              track.state.mean[[0, 2], :], edgecolor='r',
                              facecolor='none', ax=ax)
+
+
+def plot_ospa(ospa_metric, label, ax=None):
+    if not ax:
+        ax = plt.gca()
+    ospa = np.array([i.value for i in ospa_metric.value])
+    timestamps = [i.timestamp for i in ospa_metric.value]
+    ax.plot(timestamps, ospa, label=label)
+
+
+def plot_gospa(gospa_metric, label, key='distance', ax=None):
+    if not ax:
+        ax = plt.gca()
+    gospa = {'distance': 0.0,
+             'localisation': 0.0,
+             'missed': 0,
+             'false': 0}
+    for key_ in gospa:
+        metric_mat = np.array(
+            [i.value[key_] for i in gospa_metric.value])
+        gospa[key_] = metric_mat
+
+    timestamps = [i.timestamp for i in gospa_metric.value]
+    ax.plot(timestamps, gospa[key], label=label)
