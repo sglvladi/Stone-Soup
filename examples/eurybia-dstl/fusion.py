@@ -1,5 +1,6 @@
 # Bias tracker for sensors that feed detections straight to the Fusion Engine
 import datetime
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -34,14 +35,17 @@ from stonesoup.types.update import Update
 from stonesoup.updater.kalman import UnscentedKalmanUpdater, ExtendedKalmanUpdater
 from stonesoup.updater.twostate import TwoStateKalmanUpdater
 
-from plotting_utils import plot_gnd, plot_platform
+from plotting_utils import plot_gnd, plot_platform, plot_ospa, plot_gospa
+from metrics import gen_metric_fuse
 
 # Parameters
 plot_coord = 'xyz'
 ref_lat=49.725
 ref_lon=-4.85
 # stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
-stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
+# stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
+stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
+
 stanag_config = 'NIAGSparse'
 stanag_meta_header_name = 'LatencyHeader'
 rx_plat_id_selects = [1, 2]
@@ -50,13 +54,17 @@ q_factor = 0.01
 decay_factor = 0.0001
 # rerr = 850**2
 rerr = 200**2
-berr = np.radians(1)**2
+berr = np.radians(3)**2
+snr_threshold = 14
+fuse_interval = datetime.timedelta(seconds=40)
+target_plat_unit_id=[(4,1)]# [(3,1), (4,1), (91,1), (92,1), (93,1)]
+update_rate=datetime.timedelta(seconds=20)
 prob_detect = 0.9
 clutter_density = 1e-3
 time_steps_since_update = 5
 init_threshold = 10
 use_prior = False
-use_ukf = False
+use_ukf = True
 bias_prior = GaussianState(StateVector([0., 0., 0., 0., 0., 0.]),
                            CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi / 6, 50.]) ** 2))
 
@@ -68,23 +76,25 @@ for rx_plat_id_select in rx_plat_id_selects:
     contacts_reader = STANAGContactReader(stanag_msg_directory,
                                           state_vector_fields=("RelBearing", "RX2contact_range"),
                                           time_field = None,
-                                          snr_threshold=10,
+                                          snr_threshold=snr_threshold,
                                           rerr=rerr,
                                           berr=berr,
                                           endianness = 0,
                                           stanag_msg_directory=stanag_msg_directory,
                                           reference_lat = ref_lat,
                                           reference_lon = ref_lon,
-                                          with_bias=True)
+                                          with_bias=True,
+                                          update_rate=update_rate
+                                          )
     contacts_reader.read_stanag_files(rx_plat_id_select=rx_plat_id_select, config_subfolder=stanag_config, meta_header_name =stanag_meta_header_name)
-    contacts_reader.get_stanag_ground_truth_from_SM01(target_plat_unit_id=(3,1))
+    contacts_reader.get_stanag_ground_truth_from_SM01(target_plat_unit_id=target_plat_unit_id)
     readers.append(contacts_reader)
 
     # Transition model
     bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, decay_factor),
                                                                    OrnsteinUhlenbeck(q_factor, decay_factor),
-                                                                   NthDerivativeDecay(0, 1e-6, decay_factor),
-                                                                   NthDerivativeDecay(0, 1e-4, decay_factor)])
+                                                                   NthDerivativeDecay(0, np.radians(.0001), decay_factor),
+                                                                   NthDerivativeDecay(0, 1e-1, decay_factor)])
     # Predictor and Updater
     if not use_ukf:
         predictor = ExtendedKalmanPredictor(bias_transition_model)
@@ -125,7 +135,7 @@ transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_fa
 # Tracklet extractor & Pseudo measurement extractor
 tracklet_extractor = TrackletExtractor(trackers=trackers,
                                        transition_model=transition_model,
-                                       fuse_interval=datetime.timedelta(minutes=2))
+                                       fuse_interval=fuse_interval)
 detector = PseudoMeasExtractor(tracklet_extractor, state_idx_to_use=[0,1,2,3], use_prior=use_prior)
 
 # Predictor and Updater
@@ -150,22 +160,26 @@ initiator1 = TwoStateMeasurementInitiator(prior, transition_model, two_state_upd
 fuse_tracker = FuseTracker(initiator=initiator1, predictor=two_state_predictor,
                            updater=two_state_updater, associator=fuse_associator,
                            detector=detector, death_rate=1e-4,
-                           prob_detect=Probability(.7),
+                           prob_detect=Probability(.9),
                            delete_thresh=Probability(0.1))
 
 fig = plt.figure(figsize=(10, 10))
 ax = fig.add_subplot(1, 1, 1)
 all_tracks = set()
 all_detections = set()
-test_ground_truths = set()
+test_ground_truths = set([track for track in readers[0].ground_truth.values()])
+all_tracklets = {i: set() for i in range(len(trackers)) }
 
+timestamps = []
 for time, ctracks in fuse_tracker:
+    timestamps.append(time)
 
     all_tracks.update(ctracks)
+    for i, tracker in enumerate(trackers):
+        all_tracklets[i].update(tracker.current[1])
+
     for reader in readers:
         all_detections.update(reader.detections)
-    test_ground_truths.update(set([gt for gt in readers[0].ground_truth if
-                                   time - datetime.timedelta(seconds=300) <= gt.timestamp <= time]))
 
     colors = ['r', 'g', 'b']
     ax.cla()
@@ -211,5 +225,86 @@ for time, ctracks in fuse_tracker:
     #     ax2.plot([i for i in range(num_steps)], data[:, -1], 'c-')
     ax.legend()
     plt.pause(.1)
+
+
+tracks = set(sorted(all_tracks, key=lambda x: len(x))[-1])
+filtered_tracklets = {key: {sorted(t, key=lambda x: len(x))[-1]} for key, t in all_tracklets.items()}
+ospa_metrics = gen_metric_fuse('OSPA', timestamps, test_ground_truths, tracks, filtered_tracklets)
+gospa_metrics = gen_metric_fuse('GOSPA', timestamps, test_ground_truths, tracks, filtered_tracklets)
+
+
+
+# from stonesoup.metricgenerator.ospametric import OSPAMetric, GOSPAMetric
+# from stonesoup.measures import Euclidean
+#
+# ospa_generator = OSPAMetric(c=1000, p=1, measure=Euclidean([4, 6], [0, 2]))
+# ospa_metric = ospa_generator.compute_over_time(ospa_generator.extract_states(all_tracks),
+#                                                ospa_generator.extract_states(all_gnd))
+# gospa_generator = GOSPAMetric(c=1000, p=1, measure=Euclidean([4, 6], [0, 2]))
+# gospa_metric = gospa_generator.compute_over_time(gospa_generator.extract_states(all_tracks),
+#                                                  gospa_generator.extract_states(all_gnd))
+#
+# ospa_generator = OSPAMetric(c=1000, p=1, measure=Euclidean([0, 2]))
+# ospa_metric1 = ospa_generator.compute_over_time(ospa_generator.extract_states(all_tracklets[0]),
+#                                                 ospa_generator.extract_states(test_ground_truths))
+# ospa_metric2 = ospa_generator.compute_over_time(ospa_generator.extract_states(all_tracklets[1]),
+#                                                 ospa_generator.extract_states(test_ground_truths))
+# gospa_generator2 = GOSPAMetric(c=1000, p=1, measure=Euclidean([0, 2]))
+# gospa_metric1 = gospa_generator2.compute_over_time(gospa_generator2.extract_states(all_tracklets[0]),
+#                                                   gospa_generator2.extract_states(test_ground_truths))
+# gospa_metric2 = gospa_generator2.compute_over_time(gospa_generator2.extract_states(all_tracklets[1]),
+#                                                   gospa_generator2.extract_states(test_ground_truths))
+#
+# ospa = np.array([i.value for i in ospa_metric.value])
+# ospa1 = np.array([i.value for i in ospa_metric1.value])
+# ospa2 = np.array([i.value for i in ospa_metric2.value])
+# gospa = {'distance': 0.0,
+#          'localisation': 0.0,
+#          'missed': 0,
+#          'false': 0}
+# for key in gospa:
+#     metric_mat = np.array(
+#         [i.value[key] for i in gospa_metric.value])
+#     gospa[key] = metric_mat
+# gospa1 = {'distance': 0.0,
+#              'localisation': 0.0,
+#              'missed': 0,
+#              'false': 0}
+# for key in gospa1:
+#     metric_mat = np.array(
+#         [i.value[key] for i in gospa_metric1.value])
+#     gospa1[key] = metric_mat
+# gospa2 = {'distance': 0.0,
+#           'localisation': 0.0,
+#           'missed': 0,
+#           'false': 0}
+# for key in gospa2:
+#     metric_mat = np.array(
+#         [i.value[key] for i in gospa_metric2.value])
+#     gospa2[key] = metric_mat
+fig = plt.figure()
+ax = fig.add_subplot(1, 1, 1)
+# for key, metric in ospa_metrics.items():
+#     plot_ospa(metric, f'OSPA {key}', ax=ax)
+for key, metric in gospa_metrics.items():
+    plot_gospa(metric, f'GOSPA {key}', ax=ax)
+# # timestamps = [i.timestamp for i in ospa_metric.value]
+# # ax.plot(timestamps, ospa, label='OSPA')
+# # timestamps = [i.timestamp for i in ospa_metric1.value]
+# # ax.plot(timestamps, ospa1, label='OSPA1')
+# # timestamps = [i.timestamp for i in ospa_metric2.value]
+# # ax.plot(timestamps, ospa2, label='OSPA2')
+# timestamps = [i.timestamp for i in gospa_metric.value]
+# ax.plot(timestamps, gospa['distance'], label='GOSPA')
+# timestamps = [i.timestamp for i in gospa_metric1.value]
+# ax.plot(timestamps, gospa1['distance'], label='GOSPA1')
+# timestamps = [i.timestamp for i in gospa_metric2.value]
+# ax.plot(timestamps, gospa2['distance'], label='GOSPA2')
+ax.set_ylabel("(G)OSPA distance")
+ax.tick_params(labelbottom=False)
+_ = ax.set_xlabel("Time")
+plt.legend()
+# pickle.dump({'ospa': ospa, 'gospa': gospa}, open('./output/jpda_metrics.pickle', 'wb'))
+plt.show()
 
 plt.show(block=True)

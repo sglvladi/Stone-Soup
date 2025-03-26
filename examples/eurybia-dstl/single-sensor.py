@@ -1,5 +1,6 @@
 # Bias tracker for sensors that feed detections straight to the Fusion Engine
 import datetime
+from copy import deepcopy
 from pathlib import Path
 
 import numpy as np
@@ -18,6 +19,8 @@ from stonesoup.hypothesiser.distance import DistanceHypothesiser
 from stonesoup.hypothesiser.probability import PDAHypothesiser
 from stonesoup.initiator.simple import MultiMeasurementInitiator
 from stonesoup.measures import Mahalanobis
+from stonesoup.metricgenerator.manager import SimpleManager
+from stonesoup.metricgenerator.ospametric import GOSPAMetric
 from stonesoup.models.measurement.nonlinear import CartesianToBearingRange
 from stonesoup.models.transition.linear import CombinedLinearGaussianTransitionModel, OrnsteinUhlenbeck, \
     NthDerivativeDecay, ConstantVelocity
@@ -33,27 +36,29 @@ plot_coord = 'xyz'
 ref_lat=49.725
 ref_lon=-4.85
 # stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
-stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
+# stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
+stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
 stanag_config = 'NIAGSparse'
 stanag_meta_header_name = 'LatencyHeader'
 rx_plat_id_select = 1
 
-q_factor = 0.1
+q_factor = 0.001
+decay_factor = 0.0001
 # rerr = 100**2
 rerr = 200**2
-berr = np.radians(1)**2
+berr = np.radians(3)**2
 prob_detect = 0.9
 clutter_density = 1e-3
 time_steps_since_update = 5
 use_ukf = True
 bias_prior = GaussianState(StateVector([0., 0., 0., 0., 0., 0.]),
-                           CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi/6, 50])**2))
+                           CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi/6, 50.])**2))
 
 # Transition model
-bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, 0.0001),
-                                                               OrnsteinUhlenbeck(q_factor, 0.0001),
-                                                               NthDerivativeDecay(0, 1e-6, 0.0001),
-                                                               NthDerivativeDecay(0, 1e-4, 0.0001)])
+bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, decay_factor),
+                                                               OrnsteinUhlenbeck(q_factor, decay_factor),
+                                                               NthDerivativeDecay(0, np.radians(.0001), decay_factor),
+                                                               NthDerivativeDecay(0, 1e-1, decay_factor)])
 # Predictor and Updater
 # Predictor and Updater
 if not use_ukf:
@@ -83,16 +88,18 @@ data_associator = JPDAWithEHM2(hypothesiser)
 contacts_reader = STANAGContactReader(stanag_msg_directory,
                                       state_vector_fields=("RelBearing", "RX2contact_range"),
                                       time_field = None,
-                                      snr_threshold=10,
+                                      snr_threshold=14,
                                       rerr=rerr,
                                       berr=berr,
                                       endianness = 0,
                                       stanag_msg_directory=stanag_msg_directory,
                                       reference_lat = ref_lat,
                                       reference_lon = ref_lon,
-                                      with_bias=True)
+                                      with_bias=True,
+                                      update_rate=datetime.timedelta(seconds=20)
+                                      )
 contacts_reader.read_stanag_files(rx_plat_id_select=rx_plat_id_select, config_subfolder=stanag_config, meta_header_name =stanag_meta_header_name)
-contacts_reader.get_stanag_ground_truth_from_SM01(target_plat_unit_id=(3,1))
+contacts_reader.get_stanag_ground_truth_from_SM01(target_plat_unit_id=[(4,1)])
 
 # Tracker
 bias_tracker = MultiTargetMixtureTracker(initiator, deleter, contacts_reader, data_associator, updater)
@@ -101,18 +108,20 @@ fig = plt.figure(figsize=(10, 10))
 ax = fig.add_subplot(1, 1, 1)
 all_tracks = set()
 all_detections = set()
-test_ground_truths = set()
+test_ground_truths = set([track for track in contacts_reader.ground_truth.values()])
 
+metric = GOSPAMetric(p=1, c=100)
+metric_manager = SimpleManager([metric])
 
 fig2 = plt.figure(figsize=(10, 10))
 ax2, ax3 = fig2.subplots(2, 1)
 
+timestamps = []
 for time, ctracks in bias_tracker:
+    timestamps.append(time)
 
     all_tracks.update(ctracks)
     all_detections.update(contacts_reader.detections)
-    test_ground_truths.update(set([gt for gt in contacts_reader.ground_truth if
-                                   gt.timestamp <= time]))
     detections = contacts_reader.detections
 
     ax.cla()
@@ -146,6 +155,42 @@ for time, ctracks in bias_tracker:
 
     plt.pause(.1)
 
-a=2
+
+all_gnd = deepcopy(test_ground_truths)
+for gnd in all_gnd:
+    gnd.states = [state for state in gnd.states if state.timestamp in timestamps]
+
+from stonesoup.metricgenerator.ospametric import OSPAMetric
+from stonesoup.measures import Euclidean
+
+ospa_generator = OSPAMetric(c=1000, p=1, measure=Euclidean([0, 2]))
+ospa_metric = ospa_generator.compute_over_time(ospa_generator.extract_states(all_tracks),
+                                               ospa_generator.extract_states(all_gnd))
+gospa_generator = GOSPAMetric(c=1000, p=1, measure=Euclidean([0, 2]))
+gospa_metric = gospa_generator.compute_over_time(gospa_generator.extract_states(all_tracks),
+                                                 gospa_generator.extract_states(all_gnd))
+
+ospa = np.array([i.value for i in ospa_metric.value])
+gospa = {'distance': 0.0,
+             'localisation': 0.0,
+             'missed': 0,
+             'false': 0}
+for key in gospa:
+    metric_mat = np.array(
+        [i.value[key] for i in gospa_metric.value])
+    gospa[key] = metric_mat
+timestamps = [i.timestamp for i in ospa_metric.value]
+fig = plt.figure()
+ax = fig.add_subplot(1, 1, 1)
+ax.plot(timestamps, ospa, label='OSPA')
+ax.plot(timestamps, gospa['distance'], label='GOSPA')
+ax.set_ylabel("(G)OSPA distance")
+ax.tick_params(labelbottom=False)
+_ = ax.set_xlabel("Time")
+plt.legend()
+# pickle.dump({'ospa': ospa, 'gospa': gospa}, open('./output/jpda_metrics.pickle', 'wb'))
+plt.show()
+
+
 
 plt.show(block=True)
