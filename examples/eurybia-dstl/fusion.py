@@ -19,6 +19,7 @@ from stonesoup.initiator.simple import MultiMeasurementInitiator
 from stonesoup.initiator.twostate import TwoStateInitiator, TwoStateMeasurementInitiator, \
     TwoStateMeasurementInitiatorMixture
 from stonesoup.measures import Mahalanobis
+from stonesoup.metricgenerator.metrictables import SIAPTableGenerator
 from stonesoup.models.transition.linear import CombinedLinearGaussianTransitionModel, OrnsteinUhlenbeck, \
     NthDerivativeDecay, ConstantVelocity
 from stonesoup.predictor.kalman import ExtendedKalmanPredictor, UnscentedKalmanPredictor
@@ -39,39 +40,104 @@ from plotting_utils import plot_gnd, plot_platform, plot_ospa, plot_gospa
 from metrics import gen_metric_fuse
 
 # Parameters
+DATASET = 'Real'    # 'Sim1', 'Sim2', 'Real'
 plot_coord = 'xyz'
 ref_lat=49.725
 ref_lon=-4.85
 # stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
 # stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
-stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
 
 stanag_config = 'NIAGSparse'
 stanag_meta_header_name = 'LatencyHeader'
-rx_plat_id_selects = [1, 2]
 
-q_factor = 0.01
+stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
+q_factor = 0.1
 decay_factor = 0.0001
 # rerr = 850**2
-rerr = 200**2
+rerr = 100**2
 berr = np.radians(3)**2
 snr_threshold = 14
 fuse_interval = datetime.timedelta(seconds=40)
 target_plat_unit_id=[(4,1)]# [(3,1), (4,1), (91,1), (92,1), (93,1)]
 update_rate=datetime.timedelta(seconds=20)
-prob_detect = 0.9
-clutter_density = 1e-3
-time_steps_since_update = 5
 init_threshold = 10
 use_prior = False
 use_ukf = True
 bias_prior = GaussianState(StateVector([0., 0., 0., 0., 0., 0.]),
                            CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi / 6, 50.]) ** 2))
 
+if DATASET == 'Sim1':
+    rx_plat_id_selects = [2, 1]
+    q_factor = 0.01
+    r_bias_q_factor = 1e-1
+    b_bias_q_factor = np.radians(1e-4)
+    decay_factor = 0.0001
+    rerr = 50 ** 2
+    berr = np.radians(.1) ** 2
+    snr_threshold = 10
+    update_rate = None
+    fuse_interval = datetime.timedelta(minutes=10)
+    prob_detect = 0.9
+    clutter_rate = 1                                      # Mean number of clutter points per scan
+    max_range = 10000                                     # Max range of sensor (meters)
+    surveillance_area = np.pi*max_range**2                # Surveillance region area
+    clutter_density = clutter_rate/surveillance_area      # Mean number of clutter points per unit area
+    # clutter_density = 1e-15
+    time_steps_since_update = 5
+    target_plat_unit_id = [(3, 1)]  # [(3,1), (4,1), (91,1), (92,1), (93,1)]
+    stanag_msg_directory = Path(
+        r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample')
+    xlim = [0, 25000]
+    ylim = [0, 75000]
+elif DATASET == 'Sim2':
+    rx_plat_id_selects = [1, 2]
+    q_factor = 0.01
+    r_bias_q_factor = 1e-6
+    b_bias_q_factor = np.radians(1e-4)
+    decay_factor = 0.0001
+    rerr = 200 ** 2
+    berr = np.radians(1) ** 2
+    snr_threshold = 10
+    update_rate = None
+    fuse_interval = datetime.timedelta(minutes=2)
+    prob_detect = 0.9
+    clutter_rate = 20  # Mean number of clutter points per scan
+    max_range = 10000  # Max range of sensor (meters)
+    surveillance_area = np.pi * max_range ** 2  # Surveillance region area
+    clutter_density = clutter_rate / surveillance_area  # Mean number of clutter points per unit area
+    # clutter_density = 1e-7
+    time_steps_since_update = 5
+    target_plat_unit_id = [(3,1), (4,1), (91,1), (92,1), (93,1)]
+    stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 3 - 05Mar2025\20250305_UoL_Sim_Two_O')
+    xlim = [-15000, 15000]
+    ylim = [-15000, 15000]
+elif DATASET == 'Real':
+    rx_plat_id_selects = [1, 2]
+    q_factor = 0.01
+    r_bias_q_factor = 1e-4
+    b_bias_q_factor = np.radians(1e-4)
+    decay_factor = 0.0001
+    rerr = 200 ** 2
+    berr = np.radians(3) ** 2
+    snr_threshold = 14
+    update_rate = datetime.timedelta(seconds=20)
+    fuse_interval = datetime.timedelta(seconds=40)
+    prob_detect = 0.9
+    clutter_rate = 20  # Mean number of clutter points per scan
+    max_range = 10000  # Max range of sensor (meters)
+    surveillance_area = np.pi * max_range ** 2  # Surveillance region area
+    clutter_density = clutter_rate / surveillance_area  # Mean number of clutter points per unit area
+    # clutter_density = 1e-7
+    time_steps_since_update = 5
+    target_plat_unit_id = [(4, 1)]  # [(3,1), (4,1), (91,1), (92,1), (93,1)]
+    stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
+    xlim = [-15000, 15000]
+    ylim = [-15000, 15000]
+
 # Sensor trackers
 readers = []
 trackers = []
-for rx_plat_id_select in rx_plat_id_selects:
+for i, rx_plat_id_select in enumerate(rx_plat_id_selects):
     # Detector/Reader
     contacts_reader = STANAGContactReader(stanag_msg_directory,
                                           state_vector_fields=("RelBearing", "RX2contact_range"),
@@ -91,10 +157,14 @@ for rx_plat_id_select in rx_plat_id_selects:
     readers.append(contacts_reader)
 
     # Transition model
+    # bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, decay_factor),
+    #                                                                OrnsteinUhlenbeck(q_factor, decay_factor),
+    #                                                                NthDerivativeDecay(0, np.radians(.0001), decay_factor),
+    #                                                                NthDerivativeDecay(0, 1e-2, decay_factor)])
     bias_transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, decay_factor),
                                                                    OrnsteinUhlenbeck(q_factor, decay_factor),
-                                                                   NthDerivativeDecay(0, np.radians(.0001), decay_factor),
-                                                                   NthDerivativeDecay(0, 1e-1, decay_factor)])
+                                                                   NthDerivativeDecay(0, b_bias_q_factor, decay_factor),
+                                                                   NthDerivativeDecay(0, r_bias_q_factor, decay_factor)])
     # Predictor and Updater
     if not use_ukf:
         predictor = ExtendedKalmanPredictor(bias_transition_model)
@@ -105,10 +175,9 @@ for rx_plat_id_select in rx_plat_id_selects:
 
     # Initiator components
     # hypothesiser_init = DistanceHypothesiser(predictor, updater, Mahalanobis(), 10)
-    hypothesiser_init = PDAHypothesiser(predictor, updater, clutter_density, prob_detect)
+    hypothesiser_init = PDAHypothesiser(predictor, updater, 1e-3, prob_detect)
     hypothesiser_init = DistanceGater(hypothesiser_init, Mahalanobis(), 10)
     data_associator_init = GNNWith2DAssignment(hypothesiser_init)
-    time_steps_since_update = 10
     deleter_init = UpdateTimeStepsDeleter(time_steps_since_update=time_steps_since_update)
     initiator = MultiMeasurementInitiator(bias_prior, None, deleter_init,
                                           data_associator_init, updater, init_threshold)
@@ -125,13 +194,13 @@ for rx_plat_id_select in rx_plat_id_selects:
     bias_tracker = MultiTargetMixtureTracker(initiator, deleter, contacts_reader, data_associator, updater)
     trackers.append(TrackReader(bias_tracker, run_async=False,
                                 transition_model=bias_transition_model,
-                                sensor_id=rx_plat_id_select))
+                                sensor_id=i))
 
 # Fusion Tracker
 # ==============
 # Transition model
-transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, 0.0001),
-                                                          OrnsteinUhlenbeck(q_factor, 0.0001)])
+transition_model = CombinedLinearGaussianTransitionModel([OrnsteinUhlenbeck(q_factor, decay_factor),
+                                                          OrnsteinUhlenbeck(q_factor, decay_factor)])
 # Tracklet extractor & Pseudo measurement extractor
 tracklet_extractor = TrackletExtractor(trackers=trackers,
                                        transition_model=transition_model,
@@ -145,15 +214,15 @@ two_state_updater = TwoStateKalmanUpdater(None, True)
 # Hypothesiser and Data Associator
 hypothesiser1 = PDAHypothesiserNoPrediction(predictor=None,
                                             updater=two_state_updater,
-                                            clutter_spatial_density=1e-10,
+                                            clutter_spatial_density=Probability(-80, log_value=True),
                                             prob_detect=Probability(.9),
                                             prob_gate=Probability(0.99))
-hypothesiser1 = DistanceGater(hypothesiser1, Mahalanobis(), 10)
+# hypothesiser1 = DistanceGater(hypothesiser1, Mahalanobis(), 100)
 fuse_associator = JPDAWithEHM2(hypothesiser1)
 
 # Initiator
 prior = GaussianState(StateVector([0., 0., 0., 0.]),
-                      CovarianceMatrix(np.diag([0., 1000., 0., 1000.]))**2)
+                      CovarianceMatrix(np.diag([0., 10., 0., 10.]))**2)
 initiator1 = TwoStateMeasurementInitiator(prior, transition_model, two_state_updater)
 
 # Tracker
@@ -185,8 +254,8 @@ for time, ctracks in fuse_tracker:
     ax.cla()
     ax.set_xlabel('East')
     ax.set_ylabel('North')
-    ax.set_xlim([-15000, 15000])
-    ax.set_ylim([-15000, 15000])
+    ax.set_xlim(xlim)
+    ax.set_ylim(ylim)
     print(f'Time: {time} | Number of tracks: {len(ctracks)}')
 
     ax.plot([], [], 'bo', label='TX')
@@ -201,7 +270,6 @@ for time, ctracks in fuse_tracker:
     for detection in all_detections:
         x, y = detection.measurement_model.inverse_function(detection)[[0, 2]]
         ax.plot(x, y, 'bx')
-    # plot_tracks(ctracks, ax=ax)
     for i, (tracklets, color) in enumerate(zip(tracklet_extractor.current[1], colors)):
         ax.plot([], [], f':.{color}', label=f'Sensor {i} Tracklets')
         for tracklet in tracklets:
@@ -226,85 +294,33 @@ for time, ctracks in fuse_tracker:
     ax.legend()
     plt.pause(.1)
 
-
-tracks = set(sorted(all_tracks, key=lambda x: len(x))[-1])
-filtered_tracklets = {key: {sorted(t, key=lambda x: len(x))[-1]} for key, t in all_tracklets.items()}
+if DATASET in ['Sim1', 'Real']:
+    tracks ={sorted(all_tracks, key=lambda x: len(x))[-1]}
+    filtered_tracklets = {key: {sorted(t, key=lambda x: len(x))[-1]} for key, t in all_tracklets.items()}
+else:
+    tracks = all_tracks
+    filtered_tracklets = all_tracklets
 ospa_metrics = gen_metric_fuse('OSPA', timestamps, test_ground_truths, tracks, filtered_tracklets)
 gospa_metrics = gen_metric_fuse('GOSPA', timestamps, test_ground_truths, tracks, filtered_tracklets)
+siap_metrics = gen_metric_fuse('SIAP', timestamps, test_ground_truths, tracks, filtered_tracklets)
 
+for key, siap_metric in siap_metrics.items():
+    siap_averages = {metric for metric in siap_metric
+                     if metric.title.startswith("SIAP") and not metric.title.endswith(" at times")}
+    siap_time_based = {metric for metric in siap_metric if metric.title.endswith(' at times')}
+    _ = SIAPTableGenerator(siap_averages).compute_metric()
+    plt.title(f'{key} SIAP Averages')
 
-
-# from stonesoup.metricgenerator.ospametric import OSPAMetric, GOSPAMetric
-# from stonesoup.measures import Euclidean
-#
-# ospa_generator = OSPAMetric(c=1000, p=1, measure=Euclidean([4, 6], [0, 2]))
-# ospa_metric = ospa_generator.compute_over_time(ospa_generator.extract_states(all_tracks),
-#                                                ospa_generator.extract_states(all_gnd))
-# gospa_generator = GOSPAMetric(c=1000, p=1, measure=Euclidean([4, 6], [0, 2]))
-# gospa_metric = gospa_generator.compute_over_time(gospa_generator.extract_states(all_tracks),
-#                                                  gospa_generator.extract_states(all_gnd))
-#
-# ospa_generator = OSPAMetric(c=1000, p=1, measure=Euclidean([0, 2]))
-# ospa_metric1 = ospa_generator.compute_over_time(ospa_generator.extract_states(all_tracklets[0]),
-#                                                 ospa_generator.extract_states(test_ground_truths))
-# ospa_metric2 = ospa_generator.compute_over_time(ospa_generator.extract_states(all_tracklets[1]),
-#                                                 ospa_generator.extract_states(test_ground_truths))
-# gospa_generator2 = GOSPAMetric(c=1000, p=1, measure=Euclidean([0, 2]))
-# gospa_metric1 = gospa_generator2.compute_over_time(gospa_generator2.extract_states(all_tracklets[0]),
-#                                                   gospa_generator2.extract_states(test_ground_truths))
-# gospa_metric2 = gospa_generator2.compute_over_time(gospa_generator2.extract_states(all_tracklets[1]),
-#                                                   gospa_generator2.extract_states(test_ground_truths))
-#
-# ospa = np.array([i.value for i in ospa_metric.value])
-# ospa1 = np.array([i.value for i in ospa_metric1.value])
-# ospa2 = np.array([i.value for i in ospa_metric2.value])
-# gospa = {'distance': 0.0,
-#          'localisation': 0.0,
-#          'missed': 0,
-#          'false': 0}
-# for key in gospa:
-#     metric_mat = np.array(
-#         [i.value[key] for i in gospa_metric.value])
-#     gospa[key] = metric_mat
-# gospa1 = {'distance': 0.0,
-#              'localisation': 0.0,
-#              'missed': 0,
-#              'false': 0}
-# for key in gospa1:
-#     metric_mat = np.array(
-#         [i.value[key] for i in gospa_metric1.value])
-#     gospa1[key] = metric_mat
-# gospa2 = {'distance': 0.0,
-#           'localisation': 0.0,
-#           'missed': 0,
-#           'false': 0}
-# for key in gospa2:
-#     metric_mat = np.array(
-#         [i.value[key] for i in gospa_metric2.value])
-#     gospa2[key] = metric_mat
 fig = plt.figure()
 ax = fig.add_subplot(1, 1, 1)
 # for key, metric in ospa_metrics.items():
 #     plot_ospa(metric, f'OSPA {key}', ax=ax)
 for key, metric in gospa_metrics.items():
     plot_gospa(metric, f'GOSPA {key}', ax=ax)
-# # timestamps = [i.timestamp for i in ospa_metric.value]
-# # ax.plot(timestamps, ospa, label='OSPA')
-# # timestamps = [i.timestamp for i in ospa_metric1.value]
-# # ax.plot(timestamps, ospa1, label='OSPA1')
-# # timestamps = [i.timestamp for i in ospa_metric2.value]
-# # ax.plot(timestamps, ospa2, label='OSPA2')
-# timestamps = [i.timestamp for i in gospa_metric.value]
-# ax.plot(timestamps, gospa['distance'], label='GOSPA')
-# timestamps = [i.timestamp for i in gospa_metric1.value]
-# ax.plot(timestamps, gospa1['distance'], label='GOSPA1')
-# timestamps = [i.timestamp for i in gospa_metric2.value]
-# ax.plot(timestamps, gospa2['distance'], label='GOSPA2')
 ax.set_ylabel("(G)OSPA distance")
 ax.tick_params(labelbottom=False)
 _ = ax.set_xlabel("Time")
 plt.legend()
 # pickle.dump({'ospa': ospa, 'gospa': gospa}, open('./output/jpda_metrics.pickle', 'wb'))
-plt.show()
 
 plt.show(block=True)
