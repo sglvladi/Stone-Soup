@@ -9,7 +9,7 @@ from ..reader import DetectionReader
 from ..initiator import Initiator
 from ..updater import Updater
 from ..types.array import StateVectors
-from ..types.prediction import GaussianStatePrediction
+from ..types.prediction import GaussianStatePrediction, Prediction, GaussianMixturePrediction
 from ..types.update import GaussianStateUpdate, GaussianMixtureUpdate
 from ..functions import gm_reduce_single
 from stonesoup.buffered_generator import BufferedGenerator
@@ -249,7 +249,11 @@ class MultiTargetMultiMixtureTracker(Tracker):
                         unassociated_detections -= {hypothesis.measurement}
                         update = self.updater.update(hypothesis)
                         components.append(update)
-                track.append(GaussianMixtureUpdate(components=components, hypothesis=multihypothesis))
+                if len(components) == 1 and isinstance(components[0], Prediction):
+                    state = GaussianMixturePrediction(components)
+                else:
+                    state = GaussianMixtureUpdate(components=components, hypothesis=multihypothesis)
+                track.append(state)
 
             tracks -= self.deleter.delete_tracks(tracks)
             tracks |= self.initiator.initiate(unassociated_detections, time)
