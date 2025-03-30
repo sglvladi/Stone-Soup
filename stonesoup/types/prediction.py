@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
-
 from stonesoup.types.state import CreatableFromState, TwoStateParticleState
+from .mixture import GaussianMixture
 from ..base import Property
 from .array import CovarianceMatrix
 from .base import Type
@@ -83,6 +83,14 @@ class TaggedWeightedGaussianStatePrediction(Prediction,
 class TwoStateGaussianStatePrediction(Prediction, TwoStateGaussianState):
     """ A Gaussian state object representing the predicted distribution
     :math:`p(x_{k+T}, x_{k} | Y)` """
+
+
+class GaussianMixturePrediction(Prediction, GaussianMixture):
+    """ GaussianMixturePrediction type
+
+    This is a Gaussian mixture prediction object, which, as the name
+    suggests, is described by a Gaussian mixture.
+    """
 
 
 class GaussianMeasurementPrediction(MeasurementPrediction, GaussianState):
