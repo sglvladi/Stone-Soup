@@ -127,9 +127,15 @@ class PDAHypothesiser(Hypothesiser):
                 prediction, detection.measurement_model, **kwargs)
             # Calculate difference before to handle custom types (mean defaults to zero)
             # This is required as log pdf coverts arrays to floats
-            log_pdf = mn.logpdf(
-                (detection.state_vector - measurement_prediction.state_vector).ravel(),
-                cov=measurement_prediction.covar)
+            try:
+                log_pdf = mn.logpdf(
+                    (detection.state_vector - measurement_prediction.state_vector).ravel(),
+                    cov=measurement_prediction.covar)
+            except np.linalg.LinAlgError:
+                print('Had to allow singular when evaluating likelihood!!!')
+                log_pdf = mn.logpdf(
+                    (detection.state_vector - measurement_prediction.state_vector).ravel(),
+                    cov=measurement_prediction.covar, allow_singular=True)
             pdf = Probability(log_pdf, log_value=True)
             probability = (pdf * self.prob_detect)/self.clutter_spatial_density
 
@@ -183,7 +189,6 @@ class PDAHypothesiserNoPrediction(PDAHypothesiser):
                     (detection.state_vector - measurement_prediction.state_vector).ravel(),
                     cov=measurement_prediction.covar)
             except np.linalg.LinAlgError:
-                print('Had to allow singular when evaluating likelihood!!!')
                 log_pdf = mn.logpdf(
                     (detection.state_vector - measurement_prediction.state_vector).ravel(),
                     cov=measurement_prediction.covar, allow_singular=True)
