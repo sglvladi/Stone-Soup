@@ -295,7 +295,7 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
     target_state_dim: int = Property(doc='The target state dim', default=None)
     state_idx_to_use: List[int] = Property(doc='The indices of the state corresponding to pos/vel',
                                            default=None)
-    use_prior: bool = Property(doc="", default=True)
+    use_prior: bool = Property(doc="", default=False)
 
     def __init__(self, *args, **kwargs):
         super(PseudoMeasExtractor, self).__init__(*args, **kwargs)
@@ -466,14 +466,14 @@ class PseudoMeasExtractor(Base, BufferedGenerator):
 
 
         if np.max(np.abs(C1.flatten() - C2.flatten())) < matthresh:
-            # print('Discarded - matrices too similar')
+            print('Discarded - matrices too similar')
             H = np.zeros((0, statedim))
             z = np.zeros((0, 1))
             R = np.zeros((0, 0))
             return H, z, R, evals
 
         if np.all(np.abs(evals) <= eigthresh):
-            # print('Discarded - all eigenvalues zero')
+            print('Discarded - all eigenvalues zero')
             H = np.zeros((0, statedim))
             z = np.zeros((0, 1))
             R = np.zeros((0, 0))
