@@ -42,7 +42,7 @@ from plotting_utils import plot_gnd, plot_platform, plot_ospa, plot_gospa
 from metrics import gen_metric_fuse, prepare_tracks, prepare_tracks_fuse
 
 # Parameters
-DATASET = 'Sim2'    # 'Sim1', 'Sim2', 'Real'
+DATASET = 'Sim1'    # 'Sim1', 'Sim2', 'Real'
 plot_coord = 'xyz'
 ref_lat=49.725
 ref_lon=-4.85
@@ -60,7 +60,7 @@ use_ukf = True
 use_mfa = True
 slide_window = 2
 local_prior = GaussianState(StateVector([0., 0., 0., 0., 0., 0.]),
-                           CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi / 6, 50.]) ** 2))
+                           CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi / 6, 500.]) ** 2))
 
 
 
@@ -118,10 +118,10 @@ elif DATASET == 'Real':
     rx_plat_id_selects = [1, 2]
     q = 0.01
     q_bias_range = 1e-1
-    q_bias_bearing = np.radians(1e-7)
+    q_bias_bearing = np.radians(1e-6)
     decay_factor = 0.0001
     sigma_r = 200.
-    sigma_b = np.radians(1.)
+    sigma_b = np.radians(2.)
     snr_threshold = 14
     update_rate = datetime.timedelta(seconds=20)
     fuse_interval = datetime.timedelta(seconds=40)
@@ -257,6 +257,7 @@ fuse_tracker = FuseTracker(initiator=initiator1, predictor=two_state_predictor,
 
 fig = plt.figure(figsize=(10, 10))
 ax = fig.add_subplot(1, 1, 1)
+plt.ion()
 ax.set_xlim(xlim)
 ax.set_ylim(ylim)
 all_tracks = set()
@@ -331,6 +332,28 @@ for time, ctracks in fuse_tracker:
     ax.legend()
     plt.pause(.1)
 
+for i, tracks in local_tracks.items():
+    fig2 = plt.figure(figsize=(10, 4))
+    ax2, ax3 = fig2.subplots(1, 2)
+    ax2.set_title('Bearing Bias')
+    ax2.set_ylabel('Bearing (deg)')
+    ax3.set_title('Range Bias')
+    ax3.set_ylabel('Range (m)')
+    ax3.set_xlabel('Track Timestep')
+    ax2.set_xlabel('Track Timestep')
+    for track in tracks:
+        data = np.array([state.state_vector for state in track.states])
+        num_steps = len(data)
+        b_bias = np.degrees(data[:, -2].ravel())
+        ax2.plot([i for i in range(num_steps)], b_bias, 'r-')
+        sd = np.degrees(np.sqrt(np.squeeze([state.covar[-2, -2] for state in track.states])))
+
+        a = 2
+        ax2.fill_between([i for i in range(num_steps)], b_bias - sd, b_bias + sd, facecolor='g', alpha=0.5)
+        ax3.plot([i for i in range(num_steps)], data[:, -1], 'r-')
+        sd = np.sqrt(np.squeeze([state.covar[-1, -1] for state in track.states]))
+        ax3.fill_between([i for i in range(num_steps)], data[:, -1].ravel() - sd, data[:, -1].ravel() + sd, facecolor='g', alpha=0.5)
+
 metric_key_to_label = {
     'fuse': 'Fusion Engine',
     'local_0': 'Local Tracker - TX/RX Sensor',
@@ -362,5 +385,6 @@ ax.set_title(f'GOSPA metrics')
 plt.tight_layout()
 plt.legend()
 # pickle.dump({'ospa': ospa, 'gospa': gospa}, open('./output/jpda_metrics.pickle', 'wb'))
+
 
 plt.show(block=True)

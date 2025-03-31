@@ -6,6 +6,8 @@ import pandas
 # Load the data
 # path_to_gnd = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 1 - 7Feb2025\20250207_TruthTracks.csv')
 path_to_gnd = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 2 - 13Feb2025\20250213_UoLExample\TruthTracks.csv')
+path_to_gnd = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
+
 gnd_df = pandas.read_csv(path_to_gnd)
 gnd_df.sort_values('Time', inplace=True)
 

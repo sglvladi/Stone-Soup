@@ -36,7 +36,8 @@ from stonesoup.updater.kalman import ExtendedKalmanUpdater, UnscentedKalmanUpdat
 from plotting_utils import plot_tracks, plot_gnd, plot_platform, plot_gospa
 from metrics import prepare_tracks, gen_metric
 
-DATASET = 'Sim1'
+DATASET = 'Real'
+rx_plat_id_select = 2
 plot_coord = 'xyz'
 ref_lat=49.725
 ref_lon=-4.85
@@ -45,7 +46,6 @@ ref_lon=-4.85
 stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
 stanag_config = 'NIAGSparse'
 stanag_meta_header_name = 'LatencyHeader'
-rx_plat_id_select = 2
 
 q_factor = 0.01
 decay_factor = 0.0001
@@ -61,7 +61,7 @@ clutter_density = 5e-3
 time_steps_since_update = 5
 use_ukf = True
 use_mfa = True
-slide_window = 2
+slide_window = 1
 bias_prior = GaussianState(StateVector([0., 0., 0., 0., 0., 0.]),
                            CovarianceMatrix(np.diag([0, 10., 0, 10., np.pi/6, 50.])**2))
 max_range_std = 1e3
@@ -74,7 +74,7 @@ if DATASET == 'Sim1':
     q_bias_bearing = np.radians(1e-7)
     decay_factor = 0.0001
     sigma_r = 200.
-    sigma_b = np.radians(3.)
+    sigma_b = np.radians(.2)
     snr_threshold = 10
     update_rate = None
     fuse_interval = datetime.timedelta(minutes=10)
@@ -99,7 +99,7 @@ elif DATASET == 'Sim2':
     q_bias_bearing = np.radians(1e-7)        # Bias process noise for bearing (q_b^b)
     decay_factor = 0.0001                    # Decay factor (K)
     sigma_r = 200.                            # Range measurement noise (sigma_r)
-    sigma_b = np.radians(1.)                  # Bearing measurement noise (sigma_b)
+    sigma_b = np.radians(2.)                  # Bearing measurement noise (sigma_b)
     snr_threshold = 10
     update_rate = None
     fuse_interval = datetime.timedelta(minutes=2)
@@ -121,19 +121,20 @@ elif DATASET == 'Real':
     q_bias_bearing = np.radians(1e-7)
     decay_factor = 0.0001
     sigma_r = 200.
-    sigma_b = np.radians(1.)
+    sigma_b = np.radians(2.)
     snr_threshold = 14
     update_rate = datetime.timedelta(seconds=20)
     fuse_interval = datetime.timedelta(seconds=40)
     prob_detect = 0.9
     clutter_rate = 20  # Mean number of clutter points per scan
-    max_range = 35000  # Max range of sensor (meters)
+    max_range = 15000  # Max range of sensor (meters)
     surveillance_area = np.pi * max_range ** 2  # Surveillance region area
     clutter_density = clutter_rate / surveillance_area  # Mean number of clutter points per unit area
     init_clutter_density = 1e-3
     time_steps_since_update = 5
     max_range_std = 1e3
     max_bearing_std = np.radians(45)
+    init_threshold = 10
     target_plat_unit_id = [(4, 1)]  # [(3,1), (4,1), (91,1), (92,1), (93,1)]
     stanag_msg_directory = Path(r'C:\Users\sglvladi\OneDrive\Documents\University of Liverpool\PostDoc\EURYBIA - Dstl\Data\Drop 4 - 11Mar2025\20250305_UoL_Real_Three_OS')
     xlim = [-15000, 15000]
@@ -203,6 +204,7 @@ else:
     bias_tracker = MultiTargetMixtureTracker(initiator, deleter, contacts_reader, data_associator, updater)
 
 fig = plt.figure(figsize=(10, 10))
+plt.title(f'Dataset: {DATASET} | Sensor: {rx_plat_id_select}')
 ax = fig.add_subplot(1, 1, 1)
 all_tracks = set()
 all_detections = set()
@@ -211,10 +213,12 @@ test_ground_truths = set([track for track in contacts_reader.ground_truth.values
 metric = GOSPAMetric(p=1, c=100)
 metric_manager = SimpleManager([metric])
 
-fig2 = plt.figure(figsize=(10, 10))
-ax2, ax3 = fig2.subplots(2, 1)
+fig2 = plt.figure(figsize=(10, 4))
+ax2, ax3 = fig2.subplots(1, 2)
 ax.set_xlim(xlim)
 ax.set_ylim(ylim)
+# plt.suptitle(f'Dataset: {DATASET} | Sensor: {rx_plat_id_select}')
+# plt.tight_layout()
 
 timestamps = []
 for time, ctracks in bias_tracker:
@@ -245,13 +249,26 @@ for time, ctracks in bias_tracker:
     plot_tracks(bias_tracker.initiator.holding_tracks, ax=ax, color='y')
 
     ax2.cla()
-    for track in ctracks:
+    ax3.cla()
+    ax2.set_title('Bearing Bias')
+    ax2.set_ylabel('Bearing (deg)')
+    ax3.set_title('Range Bias')
+    ax3.set_ylabel('Range (m)')
+    ax3.set_xlabel('Track Timestep')
+    ax2.set_xlabel('Track Timestep')
+    tracks_sorted = sorted(list(all_tracks), key=lambda x: len(x))
+    if len(tracks_sorted):
+        tracks_sorted = {tracks_sorted[-1]}
+    for track in tracks_sorted:
         data = np.array([state.state_vector for state in track.states])
         num_steps = len(data)
-        ax2.plot([i for i in range(num_steps)], data[:, -2], 'r-')
-        sd = np.sqrt(np.squeeze([state.covar[-2, -2] for state in track.states]))
-        ax2.fill_between([i for i in range(num_steps)], data[:, -2].ravel() - sd, data[:, -2].ravel() + sd, facecolor='g', alpha=0.5)
-        ax3.plot([i for i in range(num_steps)], data[:, -1], 'c-')
+        b_bias = np.degrees(data[:, -2].ravel())
+        ax2.plot([i for i in range(num_steps)], b_bias, 'r-')
+        sd = np.degrees(np.sqrt(np.squeeze([state.covar[-2, -2] for state in track.states])))
+
+        a = 2
+        ax2.fill_between([i for i in range(num_steps)], b_bias - sd, b_bias + sd, facecolor='g', alpha=0.5)
+        ax3.plot([i for i in range(num_steps)], data[:, -1], 'r-')
         sd = np.sqrt(np.squeeze([state.covar[-1, -1] for state in track.states]))
         ax3.fill_between([i for i in range(num_steps)], data[:, -1].ravel() - sd, data[:, -1].ravel() + sd, facecolor='g', alpha=0.5)
 
@@ -266,8 +283,8 @@ all_gnd = deepcopy(test_ground_truths)
 for gnd in all_gnd:
     gnd.states = [state for state in gnd.states if state.timestamp in timestamps]
 filtered_tracks = prepare_tracks(DATASET, all_gnd, all_tracks)
-gospa_metric = gen_metric('GOSPA', filtered_tracks, all_gnd)
-siap_metric = gen_metric('SIAP', filtered_tracks, all_gnd)
+gospa_metric = gen_metric('GOSPA', all_gnd,  filtered_tracks)
+siap_metric = gen_metric('SIAP', all_gnd, filtered_tracks)
 siap_averages = {metric for metric in siap_metric
                  if metric.title.startswith("SIAP") and not metric.title.endswith(" at times")}
 siap_time_based = {metric for metric in siap_metric if metric.title.endswith(' at times')}

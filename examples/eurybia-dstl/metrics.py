@@ -7,6 +7,60 @@ from stonesoup.metricgenerator.tracktotruthmetrics import SIAPMetrics
 from stonesoup.dataassociator.tracktotrack import TrackToTruth
 
 
+def prepare_tracks(dataset, gnd, tracks):
+    if dataset in ['Sim1', 'Real']:
+        associator = TrackToTruth(association_threshold=1000, measure=Euclidean([0, 2]))
+        assoc = associator.associate_tracks(tracks, gnd)
+        tracks = {assoc.associations.pop().objects[0]}
+        return tracks
+    else:
+        return tracks
+
+def prepare_tracks_fuse(dataset, fuse_timestamps, all_gnd, fused_tracks, local_tracks):
+    if dataset in ['Sim1', 'Real']:
+        associator_fuse = TrackToTruth(association_threshold=1000, measure=Euclidean([4, 6], [0, 2]))
+        fuse_gnd = deepcopy(all_gnd)
+        for gnd in fuse_gnd:
+            gnd.states = [state for state in gnd.states if state.timestamp in fuse_timestamps]
+        assoc = associator_fuse.associate_tracks(fused_tracks, fuse_gnd)
+        fused_tracks = {assoc.associations.pop().objects[0]}
+        associator_local = TrackToTruth(association_threshold=1000, measure=Euclidean([0, 2]))
+        filtered_tracklets = dict()
+        for key, tracks in local_tracks.items():
+            tracks_tmp = deepcopy(tracks)
+            for track in tracks_tmp:
+                track.states = [state for state in track.states if state.timestamp in fuse_timestamps]
+            assoc = associator_local.associate_tracks(tracks_tmp, fuse_gnd)
+            filtered_tracklets[key] = {assoc.associations.pop().objects[0]}
+        return fused_tracks, filtered_tracklets
+    else:
+        return fused_tracks, local_tracks
+
+
+def gen_metric(metric_type, gnd, tracks):
+    if metric_type in ['OSPA', 'GOSPA']:
+        metric_cls = OSPAMetric if metric_type == 'OSPA' else GOSPAMetric
+        metric_gen = metric_cls(c=1000, p=1, measure=Euclidean([0, 2]))
+        metric = metric_gen.compute_over_time(*metric_gen.extract_states(tracks, True),
+                                              *metric_gen.extract_states(gnd, True))
+
+    elif metric_type == 'SIAP':
+        metric_gen = SIAPMetrics(position_measure=Euclidean((0, 2)),
+                                 velocity_measure=Euclidean((1, 3)))
+
+        # The SIAP Metrics requires a way to associate tracks to truth, so we'll use a Track to Truth
+        # associator, which uses Euclidean distance measure by default.
+        associator = TrackToTruth(association_threshold=1000, measure=Euclidean([0, 2]))
+        metric_manager = SimpleManager([metric_gen], associator=associator)
+        metric_manager.add_data(
+            gnd, tracks, overwrite=True,  # Don't overwrite, instead add above as additional data
+        )
+        metric = metric_manager.generate_metrics()
+    else:
+        raise ValueError('Invalid metric type')
+    return metric
+
+
 def gen_metric_fuse(metric_type, fuse_timestamps, all_gnd, fused_tracks, local_tracks):
     """Helper function to generate metrics for both fusion and local trackers.
 

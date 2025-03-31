@@ -92,16 +92,16 @@ def plot_cov_ellipse(cov, pos, nstd=3, ax=None, **kwargs):
     return ellip
 
 
-def plot_tracks(tracks, show_error=True, ax=None):
+def plot_tracks(tracks, show_error=True, ax=None, color='r'):
     for track in tracks:
         data = np.array([state.state_vector for state in track.states])
         if ax is not None:
-            ax.plot(data[:, 0], data[:, 2], 'r-')
+            ax.plot(data[:, 0], data[:, 2], f'{color}-')
         else:
-            plt.plot(data[:, 0], data[:, 2], 'r-')
+            plt.plot(data[:, 0], data[:, 2], f'{color}-')
         if show_error:
             plot_cov_ellipse(track.state.covar[[0, 2], :][:, [0, 2]],
-                             track.state.mean[[0, 2], :], edgecolor='r',
+                             track.state.mean[[0, 2], :], edgecolor=color,
                              facecolor='none', ax=ax)
 
 
