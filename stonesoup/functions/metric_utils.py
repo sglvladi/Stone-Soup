@@ -63,7 +63,7 @@ def prepare_tracks_fuse(dataset, fuse_timestamps, all_gnd, fused_tracks, local_t
         Dictionary of local tracks. The keys are the local tracker indices, and the values are the
         list of tracks.
     """
-    if dataset in ['Sim1', 'Real']:
+    if dataset.value in ['Sim1', 'Real']:
         # Associate fused tracks to ground truth and extract the track that is associated to the ground truth
         associator_fuse = TrackToTruth(association_threshold=1000, measure=Euclidean([4, 6], [0, 2]))
         fuse_gnd = deepcopy(all_gnd)
