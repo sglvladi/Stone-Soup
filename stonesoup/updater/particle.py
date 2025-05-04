@@ -731,5 +731,5 @@ class SMCPHDUpdater(ParticleUpdater):
         g = np.zeros((num_samples, len(detections)))
         for i, detection in enumerate(detections):
             measurement_model = self._check_measurement_model(detection.measurement_model)
-            g[:, i] = measurement_model.logpdf(detection, prediction, noise=True)
+            g[:, i] = measurement_model.logpdf(detection, prediction, noise=False)
         return g
