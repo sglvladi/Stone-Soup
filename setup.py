@@ -27,7 +27,8 @@ setup(name='stonesoup',
       use_scm_version=True,
       install_requires=[
           'ruamel.yaml>=0.15.45', 'numpy>=1.17', 'scipy', 'matplotlib', 'utm', 'pymap3d', 'ordered-set',
-          'setuptools>=42', 'rtree', 'shapely', 'networkx'
+          'setuptools>=42', 'rtree', 'shapely', 'networkx', 'moviepy',
+          'geopandas @ git+https://github.com/sglvladi/geopandas@main'
       ],
       extras_require={
           'dev': [
