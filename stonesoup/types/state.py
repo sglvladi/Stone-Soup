@@ -550,7 +550,7 @@ class ParticleState2(Type, Sequence):
         """The state mean, equivalent to state vector"""
         result = np.average(self.particles, axis=1,
                             weights=np.array(self.weights))
-        return StateVector(result).astype(np.float, copy=False)
+        return StateVector(result).astype(float, copy=False)
         # res = self.particles@np.array(self.weights).T
         # Convert type as may have type of weights
         # return np.atleast_2d(res.astype(np.float, copy=False)).T

@@ -28,7 +28,7 @@ from stonesoup.types.particle import Particle
 from stonesoup.types.track import Track
 from stonesoup.updater.particle import ParticleUpdater, ParticleUpdater2
 
-from pybsp.bsp import BSP
+# from pybsp.bsp import BSP
 from bsppy import BSPTree
 
 # path =r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\Python\PyBSP\data\graphs\custom_digraph_v4.1.pickle'
@@ -55,7 +55,7 @@ destination = 2431
 speed = 10000
 zoom = 50000
 LOAD = True
-PLOT = not True
+PLOT = True
 
 if LOAD:
     gnd_path, gnd_route_n, gnd_route_e, short_paths_n, short_paths_e, destinations = \

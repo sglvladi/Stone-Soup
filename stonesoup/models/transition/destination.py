@@ -8,7 +8,7 @@ from ..base import TimeVariantModel
 from ...base import Property
 from .linear import ConstantVelocity, LinearGaussianTransitionModel, OrnsteinUhlenbeck
 from ...custom.graph import CustomDiGraph, normalise_re, normalise_re2, get_xy_from_range_endnodes
-from pybsp.bsp import BSP
+# from pybsp.bsp import BSP
 # from pybsp.geometry import Point
 from bsppy import Point, BSPTree
 
@@ -91,7 +91,7 @@ class DestinationTransitionModel(LinearGaussianTransitionModel, TimeVariantModel
 class AimpointTransitionModel(LinearGaussianTransitionModel):
     noise_diff_coeff: float = Property(doc="The position noise diffusion coefficient :math:`q`")
     graph: CustomDiGraph = Property(doc="The graph")
-    bsptree: BSP = Property(doc="The bsp tree")
+    bsptree: BSPTree = Property(doc="The bsp tree")
     use_smc: bool = Property(default=False)
     check_los: bool = Property(default=False)
     prior_on_endnodes: bool = Property(default=True)

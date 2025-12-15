@@ -1,6 +1,6 @@
 import numpy as np
 import geopandas
-from pybsp.bsp import BSP
+# from pybsp.bsp import BSP
 # from pybsp.geometry import Point
 from bsppy import Point, BSPTree
 from scipy.stats import multivariate_normal as mvn
@@ -121,7 +121,7 @@ class DestinationBasedInitiator(Initiator):
 
 class DestinationBasedInitiatorAimpoint(DestinationBasedInitiator):
 
-    bsptree: BSP = Property(doc="The bsp tree")
+    bsptree: BSPTree = Property(doc="The bsp tree")
 
     def _init_track(self, detection,  v_edges2, v_dest):
         S = self.graph.as_dict()
