@@ -29,6 +29,11 @@ dependencies = [
     "ruamel.yaml>=0.16.5",
     "scipy",
     "utm",
+    "pyehm>=2.0",
+    "vector3d",
+    "shapely>=2.0.1",
+    "geopy",
+    "pyproj>=3.4.1"
 ]
 dynamic = ["version"]
 
