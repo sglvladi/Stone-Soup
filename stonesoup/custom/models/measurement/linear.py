@@ -1,7 +1,10 @@
+import numpy as np
+
 from stonesoup.base import Property
-from stonesoup.models.base import LinearModel, GaussianModel
+from stonesoup.models.base import LinearModel, GaussianModel, ReversibleModel
 from stonesoup.models.measurement import MeasurementModel
-from stonesoup.types.array import Matrix, CovarianceMatrix
+from stonesoup.models.measurement.linear import LinearGaussian
+from stonesoup.types.array import Matrix, CovarianceMatrix, StateVector, StateVectors
 
 
 class LinearGaussianPredefinedH(MeasurementModel, LinearModel, GaussianModel):
@@ -95,3 +98,12 @@ class LinearGaussianPredefinedH(MeasurementModel, LinearModel, GaussianModel):
         """
 
         return self.noise_covar
+
+
+class ReversibleLinearGaussian(LinearGaussian, ReversibleModel):
+
+    def inverse_function(self, detection, **kwargs) -> StateVector:
+        out = StateVectors(np.zeros((self.ndim_state, detection.state_vector.shape[1])))
+        for i, idx in enumerate(self.mapping):
+            out[idx, :] = detection.state_vector[i, :]
+        return out
