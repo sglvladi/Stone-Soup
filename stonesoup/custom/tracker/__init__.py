@@ -39,11 +39,7 @@ class _BaseTracker(Base):
         doc='The birth density (i.e. density from which we sample birth particles)')
     clutter_intensity: float = Property(doc='The clutter intensity per unit volume')
     num_samples: int = Property(doc='The number of samples. Default is 1024', default=1024)
-    birth_scheme: str = Property(
-        doc='The scheme for birth particles. Options are "expansion" | "mixture". '
-            'Default is "expansion"',
-        default='expansion'
-    )
+    null_birth_particles: int = Property(doc='The number of null birth particles to add to the birth density. Default is 0', default=0)
     start_time: datetime = Property(doc='Start time of the tracker', default=None)
 
     def __init__(self, *args, **kwargs):
@@ -124,7 +120,8 @@ class SMCPHD_JIPDA(_BaseTracker):
                                        clutter_intensity=self.clutter_intensity,
                                        num_samples=self.num_samples,
                                        resampler=resampler,
-                                       birth_scheme=self.birth_scheme)
+                                       null_birth_particles=self.null_birth_particles,
+                                       num_birth_per_detection=300)
         else:
             phd_filter = SMCPHDFilter(birth_density=self.birth_density,
                                       transition_model=self.transition_model,
@@ -136,32 +133,12 @@ class SMCPHD_JIPDA(_BaseTracker):
                                       clutter_intensity=self.clutter_intensity,
                                       num_samples=self.num_samples,
                                       resampler=resampler,
-                                      birth_scheme=self.birth_scheme)
-        # Sample prior state from birth density
-        if isinstance(self.birth_density, GaussianMixture):
-            state_vector = np.zeros((self.transition_model.ndim_state, 0))
-            particles_per_component = self.num_samples // len(self.birth_density)
-            for i, component in enumerate(self.birth_density):
-                if i == len(self.birth_density) - 1:
-                    particles_per_component += self.num_samples % len(self.birth_density)
-                particles_component = multivariate_normal.rvs(
-                    component.mean.ravel(),
-                    component.covar,
-                    particles_per_component).T
-                state_vector = np.hstack((state_vector, particles_component))
-            state_vector = StateVectors(state_vector)
-        else:
-            state_vector = StateVectors(
-                multivariate_normal.rvs(self.birth_density.state_vector.ravel(),
-                                        self.birth_density.covar,
-                                        size=self.num_samples).T)
-        weight = np.full((self.num_samples,), Probability(self.birth_rate / self.num_samples))
-        state = ParticleState(state_vector=state_vector, weight=weight, timestamp=self.start_time)
+                                      null_birth_particles=self.null_birth_particles)
 
         if self.use_ismcphd:
-            self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=state)
+            self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=None)
         else:
-            self._initiator = SMCPHDInitiator(filter=phd_filter, prior=state)
+            self._initiator = SMCPHDInitiator(filter=phd_filter, prior=None)
 
     def __iter__(self):
         self.detector_iter = iter(self.detector)
@@ -269,7 +246,8 @@ class SMCPHD_IGNN(_BaseTracker):
                                    clutter_intensity=self.clutter_intensity,
                                    num_samples=self.num_samples,
                                    resampler=resampler,
-                                   birth_scheme=self.birth_scheme)
+                                   birth_scheme=self.birth_scheme,
+                                   )
 
         # Sample prior state from birth density
         state_vector = StateVectors(
