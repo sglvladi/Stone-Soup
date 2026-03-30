@@ -3,12 +3,12 @@ import itertools
 import numpy as np
 from typing import Iterator, List
 
-from stonesoup.custom.functions import get_nearest, compute_reachable_point
-from stonesoup.types.array import StateVector
+from stonesoup.custom.functions import compute_reachable_point
+from stonesoup.types.array import StateVector, StateVectors
 
 from stonesoup.base import Property
 
-from stonesoup.sensor.action import Action, RealNumberActionGenerator
+from stonesoup.sensormanager.action import Action, RealNumberActionGenerator
 
 
 class ChangeLocationAction(Action):
@@ -121,6 +121,6 @@ class LocationActionGenerator(RealNumberActionGenerator):
 
     def _get_possible_values(self):
         if self.possible_values is not None:
-            return np.array(self.possible_values)
+            return StateVectors(self.possible_values)
         else:
-            return np.arange(self.min, self.max + self.resolution, self.resolution, dtype=float)
+            return StateVectors(np.arange(self.min, self.max + self.resolution, self.resolution, dtype=float))

@@ -6,19 +6,16 @@ from shapely import Point
 
 from stonesoup.base import Property
 from stonesoup.custom.functions import geodesic_point_buffer, \
-    cover_rectangle_with_minimum_overlapping_circles, is_valid_track, calculate_bearing, \
-    compute_reachable_point
+    cover_rectangle_with_minimum_overlapping_circles, compute_reachable_point
 from stonesoup.custom.sensor.action.location import LocationActionGenerator
 from stonesoup.models.clutter import ClutterModel
 from stonesoup.models.measurement.linear import LinearGaussian
-from stonesoup.sensor.action import ActionGenerator
-from stonesoup.sensor.actionable import ActionableProperty
+from stonesoup.sensormanager.action import ActionGenerator
+from stonesoup.sensormanager.action import ActionableProperty
 from stonesoup.sensor.sensor import Sensor
 from stonesoup.types.array import CovarianceMatrix, StateVector
 from stonesoup.types.detection import TrueDetection
 from stonesoup.types.groundtruth import GroundTruthState
-
-from reactive_isr_core.data import BeliefState
 
 
 class MovableUAVCamera(Sensor):
@@ -54,13 +51,9 @@ class MovableUAVCamera(Sensor):
     fov_in_km: bool = Property(
         doc="Whether the FOV radius is in kilo-meters or degrees",
         default=True)
-    rfis: List = Property(
+    irs: List = Property(
         doc="The RFIs in the scene",
         default=None
-    )
-    belief_state: BeliefState = Property(
-        doc="The latest belief state",
-        default=None,
     )
     max_speed: float = Property(
         doc="The maximum speed of the sensor",
@@ -74,8 +67,8 @@ class MovableUAVCamera(Sensor):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._footprint = None
-        if self.rfis is None:
-            self.rfis = []
+        if self.irs is None:
+            self.irs = []
 
     @location.setter
     def location(self, value):
@@ -181,37 +174,17 @@ class MovableUAVCamera(Sensor):
         if start_timestamp is None:
             start_timestamp = self.timestamp
 
-        started_rfis = [rfi for rfi in self.rfis if rfi.status == "started"]
-        rois = [roi for rfi in started_rfis for roi in rfi.region_of_interest]
-        possible_locations = []
-        for roi in rois:
-            x1 = roi.corners[0].longitude
-            y1 = roi.corners[0].latitude
-            x2 = roi.corners[1].longitude
-            y2 = roi.corners[1].latitude
-            roi_center = [(x1 + x2) / 2, (y1 + y2) / 2]
-            # Compute fov radius at center of roi
-            # NOTE: We assume the the fov in lat/long degrees is the same across the whole roi
-            footprint = geodesic_point_buffer(*roi_center, self.fov_radius)
-            # Get min max lat lon of the footprint
-            min_lon, min_lat, max_lon, max_lat = footprint.bounds
-            # NOTE: This is an approximation of asset fov in lat/long degrees (1 degree = 111km)
-            # asset_fov_ll = self.fov_radius / 111
-            asset_fov_ll = min((max_lat - min_lat), (max_lon - min_lon))
-            # For each roi, find the minimum number of overlapping circles required to cover it
-            possible_locations += cover_rectangle_with_minimum_overlapping_circles(
-                x1, y1, x2, y2, asset_fov_ll
-            )
-        possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
+        # Note: Should we check for started rfis?
+        possible_locations = [
+            self._property_location + StateVector([-0.1, -0.1]),
+            self._property_location + StateVector([-0.1, 0]),
+            self._property_location + StateVector([0, -0.1]),
+            self._property_location + StateVector([0.1, 0]),
+            self._property_location + StateVector([0, 0.1]),
+            self._property_location + StateVector([0.1, 0.1]),
 
-        # Add locations for follow RFIs
-        for rfi in started_rfis:
-            if rfi.task_type != 'follow' or self.belief_state is None:
-                continue
-            for target in rfi.targets:
-                for uuid, track in self.belief_state.targets.items():
-                    if target.target_UUID == uuid or target.target_type in track.target_type_confidences:
-                        possible_locations.append(StateVector([track.location.longitude, track.location.latitude]))
+        ]
+        possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
 
         # Constrain actions based on speed
         new_possible_locations = []
@@ -239,8 +212,218 @@ class MovableUAVCamera(Sensor):
         """Returns the action generator associated with the """
         kwargs = {'owner': self, 'attribute': name, 'start_time': start_timestamp,
                   'end_time': timestamp, 'possible_values': possible_values}
-        if self.resolutions and name in self.resolutions.keys():
-            kwargs['resolution'] = self.resolutions[name]
+        if self.limits and name in self.limits.keys():
+            kwargs['limits'] = self.limits[name]
+        generator = prop.generator_cls(**kwargs)
+        return generator
+
+
+class MovableUAVCamera2(Sensor):
+    """A movable UAV camera sensor."""
+
+    ndim_state: int = Property(
+        doc="Number of state dimensions. This is utilised by (and follows in\
+                    format) the underlying :class:`~.CartesianToElevationBearing`\
+                    model")
+    mapping: np.ndarray = Property(
+        doc="Mapping between the targets state space and the sensors\
+                    measurement capability")
+    noise_covar: CovarianceMatrix = Property(
+        doc="The sensor noise covariance matrix. This is utilised by\
+                    (and follow in format) the underlying \
+                    :class:`~.CartesianToElevationBearing` model")
+    fov_radius: Union[float, List[float]] = Property(
+        doc="The detection field of view radius of the sensor")
+    clutter_model: ClutterModel = Property(
+        default=None,
+        doc="An optional clutter generator that adds a set of simulated "
+            ":class:`Clutter` objects to the measurements at each time step. "
+            "The clutter is simulated according to the provided distribution.")
+    location: StateVector = ActionableProperty(
+        doc="The sensor location. Defaults to zero",
+        default=None,
+        generator_cls=LocationActionGenerator
+    )
+    limits: dict = Property(
+        doc="The sensor min max location",
+        default=None
+    )
+    fov_in_km: bool = Property(
+        doc="Whether the FOV radius is in kilo-meters or degrees",
+        default=True)
+    irs: List = Property(
+        doc="The RFIs in the scene",
+        default=None
+    )
+    max_speed: float = Property(
+        doc="The maximum speed of the sensor",
+        default=None
+    )
+    constrain_speed: bool = Property(
+        doc="Whether to constrain actions based on the speed of the sensor",
+        default=False
+    )
+
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
+        self._footprint = None
+        if self.irs is None:
+            self.irs = []
+
+    @location.setter
+    def location(self, value):
+        self._property_location = value
+        if not self.movement_controller:
+            return
+        new_position = self.movement_controller.position.copy()
+        new_position[0] = value[0]
+        new_position[1] = value[1]
+        self.movement_controller.position = new_position
+
+    @property
+    def measurement_model(self):
+        return LinearGaussian(
+            ndim_state=self.ndim_state,
+            mapping=self.mapping,
+            noise_covar=self.noise_covar)
+
+    @property
+    def footprint(self):
+        if self._footprint is None:
+            if self.fov_in_km:
+                self._footprint = geodesic_point_buffer(*np.flip(self.position[0:2]),
+                                                        self.fov_radius)
+            else:
+                self._footprint = Point(self.position[0:2]).buffer(self.fov_radius)
+        return self._footprint
+
+    def act(self, timestamp: datetime.datetime):
+        super().act(timestamp)
+        if self.fov_in_km:
+            self._footprint = geodesic_point_buffer(*np.flip(self.position[0:2]), self.fov_radius)
+        else:
+            self._footprint = Point(self.position[0:2]).buffer(self.fov_radius)
+
+    def measure(self, ground_truths: Set[GroundTruthState], noise: Union[np.ndarray, bool] = True,
+                **kwargs) -> Set[TrueDetection]:
+
+        detections = set()
+        measurement_model = self.measurement_model
+
+        for truth in ground_truths:
+            # Transform state to measurement space and generate random noise
+            measurement_vector = measurement_model.function(truth, noise=noise, **kwargs)
+
+            if self.fov_in_km:
+                # distance = geopy.distance.distance(np.flip(self.position[0:2]),
+                #                                    np.flip(measurement_vector[0:2])).km
+                if not self._footprint.contains(Point(measurement_vector[0:2])):
+                    continue
+            else:
+                # Normalise measurement vector relative to sensor position
+                norm_measurement_vector = measurement_vector.astype(float) - self.position.astype(
+                    float)
+                distance = np.linalg.norm(norm_measurement_vector[0:2])
+
+                # Do not measure if state not in FOV
+                if distance > self.fov_radius:
+                    continue
+
+            detection = TrueDetection(measurement_vector,
+                                      measurement_model=measurement_model,
+                                      timestamp=truth.timestamp,
+                                      groundtruth_path=truth)
+            detections.add(detection)
+
+        # Generate clutter at this time step
+        if self.clutter_model is not None:
+            self.clutter_model.measurement_model = measurement_model
+            clutter = self.clutter_model.function(ground_truths)
+            detections |= clutter
+
+        return detections
+
+    def _default_action(self, name, property_, timestamp):
+        """Returns the default action of the action generator associated with the property
+        (assumes the property is an :class:`~.ActionableProperty`)."""
+        generator = self._get_generator(name, property_, timestamp, self.timestamp)
+        return generator.default_action
+
+    def actions(self, timestamp: datetime.datetime, start_timestamp: datetime.datetime = None
+                ) -> Set[ActionGenerator]:
+        """Method to return a set of action generators available up to a provided timestamp.
+
+        A generator is returned for each actionable property that the sensor has.
+
+        Parameters
+        ----------
+        timestamp: datetime.datetime
+            Time of action finish.
+        start_timestamp: datetime.datetime, optional
+            Time of action start.
+
+        Returns
+        -------
+        : set of :class:`~.ActionGenerator`
+            Set of action generators, that describe the bounds of each action space.
+        """
+
+        if not self.validate_timestamp():
+            self.timestamp = timestamp
+
+        if start_timestamp is None:
+            start_timestamp = self.timestamp
+
+        # Note: Should we check for started rfis?
+        started_rfis = [ir for ir in self.irs if ir.task.earliest_collection_time <= start_timestamp]
+        rois = [ir.task.area.coordinates for ir in started_rfis]
+        possible_locations = []
+        for roi in rois:
+            x1 = roi[0][0].longitude
+            y1 = roi[0][0].latitude
+            x2 = roi[0][2].longitude
+            y2 = roi[0][2].latitude
+            roi_center = [(x1 + x2) / 2, (y1 + y2) / 2]
+            # Compute fov radius at center of roi
+            # NOTE: We assume the the fov in lat/long degrees is the same across the whole roi
+            footprint = geodesic_point_buffer(*roi_center, self.fov_radius)
+            # Get min max lat lon of the footprint
+            min_lon, min_lat, max_lon, max_lat = footprint.bounds
+            # NOTE: This is an approximation of asset fov in lat/long degrees (1 degree = 111km)
+            # asset_fov_ll = self.fov_radius / 111
+            asset_fov_ll = min((max_lat - min_lat), (max_lon - min_lon))
+            # For each roi, find the minimum number of overlapping circles required to cover it
+            possible_locations += cover_rectangle_with_minimum_overlapping_circles(
+                x1, y1, x2, y2, asset_fov_ll
+            )
+        possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
+
+        # Constrain actions based on speed
+        new_possible_locations = []
+        if self.constrain_speed and self.max_speed:
+            time = (timestamp - self.movement_controller.state.timestamp).total_seconds()
+            for loc in possible_locations:
+                # Compute the reachable point based on the current location and the max speed
+                new_loc = compute_reachable_point(*self.position[0:2], *loc, self.max_speed, time)
+                new_possible_locations.append(StateVector(new_loc))
+            possible_locations = new_possible_locations
+
+        generators = set()
+        for name, property_ in self._actionable_properties.items():
+            generators.add(
+                self._get_generator(name, property_, timestamp, start_timestamp,
+                                    possible_locations)
+            )
+
+        # generators = {self._get_generator(name, property_, timestamp, start_timestamp, rois)
+        #               for name, property_ in self._actionable_properties.items()}
+
+        return generators
+
+    def _get_generator(self, name, prop, timestamp, start_timestamp, possible_values=None):
+        """Returns the action generator associated with the """
+        kwargs = {'owner': self, 'attribute': name, 'start_time': start_timestamp,
+                  'end_time': timestamp, 'possible_values': possible_values}
         if self.limits and name in self.limits.keys():
             kwargs['limits'] = self.limits[name]
         generator = prop.generator_cls(**kwargs)
