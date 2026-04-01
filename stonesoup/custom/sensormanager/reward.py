@@ -223,10 +223,10 @@ class RolloutPriorityRewardFunction(RewardFunction):
 
         # Reward value
         config_metric, updated_tracks, predicted_sensors = \
-            self._compute_metric(config, tracks, metric_time, phd_density)
+            self._compute_metric(config, tracks, metric_time, self.tracker)
 
         if metric_time == end_time:
-            return config_metric
+            return config_metric, [config]
 
         timestamp = metric_time + self.interval
 
@@ -247,14 +247,25 @@ class RolloutPriorityRewardFunction(RewardFunction):
             idx = np.random.choice(len(configs), self.num_samples, replace=False)
             configs = [configs[i] for i in idx]
 
-        rewards = [config_metric + self._rollout(config, updated_tracks, timestamp, end_time)
-                   for config in configs]
+        rewards = []
+        full_configs = []
+        for cfg in configs:
+            tracker = deepcopy(self.tracker)
+            sim_reward, sim_config = self._rollout(cfg, updated_tracks, timestamp, end_time, tracker)
+            cfg_reward = config_metric + sim_reward
+            rewards.append(cfg_reward)
+            full_cfg_tmp = [config, cfg] + sim_config
+            full_configs.append(full_cfg_tmp)
 
+        max_idx = np.argmax(rewards)
         # Return value of configuration metric
-        return np.max(rewards)
+        return rewards[max_idx], full_configs[max_idx]
 
     def _compute_metric(self, config: Mapping[Sensor, Sequence[Action]], tracks: Set[Track],
-                        timestamp: datetime.datetime, phd_density=None):
+                        timestamp: datetime.datetime, tracker: Tracker=None):
+
+        if tracker is None:
+            tracker = self.tracker
 
         # Reward value
         config_metric = 0
@@ -275,10 +286,10 @@ class RolloutPriorityRewardFunction(RewardFunction):
         for track in tracks:
             predicted_track = copy.copy(track)
             predicted_track.append(
-                self.tracker._predictor.predict(predicted_track, timestamp=timestamp))
+                tracker._predictor.predict(predicted_track, timestamp=timestamp))
             predicted_tracks.add(predicted_track)
 
-        tracks_copy = [copy.copy(track) for track in predicted_tracks]
+        tracks_copy = [copy.copy(track) for track in tracks]
 
         for sensor in predicted_sensors:
 
@@ -291,60 +302,18 @@ class RolloutPriorityRewardFunction(RewardFunction):
             # radius = sensor.fov_radius
             # p = geodesic_point_buffer(*center, radius)
             p = sensor.footprint
-            self.tracker.prob_detect = _prob_detect_func([p])
+            tracker.prob_detect = _prob_detect_func([p])
 
-            associations = self.tracker._associator.associate(tracks_copy, detections, timestamp)
-
-            for track, multihypothesis in associations.items():
-                if isinstance(self.tracker, SMCPHD_JIPDA):
-                    # calculate each Track's state as a Gaussian Mixture of
-                    # its possible associations with each detection, then
-                    # reduce the Mixture to a single Gaussian State
-                    posterior_states = []
-                    posterior_state_weights = []
-                    for hypothesis in multihypothesis:
-                        posterior_state_weights.append(hypothesis.probability)
-                        if hypothesis:
-                            posterior_states.append(self.tracker._updater.update(hypothesis))
-                        else:
-                            posterior_states.append(hypothesis.prediction)
-
-                    # Merge/Collapse to single Gaussian
-                    means = StateVectors([state.state_vector for state in posterior_states])
-                    covars = np.stack([state.covar for state in posterior_states], axis=2)
-                    weights = np.asarray(posterior_state_weights)
-
-                    post_mean, post_covar = gm_reduce_single(means, covars, weights)
-
-                    track.append(GaussianStateUpdate(
-                        np.array(post_mean), np.array(post_covar),
-                        multihypothesis,
-                        multihypothesis[0].prediction.timestamp))
-                else:
-                    if multihypothesis:
-                        # Update track
-                        state_post = self.tracker._updater.update(multihypothesis)
-                        track.append(state_post)
-                        track.exist_prob = Probability(1.)
-                    else:
-                        timestamp_m1 = track.timestamp if self.tracker.predict else track[-2].timestamp
-                        time_interval = timestamp - timestamp_m1
-                        track.append(multihypothesis.prediction)
-                        prob_survive = np.exp(-self.tracker.prob_death * time_interval.total_seconds())
-                        track.exist_prob *= prob_survive
-                        non_exist_weight = 1 - track.exist_prob
-                        non_det_weight = (1 - self.tracker.prob_detect(
-                            multihypothesis.prediction)) * track.exist_prob
-                        track.exist_prob = non_det_weight / (non_exist_weight + non_det_weight)
+            tracks_copy = tracker.track(detections, timestamp)
 
         for rfi in self.rfis:
-            config_metric += self.eval_irs(rfi, tracks_copy, predicted_sensors[0], phd_density,
+            config_metric += self.eval_irs(rfi, tracks_copy, predicted_sensors[0], tracker._initiator._state,
                                            use_variance=self.use_variance, timestamp=timestamp)
 
         return config_metric, tracks_copy, predicted_sensors
 
     def _rollout(self, config: Mapping[Sensor, Sequence[Action]], tracks: Set[Track],
-                 timestamp: datetime.datetime, end_time: datetime.datetime):
+                 timestamp: datetime.datetime, end_time: datetime.datetime, tracker: Tracker=None):
         """
         For a given configuration of sensors and actions this reward function calculates the
         potential uncertainty reduction of each track by
@@ -369,10 +338,10 @@ class RolloutPriorityRewardFunction(RewardFunction):
 
         # Reward value
         config_metric, updated_tracks, predicted_sensors = self._compute_metric(config, tracks,
-                                                                                timestamp)
+                                                                                timestamp, tracker=tracker)
 
         if timestamp == end_time:
-            return config_metric
+            return config_metric, []
 
         timestamp += self.interval
 
@@ -388,28 +357,13 @@ class RolloutPriorityRewardFunction(RewardFunction):
         configs = list({sensor: action
                         for sensor, action in zip(all_action_choices.keys(), actionconfig)}
                         for actionconfig in it.product(*all_action_choices.values()))
-        # configs = []
-        # poss = []
-        # for actionconfig in it.product(*all_action_choices.values()):
-        #     cfg = dict()
-        #     pos = set()
-        #     for sensor, actions in zip(all_action_choices.keys(), actionconfig):
-        #         action_x = next(
-        #             action for action in actions if action.generator.attribute == 'location_x')
-        #         action_y = next(
-        #             action for action in actions if action.generator.attribute == 'location_y')
-        #         cfg[sensor] = actions
-        #         pos.add((action_x.target_value, action_y.target_value))
-        #     if pos not in poss:
-        #         configs.append(cfg)
-        #         poss.append(pos)
 
         idx = np.random.choice(len(configs), 1, replace=False)
         next_config = configs[idx[0]]
 
-        config_metric += self._rollout(next_config, updated_tracks, timestamp, end_time)
+        sim_config_metric, sim_configs = self._rollout(next_config, updated_tracks, timestamp, end_time, tracker)
 
-        return config_metric
+        return config_metric + sim_config_metric, [next_config] + sim_configs
 
 
 def _prob_detect_func(fovs):

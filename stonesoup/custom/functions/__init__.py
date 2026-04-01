@@ -93,7 +93,7 @@ def isPD(B):
 
 def cover_rectangle_with_minimum_overlapping_circles(x1, y1, x2, y2, radius):
     """
-    https://ieeexplore.ieee.org/stamp/stamp.jsp?tp=&arnumber=1343643
+    https://ieeexplore.ieee.org/document/1343643
 
     """
     width = x2 - x1

@@ -7,6 +7,7 @@ from shapely import Point
 from stonesoup.base import Property
 from stonesoup.custom.functions import geodesic_point_buffer, \
     cover_rectangle_with_minimum_overlapping_circles, compute_reachable_point
+from stonesoup.custom.models.measurement.linear import ReversibleLinearGaussian
 from stonesoup.custom.sensor.action.location import LocationActionGenerator
 from stonesoup.models.clutter import ClutterModel
 from stonesoup.models.measurement.linear import LinearGaussian
@@ -16,6 +17,7 @@ from stonesoup.sensor.sensor import Sensor
 from stonesoup.types.array import CovarianceMatrix, StateVector
 from stonesoup.types.detection import TrueDetection
 from stonesoup.types.groundtruth import GroundTruthState
+from stonesoup.types.state import State
 
 
 class MovableUAVCamera(Sensor):
@@ -63,12 +65,21 @@ class MovableUAVCamera(Sensor):
         doc="Whether to constrain actions based on the speed of the sensor",
         default=False
     )
+    action_resolutions: dict = Property(
+        doc="The resolutions of the action space. Should be a dictionary with keys 'latitude' and 'longitude'. Default is 0.1 for both.",
+        default=None
+    )
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         self._footprint = None
         if self.irs is None:
             self.irs = []
+        if self.action_resolutions is None:
+            self.action_resolutions = {
+                'latitude': 0.1,
+                'longitude': 0.1,
+            }
 
     @location.setter
     def location(self, value):
@@ -78,11 +89,12 @@ class MovableUAVCamera(Sensor):
         new_position = self.movement_controller.position.copy()
         new_position[0] = value[0]
         new_position[1] = value[1]
-        self.movement_controller.position = new_position
+        # self.movement_controller.position = new_position
+        self.movement_controller.states.append(State(new_position))
 
     @property
     def measurement_model(self):
-        return LinearGaussian(
+        return ReversibleLinearGaussian(
             ndim_state=self.ndim_state,
             mapping=self.mapping,
             noise_covar=self.noise_covar)
@@ -175,16 +187,29 @@ class MovableUAVCamera(Sensor):
             start_timestamp = self.timestamp
 
         # Note: Should we check for started rfis?
+        lon_res = self.action_resolutions['longitude']
+        lat_res = self.action_resolutions['latitude']
         possible_locations = [
-            self._property_location + StateVector([-0.1, -0.1]),
-            self._property_location + StateVector([-0.1, 0]),
-            self._property_location + StateVector([0, -0.1]),
-            self._property_location + StateVector([0.1, 0]),
-            self._property_location + StateVector([0, 0.1]),
-            self._property_location + StateVector([0.1, 0.1]),
+            # self._property_location + StateVector([-0.1, -0.1]),
+            self._property_location + StateVector([-lon_res, 0]),
+            self._property_location + StateVector([0, -lat_res]),
+            self._property_location + StateVector([lon_res, 0]),
+            self._property_location + StateVector([0, lat_res]),
+            # self._property_location + StateVector([0.1, 0.1]),
 
         ]
-        possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
+        possible_locations_tmp = [np.array([loc[0], loc[1]]) for loc in possible_locations]
+
+        history = [state.state_vector[0:2].ravel() for state in self.movement_controller.states]
+
+        # Avoid revisiting the same location
+        possible_locations = []
+        for sv in possible_locations_tmp:
+            for loc in history:
+                if np.allclose(sv, loc, atol=0.001):
+                    break
+            else:
+                possible_locations.append(StateVector(sv))
 
         # Constrain actions based on speed
         new_possible_locations = []
@@ -218,139 +243,10 @@ class MovableUAVCamera(Sensor):
         return generator
 
 
-class MovableUAVCamera2(Sensor):
+class MovableUAVCamera2(MovableUAVCamera):
     """A movable UAV camera sensor."""
 
-    ndim_state: int = Property(
-        doc="Number of state dimensions. This is utilised by (and follows in\
-                    format) the underlying :class:`~.CartesianToElevationBearing`\
-                    model")
-    mapping: np.ndarray = Property(
-        doc="Mapping between the targets state space and the sensors\
-                    measurement capability")
-    noise_covar: CovarianceMatrix = Property(
-        doc="The sensor noise covariance matrix. This is utilised by\
-                    (and follow in format) the underlying \
-                    :class:`~.CartesianToElevationBearing` model")
-    fov_radius: Union[float, List[float]] = Property(
-        doc="The detection field of view radius of the sensor")
-    clutter_model: ClutterModel = Property(
-        default=None,
-        doc="An optional clutter generator that adds a set of simulated "
-            ":class:`Clutter` objects to the measurements at each time step. "
-            "The clutter is simulated according to the provided distribution.")
-    location: StateVector = ActionableProperty(
-        doc="The sensor location. Defaults to zero",
-        default=None,
-        generator_cls=LocationActionGenerator
-    )
-    limits: dict = Property(
-        doc="The sensor min max location",
-        default=None
-    )
-    fov_in_km: bool = Property(
-        doc="Whether the FOV radius is in kilo-meters or degrees",
-        default=True)
-    irs: List = Property(
-        doc="The RFIs in the scene",
-        default=None
-    )
-    max_speed: float = Property(
-        doc="The maximum speed of the sensor",
-        default=None
-    )
-    constrain_speed: bool = Property(
-        doc="Whether to constrain actions based on the speed of the sensor",
-        default=False
-    )
-
-    def __init__(self, *args, **kwargs):
-        super().__init__(*args, **kwargs)
-        self._footprint = None
-        if self.irs is None:
-            self.irs = []
-
-    @location.setter
-    def location(self, value):
-        self._property_location = value
-        if not self.movement_controller:
-            return
-        new_position = self.movement_controller.position.copy()
-        new_position[0] = value[0]
-        new_position[1] = value[1]
-        self.movement_controller.position = new_position
-
-    @property
-    def measurement_model(self):
-        return LinearGaussian(
-            ndim_state=self.ndim_state,
-            mapping=self.mapping,
-            noise_covar=self.noise_covar)
-
-    @property
-    def footprint(self):
-        if self._footprint is None:
-            if self.fov_in_km:
-                self._footprint = geodesic_point_buffer(*np.flip(self.position[0:2]),
-                                                        self.fov_radius)
-            else:
-                self._footprint = Point(self.position[0:2]).buffer(self.fov_radius)
-        return self._footprint
-
-    def act(self, timestamp: datetime.datetime):
-        super().act(timestamp)
-        if self.fov_in_km:
-            self._footprint = geodesic_point_buffer(*np.flip(self.position[0:2]), self.fov_radius)
-        else:
-            self._footprint = Point(self.position[0:2]).buffer(self.fov_radius)
-
-    def measure(self, ground_truths: Set[GroundTruthState], noise: Union[np.ndarray, bool] = True,
-                **kwargs) -> Set[TrueDetection]:
-
-        detections = set()
-        measurement_model = self.measurement_model
-
-        for truth in ground_truths:
-            # Transform state to measurement space and generate random noise
-            measurement_vector = measurement_model.function(truth, noise=noise, **kwargs)
-
-            if self.fov_in_km:
-                # distance = geopy.distance.distance(np.flip(self.position[0:2]),
-                #                                    np.flip(measurement_vector[0:2])).km
-                if not self._footprint.contains(Point(measurement_vector[0:2])):
-                    continue
-            else:
-                # Normalise measurement vector relative to sensor position
-                norm_measurement_vector = measurement_vector.astype(float) - self.position.astype(
-                    float)
-                distance = np.linalg.norm(norm_measurement_vector[0:2])
-
-                # Do not measure if state not in FOV
-                if distance > self.fov_radius:
-                    continue
-
-            detection = TrueDetection(measurement_vector,
-                                      measurement_model=measurement_model,
-                                      timestamp=truth.timestamp,
-                                      groundtruth_path=truth)
-            detections.add(detection)
-
-        # Generate clutter at this time step
-        if self.clutter_model is not None:
-            self.clutter_model.measurement_model = measurement_model
-            clutter = self.clutter_model.function(ground_truths)
-            detections |= clutter
-
-        return detections
-
-    def _default_action(self, name, property_, timestamp):
-        """Returns the default action of the action generator associated with the property
-        (assumes the property is an :class:`~.ActionableProperty`)."""
-        generator = self._get_generator(name, property_, timestamp, self.timestamp)
-        return generator.default_action
-
-    def actions(self, timestamp: datetime.datetime, start_timestamp: datetime.datetime = None
-                ) -> Set[ActionGenerator]:
+    def actions(self, timestamp: datetime.datetime, start_timestamp: datetime.datetime = None) -> Set[ActionGenerator]:
         """Method to return a set of action generators available up to a provided timestamp.
 
         A generator is returned for each actionable property that the sensor has.
@@ -375,14 +271,16 @@ class MovableUAVCamera2(Sensor):
             start_timestamp = self.timestamp
 
         # Note: Should we check for started rfis?
-        started_rfis = [ir for ir in self.irs if ir.task.earliest_collection_time <= start_timestamp]
-        rois = [ir.task.area.coordinates for ir in started_rfis]
+        started_rfis = [ir for ir in self.irs if ir.earliest_collection_time <= start_timestamp]
+        rois = [ir.area.coordinates for ir in started_rfis]
         possible_locations = []
         for roi in rois:
-            x1 = roi[0][0].longitude
-            y1 = roi[0][0].latitude
-            x2 = roi[0][2].longitude
-            y2 = roi[0][2].latitude
+            lons = [point.longitude for point in roi[0]]
+            lats = [point.latitude for point in roi[0]]
+            x1 = min(lons)
+            y1 = min(lats)
+            x2 = max(lons)
+            y2 = max(lats)
             roi_center = [(x1 + x2) / 2, (y1 + y2) / 2]
             # Compute fov radius at center of roi
             # NOTE: We assume the the fov in lat/long degrees is the same across the whole roi
@@ -391,12 +289,22 @@ class MovableUAVCamera2(Sensor):
             min_lon, min_lat, max_lon, max_lat = footprint.bounds
             # NOTE: This is an approximation of asset fov in lat/long degrees (1 degree = 111km)
             # asset_fov_ll = self.fov_radius / 111
-            asset_fov_ll = min((max_lat - min_lat), (max_lon - min_lon))
+            asset_fov_ll = max((max_lat - min_lat), (max_lon - min_lon))
             # For each roi, find the minimum number of overlapping circles required to cover it
             possible_locations += cover_rectangle_with_minimum_overlapping_circles(
                 x1, y1, x2, y2, asset_fov_ll
             )
-        possible_locations = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
+        possible_locations_tmp = [StateVector([loc[0], loc[1]]) for loc in possible_locations]
+
+        history = [state.state_vector[0:2] for state in self.movement_controller.states]
+
+        possible_locations = []
+        for sv in possible_locations_tmp:
+            for loc in history:
+                if np.allclose(sv, loc, atol=0.0001):
+                    break
+            else:
+                possible_locations.append(StateVector(sv))
 
         # Constrain actions based on speed
         new_possible_locations = []
@@ -419,12 +327,3 @@ class MovableUAVCamera2(Sensor):
         #               for name, property_ in self._actionable_properties.items()}
 
         return generators
-
-    def _get_generator(self, name, prop, timestamp, start_timestamp, possible_values=None):
-        """Returns the action generator associated with the """
-        kwargs = {'owner': self, 'attribute': name, 'start_time': start_timestamp,
-                  'end_time': timestamp, 'possible_values': possible_values}
-        if self.limits and name in self.limits.keys():
-            kwargs['limits'] = self.limits[name]
-        generator = prop.generator_cls(**kwargs)
-        return generator

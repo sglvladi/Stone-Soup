@@ -121,6 +121,6 @@ class LocationActionGenerator(RealNumberActionGenerator):
 
     def _get_possible_values(self):
         if self.possible_values is not None:
-            return StateVectors(self.possible_values)
+            return StateVectors(self.possible_values) if len(self.possible_values) else []
         else:
             return StateVectors(np.arange(self.min, self.max + self.resolution, self.resolution, dtype=float))
