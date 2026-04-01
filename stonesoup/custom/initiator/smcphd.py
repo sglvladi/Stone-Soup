@@ -461,18 +461,18 @@ class ISMCPHDFilter(SMCPHDFilter):
                                           np.log(self.birth_rate / num_birth))
                 birth_particles = np.hstack((birth_particles, birth_particles_i))
                 birth_weights = np.hstack((birth_weights, birth_weights_i))
-                for target_type, val in detection.metadata['target_type_confidences'].items():
+                for target_type, val in detection.metadata.get('target_type_confidences', {}).items():
                     start, end = particles_created, particles_created + num_birth_per_detection
                     birth_classifications[target_type][start:end] = val
                 particles_created += num_birth_per_detection
-        else:
-            num_birth = round(float(self.prob_birth) * self.num_samples)
-            birth_state = self.birth_density.sample(timestamp=timestamp,
-                                                    params={'num_samples': num_birth,
-                                                            'detection': None})
-            birth_particles = birth_state.state_vector
-            birth_weights = np.full((num_birth,), np.log(self.birth_rate / num_birth))
-            birth_classifications = [{} for _ in range(num_birth)]
+        # else:
+        #     num_birth = round(float(self.prob_birth) * self.num_samples)
+        #     birth_state = self.birth_density.sample(timestamp=timestamp,
+        #                                             params={'num_samples': num_birth,
+        #                                                     'detection': None})
+        #     birth_particles = birth_state.state_vector
+        #     birth_weights = np.full((num_birth,), np.log(self.birth_rate / num_birth))
+        #     birth_classifications = [{} for _ in range(num_birth)]
 
         # birth_weights = np.full((num_birth,), Probability(self.birth_rate / num_birth))
         birth_particles = StateVectors(birth_particles)
@@ -511,6 +511,7 @@ class ISMCPHDFilter(SMCPHDFilter):
         log_weights_per_hyp = np.full((num_samples + birth_state.state_vector.shape[1],
                                        len(detections) + 1), -np.inf)
         log_weights_per_hyp[:num_samples, 0] = np.log(1 - prob_detect) + prediction.log_weight
+        log_weights_per_hyp[num_samples:, 0] = birth_state.log_weight
         if len(detections):
             with np.errstate(divide='ignore'):
                 log_meas_weights = np.log(np.asarray(meas_weights, dtype=float))
@@ -521,16 +522,16 @@ class ISMCPHDFilter(SMCPHDFilter):
     def compute_target_type_confidences(self, update, detections, log_weights_per_hyp, log_post_weights):
         # Update Target Type Confidences
         num_samples = len(update)
-        norm_weights_per_hyp = np.exp(log_weights_per_hyp.T - log_post_weights).T
+        norm_weights_per_hyp = np.exp(log_weights_per_hyp[:num_samples, :].T - log_post_weights[:num_samples]).T
         updated_target_type_confidences = {
             target_type: np.hstack(
-                (np.atleast_2d(update.target_type_confidences[target_type] * norm_weights_per_hyp[:num_samples, 0]).T,
+                (np.atleast_2d(update.target_type_confidences[target_type] * norm_weights_per_hyp[:, 0]).T,
                  np.zeros((len(update), len(detections)))))
             for target_type in TargetType
         }
         for j, detection in enumerate(detections):
-            for target_type, val in detection.metadata['target_type_confidences'].items():
-                updated_target_type_confidences[target_type][:, j + 1] = val * norm_weights_per_hyp[:num_samples, j + 1]
+            for target_type, val in detection.metadata.get('target_type_confidences', {}).items():
+                updated_target_type_confidences[target_type][:, j + 1] = val * norm_weights_per_hyp[:, j + 1]
 
         for target_type in TargetType:
             updated_target_type_confidences[target_type] = np.sum(
@@ -544,7 +545,8 @@ class SMCPHDInitiator(Initiator):
     prior: Any = Property(doc='The prior state')
     threshold: Probability = Property(doc='The thrshold probability for initiation',
                                       default=Probability(0.9))
-    num_samples: int = Property(doc='The number of samples. Default is 1024', default=None)
+    num_samples: int = Property(doc='The number of samples. Default is None', default=None)
+    verbose: bool = Property(doc='Whether to print verbose output', default=False)
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -595,7 +597,8 @@ class SMCPHDInitiator(Initiator):
 
         # Calculate intensity per hypothesis
         log_intensity_per_hyp = logsumexp(log_weights_per_hyp, axis=0)
-
+        if self.verbose:
+            logging.debug(np.exp(log_intensity_per_hyp))
         # Find detections with intensity above threshold and initiate
         valid_inds = np.flatnonzero(np.exp(log_intensity_per_hyp) > self.threshold)
         for idx in valid_inds:
@@ -644,28 +647,6 @@ class ISMCPHDInitiator(SMCPHDInitiator):
             probability=Probability(log_weights_per_hyp[:, idx], log_value=True))
 
         if self.num_samples is not None and self.num_samples > 0:
-            # measurement_model = detections[idx - 1].measurement_model
-            # meas_particles = measurement_model.function(State(particles_sv), noise=False)
-            # mu = np.average(meas_particles, axis=1, weights=weight)
-            # cov = np.cov(meas_particles, ddof=0, aweights=weight)
-            #
-            # meas_particles_sv = StateVectors(
-            #     multivariate_normal.rvs(mean=mu.ravel(), cov=cov, size=particles_sv.shape[1],
-            #                             random_state=self.filter.random_state).T
-            # )
-            # mapping = measurement_model.mapping
-            # new_particles_sv = measurement_model.inverse_function(State(meas_particles_sv))
-            # particles_sv[mapping, :] = new_particles_sv[mapping, :]
-            # mu = np.average(particles_sv,
-            #                 axis=1,
-            #                 weights=weight)
-            # cov = np.cov(particles_sv, ddof=0, aweights=weight)
-            #
-            # particles_sv = StateVectors(
-            #     multivariate_normal.rvs(mean=mu.ravel(), cov=cov, size=self.num_samples,
-            #                             random_state=self.filter.random_state).T
-            # )
-            # log_weight = np.log(np.full((self.num_samples,), 1 / self.num_samples))
 
             log_weight = log_weights_per_hyp[:, idx] - log_intensity_per_hyp[idx]
             track_state = ParticleStateUpdate(
@@ -674,12 +655,6 @@ class ISMCPHDInitiator(SMCPHDInitiator):
                 hypothesis=hypothesis,
                 timestamp=timestamp,
             )
-            # track_state = ParticleStateUpdate(
-            #     state_vector=particles_sv,
-            #     log_weight=log_weights_per_hyp[:, idx] - log_intensity_per_hyp[idx],
-            #     hypothesis=hypothesis,
-            #     timestamp=timestamp,
-            # )
 
             track_state = self.filter.resampler.resample(track_state, self.num_samples)
         else:
@@ -688,7 +663,7 @@ class ISMCPHDInitiator(SMCPHDInitiator):
                             weights=weight)
             cov = np.cov(particles_sv, ddof=0, aweights=weight)
 
-            track_state = GaussianStateUpdate(mu, cov, hypothesis=None,
+            track_state = GaussianStateUpdate(mu, cov, hypothesis=hypothesis,
                                               timestamp=timestamp)
 
         return track_state
@@ -710,7 +685,8 @@ class ISMCPHDInitiator(SMCPHDInitiator):
 
         # Calculate intensity per hypothesis
         log_intensity_per_hyp = logsumexp(log_weights_per_hyp, axis=0)
-        logging.debug(np.exp(log_intensity_per_hyp))
+        if self.verbose:
+            logging.debug(np.exp(log_intensity_per_hyp))
         # Find detections with intensity above threshold and initiate
         valid_inds = np.flatnonzero(np.exp(log_intensity_per_hyp[1:]) > self.threshold)
         while len(valid_inds):

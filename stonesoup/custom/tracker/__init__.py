@@ -41,6 +41,7 @@ class _BaseTracker(Base):
     num_samples: int = Property(doc='The number of samples. Default is 1024', default=1024)
     null_birth_particles: int = Property(doc='The number of null birth particles to add to the birth density. Default is 0', default=0)
     start_time: datetime = Property(doc='Start time of the tracker', default=None)
+    verbose: bool = Property(doc='Whether to print verbose output', default=False)
 
     def __init__(self, *args, **kwargs):
         self._clutter_intensity = kwargs.pop('clutter_intensity', None)
@@ -121,7 +122,7 @@ class SMCPHD_JIPDA(_BaseTracker):
                                        num_samples=self.num_samples,
                                        resampler=resampler,
                                        null_birth_particles=self.null_birth_particles,
-                                       num_birth_per_detection=300)
+                                       num_birth_per_detection=100)
         else:
             phd_filter = SMCPHDFilter(birth_density=self.birth_density,
                                       transition_model=self.transition_model,
@@ -136,9 +137,9 @@ class SMCPHD_JIPDA(_BaseTracker):
                                       null_birth_particles=self.null_birth_particles)
 
         if self.use_ismcphd:
-            self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=None)
+            self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=None, verbose=self.verbose)
         else:
-            self._initiator = SMCPHDInitiator(filter=phd_filter, prior=None)
+            self._initiator = SMCPHDInitiator(filter=phd_filter, prior=None, verbose=self.verbose)
 
     def __iter__(self):
         self.detector_iter = iter(self.detector)
@@ -246,18 +247,10 @@ class SMCPHD_IGNN(_BaseTracker):
                                    clutter_intensity=self.clutter_intensity,
                                    num_samples=self.num_samples,
                                    resampler=resampler,
-                                   birth_scheme=self.birth_scheme,
-                                   )
+                                   null_birth_particles=self.null_birth_particles,
+                                   num_birth_per_detection=100)
 
-        # Sample prior state from birth density
-        state_vector = StateVectors(
-            multivariate_normal.rvs(self.birth_density.state_vector.ravel(),
-                                    self.birth_density.covar,
-                                    size=self.num_samples).T)
-        weight = np.full((self.num_samples,), Probability(self.birth_rate / self.num_samples))
-        state = ParticleState(state_vector=state_vector, weight=weight, timestamp=self.start_time)
-
-        self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=state)
+        self._initiator = ISMCPHDInitiator(filter=phd_filter, prior=None, verbose=self.verbose)
 
     def track(self, detections, timestamp, *args, **kwargs):
 
