@@ -326,7 +326,7 @@ if __name__ == '__main__':
     # Tracking components                                                    #
     ##########################################################################
     file_name = 'simulatedELINTWithColour100tracks_StoneSoup.mat'
-    file_path = r'C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\MATLAB\visibilityTracker\HawkeyeData\ExactEarthData\Output\SimulatedWithColour\StoneSoup\{}'.format(
+    file_path = r'C:\Users\marfon\OneDrive - The University of Liverpool\Code\ELINT\ELINT\Stone-Soup\examples\elint\{}'.format(
         file_name)
 
     mins2sec = 60
