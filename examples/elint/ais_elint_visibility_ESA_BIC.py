@@ -1,40 +1,20 @@
-# coding: utf-8
-
-# AisTrackingExactEarthIMM_Single.py
-# ==================================
-# Run a Global Nearest Neighbour with IMM Prediction & Update, for each of
-# the MMSI files in the "per_mmsi" folder.
-# -
-
 ################################################################################
 # IMPORTS                                                                      #
 ################################################################################
 # General imports
-import glob
-import os
-import pickle
+import sys
 import numpy as np
-from datetime import datetime, timedelta
-import msvcrt
-import time
-from copy import copy
+from datetime import timedelta
 from scipy.io import loadmat
-
 from scipy.linalg import expm
-
-import cProfile as profile
-
-pr = profile.Profile()
-pr.disable()
+from matplotlib import pyplot as plt
+from matplotlib import colormaps
 
 # Stone-Soup imports
-from stonesoup.dataassociator.tree import TPRTreeMixIn
 from stonesoup.deleter.elint import ELINTDeleter
-from stonesoup.feeder.filter import BoundingBoxDetectionReducer
-from stonesoup.hypothesiser.probability import ELINTHypothesiser, ELINTHypothesiserFast, AisElintHypothesiserFast
-from stonesoup.initiator.elint import ELINTInitiator, AisElintVisibilityInitiator
-from stonesoup.models.transition.linear import (
-    RandomWalk, OrnsteinUhlenbeck, CombinedLinearGaussianTransitionModel)
+from stonesoup.hypothesiser.probability import ELINTHypothesiser, ELINTHypothesiserFast, AisElintHypothesiserFast, PDAHypothesiserFast
+from stonesoup.initiator.elint import ELINTInitiator, AisElintVisibilityInitiator, ElintVisibilityInitiator
+from stonesoup.models.transition.linear import RandomWalk, CombinedLinearGaussianTransitionModel
 # from stonesoup.initiator.simple import LinearMeasurementInitiator
 from stonesoup.deleter.time import UpdateTimeDeleter
 from stonesoup.dataassociator.neighbour import (
@@ -42,230 +22,49 @@ from stonesoup.dataassociator.neighbour import (
 from stonesoup.hypothesiser.distance import DistanceHypothesiser, DistanceHypothesiserFast
 from stonesoup.measures import Mahalanobis
 from stonesoup.hypothesiser.filtered import FilteredDetectionsHypothesiser
-from stonesoup.updater.kalman import (KalmanUpdater)
-from stonesoup.predictor.kalman import (KalmanPredictor)
+from stonesoup.updater.kalman import KalmanUpdater
+from stonesoup.predictor.kalman import KalmanPredictor
 from stonesoup.models.measurement.linear import LinearGaussian
-from stonesoup.types.array import StateVector, CovarianceMatrix
-from stonesoup.types.update import StateUpdate, GaussianStateUpdate
+from stonesoup.types.update import GaussianStateUpdate
 from stonesoup.types.prediction import GaussianStatePrediction
-from stonesoup.types.angle import Bearing
-from stonesoup.reader.generic import CSVDetectionReader_EE
-from stonesoup.reader.elint import BasicELINTDetectionReader, AisElintDetectionReader
-from stonesoup.feeder.time import TimeSyncFeeder, TimeBufferedFeeder
+from stonesoup.reader.elint import ElintDetectionReader
 
 if __name__ == '__main__':
-    ##############################################################################
-    # TRACKING LIMIT SELECTION                                                   #
-    ##############################################################################
-    TARGET = "GLOBAL"
-    LIMITS = {
-        "TEST": {
-            "LON_MIN": -62.,
-            "LON_MAX": -61.5,
-            "LAT_MIN": 11.8,
-            "LAT_MAX": 12.2
-        },
-        "GLOBAL": {
-            "LON_MIN": -180.,
-            "LON_MAX": 180.,
-            "LAT_MIN": -80.,
-            "LAT_MAX": 80.,
-            "RES": 'c'
-        },
-        "FULL": {
-            "LON_MIN": -84.,
-            "LON_MAX": 34.5,
-            "LAT_MIN": 9.5,
-            "LAT_MAX": 62.,
-            "RES": 'c'
-        },
-        "CARIBBEAN": {
-            "LON_MIN": -90.,
-            "LON_MAX": -60.,
-            "LAT_MIN": 10.,
-            "LAT_MAX": 22.,
-            "RES": 'h'
-        },
-        "MEDITERRANEAN": {
-            "LON_MIN": -6.,
-            "LON_MAX": 36.5,
-            "LAT_MIN": 30.,
-            "LAT_MAX": 46.,
-            "RES": 'l'
-        },
-        "GREECE": {
-            "LON_MIN": 20.,
-            "LON_MAX": 28.2,
-            "LAT_MIN": 34.6,
-            "LAT_MAX": 41.,
-            "RES": 'h'
-        },
-        "UK": {
-            "LON_MIN": -12.,
-            "LON_MAX": 3.5,
-            "LAT_MIN": 48.,
-            "LAT_MAX": 60.,
-            "RES": 'l'
-        }
-    }
-    LON_MIN = LIMITS[TARGET]["LON_MIN"]
-    LON_MAX = LIMITS[TARGET]["LON_MAX"]
-    LAT_MIN = LIMITS[TARGET]["LAT_MIN"]
-    LAT_MAX = LIMITS[TARGET]["LAT_MAX"]
-    RES = LIMITS[TARGET]["RES"]
-    END_TIME = None  # datetime(2017, 8, 10, 0, 48,13)
-    LOAD = False
-    BACKUP = False
-    LOAD_OFFSET = 3
-    LIMIT_STATES = False
-    SHOW_MAP = True
-
-    ################################################################################
-    # Plotting functions                                                           #
-    ################################################################################
-
-    from matplotlib.patches import Ellipse
-    from matplotlib import pyplot as plt
-    from mpl_toolkits.basemap import Basemap
-
+    SEED = 42  # Random seed for reproducibility
     plt.rcParams['figure.figsize'] = (12, 8)
-    # plt.style.use('seaborn-colorblind')
-    fig = plt.figure()
 
-
-    def plot_map(timestamp):
-        # Mercator projection map
-        m = Basemap(llcrnrlon=LON_MIN, llcrnrlat=LAT_MIN, urcrnrlon=LON_MAX,
-                    urcrnrlat=LAT_MAX, projection='merc', resolution=RES)
-        m.drawcoastlines()
-        m.drawcountries()
-        m.drawmapboundary(fill_color='#99ffff')
-        m.fillcontinents(color='#cc9966', lake_color='#99ffff')
-        m.drawparallels(np.arange(-90., 91., 20.), labels=[1, 1, 0, 0])
-        m.drawmeridians(np.arange(-180., 181., 20.), labels=[0, 0, 0, 1])
-        plt.title(
-            'Exact Earth AIS dataset Tracking\n'
-            + "({})\n".format(TARGET)
-            + timestamp.strftime('%H:%M:%S %d/%m/%Y'))
-
-
-    def plot_cov_ellipse(cov, pos, nstd=40, ax=None, **kwargs):
+    def print_progress(i: int, total: int, *, prefix: str = "", suffix: str = "", width: int = 30):
         """
-        Plots an `nstd` sigma error ellipse based on the specified covariance
-        matrix (`cov`). Additional keyword arguments are passed on to the
-        ellipse patch artist.
-        Parameters
-        ----------
-            cov : The 2x2 covariance matrix to base the ellipse on
-            pos : The location of the center of the ellipse. Expects a 2-element
-                sequence of [x0, y0].
-            nstd : The radius of the ellipse in numbers of standard deviations.
-                Defaults to 2 standard deviations.
-            ax : The axis that the ellipse will be plotted on. Defaults to the
-                current axis.
-            Additional keyword arguments are pass on to the ellipse patch.
-        Returns
-        -------
-            A matplotlib ellipse artist
+        Simple terminal progress bar.
+        i: current iteration index (0-based)
+        total: total number of iterations
         """
+        total = max(int(total), 1)
+        i = max(0, min(int(i), total - 1))
+        done = i + 1
 
-        def eigsorted(cov):
-            vals, vecs = np.linalg.eigh(cov)
-            order = vals.argsort()[::-1]
-            return vals[order], vecs[:, order]
+        frac = done / total
+        filled = int(width * frac)
+        bar = "#" * filled + "-" * (width - filled)
 
-        if ax is None:
-            ax = plt.gca()
+        msg = f"{prefix}[{bar}] {done:>5}/{total:<5} ({frac:>6.1%}) {suffix}"
+        # \r returns to start of line; pad with spaces to overwrite leftovers
+        sys.stdout.write("\r" + msg + " " * 10)
+        sys.stdout.flush()
 
-        vals, vecs = eigsorted(cov)
-        theta = np.degrees(np.arctan2(*vecs[:, 0][::-1]))
+        if done == total:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
 
-        # Width and height are "full" widths, not radius
-        width, height = 2 * nstd * np.sqrt(vals)
-        ellip = Ellipse(xy=pos, width=width, height=height, angle=theta,
-                        **kwargs)
-
-        ax.add_artist(ellip)
-        return ellip
-
-
-    def plot_tracks(tracks, show_mmsis=False, show_probs=False,
-                    show_error=True, show_map=False):
-        # Mercator projection map
-        if show_map:
-            m = Basemap(llcrnrlon=LON_MIN, llcrnrlat=LAT_MIN, urcrnrlon=LON_MAX,
-                        urcrnrlat=LAT_MAX, projection='merc', resolution='c')
-        if show_mmsis:
-            mmsis = list({track.metadata["MMSI"] for track in tracks})
-        for track in tracks:
-            states = [state.state_vector for state in track.states]
-            if len(states) == 0:
-                continue
-            data = np.array(states)
-            lat = np.array(data[:, 2], dtype=np.float32)
-            lon = np.array(data[:, 0], dtype=np.float32)
-            if show_map:
-                x, y = m(lon, lat)
-                m.plot(x, y, '-o', linewidth=1, markersize=1)
-                m.plot(x[-1], y[-1], 'ro', markersize=1)
-                # print([lon[-1], lat[-1]])
-                # print([x[-1], y[-1]])
-                # plt.text(x[-1], y[-1], track.metadata["Vessel_Name"], fontsize=12)
-                if show_probs:
-                    plt.text(x[-1], y[-1],
-                             np.around(track.last_update.weights[0, 0], 2),
-                             fontsize=6)
-                elif show_mmsis:
-                    ind = mmsis.index(track.metadata["MMSI"])
-                    plt.text(x[-1], y[-1],
-                             str(ind),
-                             fontsize=6)
-            else:
-                plt.plot(data[:, 0], data[:, 2], '-', label="AIS Tracks")
-                # if show_error:
-                plot_cov_ellipse(track.state.covar[[0, 2], :][:, [0, 2]],
-                                 track.state.mean[[0, 2], :], edgecolor='r',
-                                 facecolor='none')
-
-
-    def plot_data(detections=None):
-        m = Basemap(llcrnrlon=LON_MIN, llcrnrlat=LAT_MIN, urcrnrlon=LON_MAX,
-                    urcrnrlat=LAT_MAX, projection='merc', resolution='c')
-        if len(detections) > 0:
-            # AIS detections
-            lon1 = np.array([s.state_vector[0] for s in detections if s.metadata['sensor']['type']=='AIS'], dtype=np.float32)
-            lat1 = np.array([s.state_vector[1] for s in detections if s.metadata['sensor']['type']=='AIS'], dtype=np.float32)
-            x1, y1 = m(lon1, lat1)
-            m.plot(x1, y1, 'yx', markersize=4)
-
-            # ELINT detections
-            lon2 = np.array([s.state_vector[0] for s in detections if s.metadata['sensor']['type'] == 'ELINT'], dtype=np.float32)
-            lat2 = np.array([s.state_vector[1] for s in detections if s.metadata['sensor']['type'] == 'ELINT'], dtype=np.float32)
-            x2, y2 = m(lon2, lat2)
-            m.plot(x2, y2, 'gx', markersize=4)
-
-    def fit_norm_to_uni(minvals, maxvals):
-        mu = (maxvals + minvals) / 2
-        C = np.diag((maxvals - minvals)**2 / 12)
-        return mu, C
-
-    def get_prior(file_path):
+    def get_prior(file_path, pdw_features, sd_val, scaling_factors=None):
         wp = loadmat(file_path)
-        elintdata = wp['elintdata'][0, 0]
-        lonlat_min = np.amin(elintdata['coords'][:, 0:2], 0)
-        lonlat_max = np.amax(elintdata['coords'][:, 0:2], 0)
-        lonlat_mean, lonlat_cov = fit_norm_to_uni(lonlat_min, lonlat_max)
-        prior = {
-            'lonlat_min': lonlat_min,
-            'lonlat_max': lonlat_max,
-            'lonlat_mean': StateVector(lonlat_mean),
-            'lonlat_cov': CovarianceMatrix(lonlat_cov),
-            'initspeed_sd_metres': 10,
-            'colour_min': np.array([0, 0, 0, 0, 0, 0]),
-            'colour_max': np.array([1, 1, 1, 1, 1, 1]),
-            'colour_mean': StateVector(0.5 * np.ones((6,))),
-            'colour_sd': np.array(0.2887 * np.ones((6,)))
-        }
+        elintdata = np.column_stack([wp[feature].ravel() for feature in pdw_features])
+        if scaling_factors is not None:
+            elintdata = elintdata / scaling_factors
+        prior = {'colour_min': np.min(elintdata, axis=0),
+            'colour_max': np.max(elintdata, axis=0),
+            'colour_mean': np.mean(elintdata, axis=0),
+            'colour_sd': np.array(sd_val)}
         return prior
 
     def update_vis_probs(tracks, visibility, sensor_idx, dt):
@@ -325,10 +124,28 @@ if __name__ == '__main__':
     ##########################################################################
     # Tracking components                                                    #
     ##########################################################################
-    file_name = 'simulatedELINTWithColour100tracks_StoneSoup.mat'
-    file_path = r'C:\Users\marfon\OneDrive - The University of Liverpool\Code\ELINT\ELINT\Stone-Soup\examples\elint\{}'.format(
+    file_name = 'IFM4_PDW_t_pulseFreq_pulseLen_bandWidth.mat'
+    file_path = r'C:\Users\marfon\OneDrive - The University of Liverpool\Code\ESA_BIC\data\{}'.format(
         file_name)
+    pdw_features = ['pulseFreq','pulseLen','bandWidth'] # time is always considered to generate timestamps
+    scaling_factors = [1e9,1e-3,1e6]
+    units_labels = ['GHz', 'ms', 'Mhz']
+    pdw_features_process_noise = [1, 0.001, 200] #  this should be manually aligned with 'pdw_features'
+    pdw_features_meas_noise = [1, 0.001, 200]
+    sd_val_prior = [5, 5, 100]
 
+    # select features
+    sel_feat = [1,2]
+    pdw_features = [pdw_features[i] for i in sel_feat]
+    scaling_factors = [scaling_factors[i] for i in sel_feat]
+    units_labels = [units_labels[i] for i in sel_feat]
+    pdw_features_process_noise = [pdw_features_process_noise[i] for i in sel_feat]
+    pdw_features_meas_noise = [pdw_features_meas_noise[i] for i in sel_feat]
+    sd_val_prior = [sd_val_prior[i] for i in sel_feat]
+    print('PDW features: ', pdw_features)
+
+    # Event driven parameters
+    # =======================
     mins2sec = 60
     hours2sec = 60 * mins2sec
     days2sec = 24 * hours2sec
@@ -338,19 +155,6 @@ if __name__ == '__main__':
     }
     sensors = [
         {
-            'type': 'AIS',
-            'RLonLat': np.diag([0.01 ** 2, 0.01 ** 2]),
-            'rates': {
-                'meas': 1 / (60 * mins2sec),
-                'firstmeas': rates['birth'],
-                'reveal': 1 / days2sec,
-                'hide': 1 / (2 * days2sec)
-            },
-            'priorVisProb': 0.5,
-            'pMMSINull': 1e-5,
-            'pMMSIMatch': 1
-        },
-        {
             'type': 'ELINT',
             'rates': {
                 'meas': 1 / (90*mins2sec),
@@ -358,32 +162,31 @@ if __name__ == '__main__':
                 'hide': 1 / (2 * days2sec)
             },
             'priorVisProb': 0.5,
-            'colour_error_sd': np.array([0.1, 0.1, 0.1, 0.1, 0.1, 0.1])
+            'colour_error_sd': np.array([0.1])
         }
     ]
-    sensors[1]['rates']['firstmeas'] = (rates['birth'] * sensors[1]['rates']['meas'])
+    sensors[0]['rates']['firstmeas'] = (rates['birth'] * sensors[0]['rates']['meas'])
 
     # Compute prior and visibility constants
-    prior = get_prior(file_path)
     measrates = np.array([[sensor["rates"]["meas"]] for sensor in sensors])
     visibility = {
-        'visStates': np.array([[0, 0, 1, 1], [0, 1, 0, 1]]),
-        'existStates': np.array([0, 1, 1, 1])
+        'visStates': np.array([[1]]),
+        'existStates': np.array([1])
     }
     visibility['loglik'] = -np.sum(measrates * visibility['visStates'], 0)
+    logNullLogLikelihoods = [-8.669524141543720 + np.log(sensor['rates']['firstmeas']) for sensor in sensors]
 
-    # Transition & Measurement models
-    # ===============================
-    transition_model = CombinedLinearGaussianTransitionModel(
-        (OrnsteinUhlenbeck(1e-11, 5e-4),
-         OrnsteinUhlenbeck(1e-11, 5e-4),
-         RandomWalk(0), RandomWalk(0),
-         RandomWalk(0), RandomWalk(0),
-         RandomWalk(0), RandomWalk(0),
-         ))
-    measurement_model = LinearGaussian(ndim_state=4, mapping=[0, 2],
-                                       noise_covar=np.diag([0.001 ** 2,
-                                                            0.001 ** 2]))
+    # Transition, Measurement models & Detector
+    # =========================================
+    trans_model = [RandomWalk(x) for x in pdw_features_process_noise]
+    transition_model = CombinedLinearGaussianTransitionModel(trans_model)
+    measurement_model = LinearGaussian(ndim_state=len(pdw_features_process_noise), mapping=list(range(0, len(pdw_features))),
+                                       noise_covar=np.diag(pdw_features_meas_noise)) #0.001
+
+    detector = ElintDetectionReader(path=file_path, sensors=sensors, meas_model=measurement_model,
+                                    timestamp=True, start_offset=timedelta(seconds=36.5),#36.5
+                                    length=timedelta(seconds=3), pdw_features=pdw_features,
+                                    scaling_factors=scaling_factors)
 
     # Predictor & Updater
     # ===================
@@ -392,107 +195,89 @@ if __name__ == '__main__':
 
     # Hypothesiser & Data Associator
     # ==============================
-    logNullLogLikelihoods = [-8.669524141543720 + np.log(sensor['rates']['firstmeas']) for sensor in sensors]
-    hypothesiser = AisElintHypothesiserFast(predictor, updater,
-                                            logNullLogLikelihoods,
-                                            sensors, visibility)
-    hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI')
+    EVENT_DRIVEN_ON = True
+    print('EVENT_DRIVEN_ON = ' + str(EVENT_DRIVEN_ON))
+    if EVENT_DRIVEN_ON:
+        hypothesiser = AisElintHypothesiserFast(predictor, updater,
+                                                logNullLogLikelihoods,
+                                                sensors, visibility,
+                                                Mahalanobis(),
+                                                missed_distance=1
+                                                )
+        hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI')
+    else:
+        hypothesiser = PDAHypothesiserFast(predictor=predictor,
+                                       updater=updater,
+                                       clutter_spatial_density=0.125,
+                                       prob_detect=0.9)
     # hypothesiser = DistanceHypothesiser(predictor, updater, Mahalanobis(), 100)
-
-    class TPRGNN(GNNWith2DAssignment, TPRTreeMixIn):
-        pass
-    associator = TPRGNN(hypothesiser, measurement_model, timedelta(hours=24), [1, 3], std_thresh=600)
-    # associator = GNNWith2DAssignment(hypothesiser)
+    # class TPRGNN(GNNWith2DAssignment, TPRTreeMixIn):
+    #     pass
+    #associator = TPRGNN(hypothesiser, measurement_model, timedelta(hours=24), [1, 3], std_thresh=600)
+    associator = GNNWith2DAssignment(hypothesiser)
 
     # Track Initiator
     # ===============
-    state_vector = StateVector([[113.5], [0], [10.5], [0]])
-    covar = CovarianceMatrix(np.diag([10.0833, 3e-8,
-                                      3e-8, 10.0833]))
-    prior_state = GaussianStatePrediction(state_vector, covar)
-    initiator = AisElintVisibilityInitiator(prior, measurement_model, sensors, visibility)
-    # initiator = LinearMeasurementInitiator(prior_state, measurement_model)
+    prior = get_prior(file_path, pdw_features, sd_val_prior, scaling_factors)
+    initiator = ElintVisibilityInitiator(prior, measurement_model, sensors, visibility, EVENT_DRIVEN_ON)
 
     # Track Deleter
     # =============
-    # deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=2))
-    deleter = ELINTDeleter(rates['killProbThresh'])
+    if EVENT_DRIVEN_ON:
+        deleter = ELINTDeleter(rates['killProbThresh'])
+    else:
+        deleter = UpdateTimeDeleter(time_since_update=timedelta(hours=2))
 
     ################################################################################
     # Main Tracking process                                                        #
     ################################################################################
 
+    # Set random seed for reproducibility
+    np.random.seed(SEED)
+    num_colors = 9  # Adjust based on expected number of tracks
+    colormap = colormaps['Set1']  # or 'tab10', 'Set3', 'hsv', etc.
+
     tracks = set()  # Main set of tracks
-    detector = AisElintDetectionReader(path=file_path, sensors=sensors)
+    id_dict = {}  # Dictionary to map track IDs to unique integer values
 
-    # Writer
-    # ======
-    filename = os.path.basename(file_path)
-    # writer = CSV_Writer_EE_MMSI(
-    #     'C:/Users/sglvladi/Documents/TrackAnalytics/output/exact_earth'
-    #     '/per_mmsi', mmsi)
+    alldetections = np.array(list(detector.detections_gen()))
+    # Pre-extract the detection sets once to avoid redundant indexing
+    detection_sets = alldetections[:, 1]
+    # Use list comprehension without pop() if data can be reused, or vectorize if possible
+    alltimesteps = np.array([next(iter(x)).timestamp for x in detection_sets])
+    allmeas = np.array([next(iter(x)).state_vector for x in detection_sets])
 
-    # We process each scan sequentially
-    date = datetime.now().date()
-    # last_static_time, last_static_detections = next(static_gen)
-    alldetections = set()
     prev_time = None
     k = 0
+    sensor_idx = 0
+    num_dims = 1
+    mapping = [0]
+    fig, axes = plt.subplots(len(pdw_features), 1, figsize=(12, 4 * len(pdw_features)))
+    if EVENT_DRIVEN_ON:
+        fig.suptitle('Event-driven ON')
+    else:
+        fig.suptitle('Event-driven OFF')
+    if len(pdw_features) == 1:
+        axes = [axes]
     for scan_time, detections in detector.detections_gen():
-        print('time_step index = ' + str(k))
-        k = k +1
-        # BBox reducer low patch
-        limits = np.array([[LON_MIN, LON_MAX],
-                           [LAT_MIN, LAT_MAX]])
-        num_dims = len(limits)
-        mapping = [0, 1]
-        outlier_detections = set()
-        for detection in detections:
-            state_vector = detection.state_vector
-            for i in range(num_dims):
-                min = limits[i][0]
-                max = limits[i][1]
-                value = state_vector[mapping[i]]
-                if value < min or value > max:
-                    outlier_detections.add(detection)
-                    break
-        detections -= outlier_detections
-
-        # Skip iteration if there are no available detections
-        if len(detections) == 0:
-            continue
-
         if prev_time is None:
             prev_time = scan_time
-
-        if k == 5000:
-           break
-
-        sensor_idx = None
-        for detection in detections:
-            if detection.metadata['sensor']['type'] == 'AIS':
-                sensor_idx = 0
-            else:
-                sensor_idx = 1
-            print('({} @ {})'.format(detection.metadata['sensor']['type'], detection.timestamp))
-
-        alldetections |= detections
-
-        print('Measurements: ' + str(len(detections))+' - Time: ' + scan_time.strftime('%H:%M:%S %d/%m/%Y'))
+        print_progress(
+            k, len(alltimesteps),
+            prefix="",
+            suffix=f"ts={scan_time} | tracks={len(tracks)} | elapsed={scan_time - alltimesteps[0]}s",
+            width=40
+        )
 
         # Perform data association
-        print('Tracking.... NumTracks: {}'.format(str(len(tracks))))
-
         dt = scan_time - prev_time
-        trans_matrix = _get_vis_transitions(dt.total_seconds(), visibility['visStates'], sensors)
-
-
-        pr.enable()
-        associations = associator.associate(tracks, detections, scan_time, trans_matrix=trans_matrix)
-        pr.disable()
+        if EVENT_DRIVEN_ON:
+            trans_matrix = _get_vis_transitions(dt.total_seconds(), visibility['visStates'], sensors)
+            associations = associator.associate(tracks, detections, scan_time, trans_matrix=trans_matrix)
+        else:
+            associations = associator.associate(tracks, detections, scan_time)
 
         # Update tracks based on association hypotheses
-        print('Updating...')
         associated_detections = set()
         for track, hypothesis in associations.items():
             if hypothesis:
@@ -501,79 +286,55 @@ if __name__ == '__main__':
                 associated_detections.add(hypothesis.measurement)
             else:
                 track.append(hypothesis.prediction)
-            if LIMIT_STATES and len(track.states) > 10:
-                track.states = track.states[-10:]
-
         # Update visibility probs
-        dt = scan_time - prev_time
-        tracks = update_vis_probs(tracks, visibility, sensor_idx, dt.total_seconds())
+        if EVENT_DRIVEN_ON:
+            tracks = update_vis_probs(tracks, visibility, sensor_idx, dt.total_seconds())
         prev_time = scan_time
 
-        # Write data
-        # print('Writing....')
-        # writer.write(tracks,
-        #              detections,
-        #              timestamp=scan_time)
-
         # Initiate new tracks
-        print('Track Initiation...')
         unassociated_detections = detections - associated_detections
         new_tracks = initiator.initiate(unassociated_detections)
+        if len(new_tracks):
+            print('Initiating tracks!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
         tracks |= new_tracks
-        #
         # # Delete invalid tracks
-        print('Track Deletion...')
         del_tracks = deleter.delete_tracks(tracks, timestamp=scan_time)
         if len(del_tracks):
             print('Deleting tracks!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!')
         tracks -= del_tracks
 
-        print('{}'.format(filename)
-              + ' - Time: ' + scan_time.strftime('%H:%M:%S %d/%m/%Y')
-              + ' - Measurements: ' + str(len(detections))
-              + ' - Tracks: ' + str(len(tracks)))
+        # Update id_dict with track IDs
+        for track in tracks:
+            if track.id not in id_dict:
+                id_dict[track.id] = len(id_dict) + 1
 
-        if scan_time.timestamp() == 1502400890.0:
-            plot_map(scan_time)
-            plot_data(alldetections)
-            plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
-            plt.show()
-            a=2
-        # Only plot if 'f' or 'p' button is pressed
-        # plt.clf()
-        # plot_map(scan_time)
-        # plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
-        # plt.pause(0.01)
-        if msvcrt.kbhit():
-            ch = msvcrt.getch()
-            if ch == b'f' or ch == b'p' or ch == b'm':
-                print('[INFO]: Plotting Tracks')
-                # Plot the data
-                plt.clf()
-                if SHOW_MAP:
-                    plot_map(scan_time)
-                plot_data(alldetections)
-                if ch == b'f':
-                    plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
-                    plt.pause(0.01)
-                elif ch == b'p':
-                    plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
-                    # plot_data(detections)
-                    plt.show()
-                elif ch == b'm':
-                    t_tracks = tracks
-                    plot_tracks(t_tracks, show_mmsis=False, show_map=SHOW_MAP)
-                    plt.show()
-            elif ch == b'r':
-                print('[INFO]: Dumping Profiler stats')
-                pr.dump_stats('profile_ELINT_{}.pstat'.format(scan_time.strftime('%H-%M-%S_%d-%m-%Y')))
-        #
-        # if END_TIME is not None and scan_time >= END_TIME:
-        #     break
-plot_map(scan_time)
-plot_data(alldetections)
-plot_tracks(tracks, show_probs=False, show_map=SHOW_MAP)
-plt.show()
+        # Generate plots (assuming one track)
+        # Plot true trajectory
+        for track in tracks:
+            if isinstance(track.state_vector, GaussianStatePrediction):
+                continue
+            if k == 0:
+                # Scatter all measurements for each feature
+                for feat_idx in range(len(pdw_features)):
+                    axes[feat_idx].scatter(alltimesteps, allmeas[:, feat_idx],
+                                           c='b', marker='o', s=20, label='Measurements')
 
-#print(count)
-print(scan_time.timestamp())
+            # Plot estimated trajectory for each feature
+            track_state = np.array(track.state_vector)
+            for feat_idx in range(len(pdw_features)):
+                color = colormap((id_dict[track.id] - 1) % num_colors / num_colors)
+                axes[feat_idx].scatter(scan_time, track_state[feat_idx],
+                                       c=[color], marker='x', s=10,
+                                       label='Track ' + str(id_dict[track.id]-1) if len(track) == 1 else '')
+                #axes[feat_idx].set_yscale('log')
+                axes[feat_idx].grid(True)
+                axes[feat_idx].set_xlabel('Time')
+                axes[feat_idx].set_ylabel(pdw_features[feat_idx] + ' [' + units_labels[feat_idx] + ']')
+
+                if len(track) == 1:
+                    axes[feat_idx].legend()
+
+        plt.pause(0.0001)
+        k = k + 1
+
+    plt.show()

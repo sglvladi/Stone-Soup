@@ -12,6 +12,7 @@ from ..types.multihypothesis import MultipleHypothesis
 from ..types.numeric import Probability
 from ..predictor import Predictor
 from ..updater import Updater
+from ..measures import Measure
 
 
 class PDAHypothesiser(Hypothesiser):
@@ -449,8 +450,21 @@ class AisElintHypothesiserFast(Hypothesiser):
     logNullLikelihoods = Property([float], doc="These can be precomputed")
     sensors = Property(list, doc="The sensors")
     visibility = Property(dict, doc="The visibility constants")
+    measure = Property(
+        Measure,
+        doc="Measure class used to calculate the distance between two states.")
+    missed_distance = Property(
+        float,
+        default=float('inf'),
+        doc="Distance for a missed detection. Default is set to infinity")
+    include_all = Property(
+        bool,
+        default=False,
+        doc="If `True`, hypotheses beyond missed distance will be returned. "
+            "Default `False`")
 
-    def hypothesise(self, track, detections, timestamp, missed_detection=None, mult=None, sensor_idx=None, trans_matrix=None):
+    def hypothesise(self, track, detections, timestamp, missed_detection=None, mult=None, trans_matrix=None):
+        sensor_idx = 0
         hypotheses = list()
         if missed_detection is None:
             missed_detection = MissedDetection(timestamp=timestamp)
@@ -491,14 +505,16 @@ class AisElintHypothesiserFast(Hypothesiser):
                 pv = self._get_sensor_vis_prob(track.metadata['visibility']['probs'], sensor_idx)
                 log_pdf = np.log(self.sensors[sensor_idx]['rates']['meas']) + np.log(pv) + log_meas
                 pdf = Probability(log_pdf, log_value=True)
+                distance = self.measure(measurement_prediction, detection)
 
-                # True detection hypothesis
-                hypotheses.append(
-                    SingleProbabilityHypothesis(
-                        prediction,
-                        detection,
-                        pdf,
-                        measurement_prediction))
+                if self.include_all or distance < self.missed_distance:
+                    # True detection hypothesis
+                    hypotheses.append(
+                        SingleProbabilityHypothesis(
+                            prediction,
+                            detection,
+                            pdf,
+                            measurement_prediction))
         else:
             # If a prediction already exists simple set it as mis-detected
             if isinstance(track.state, Prediction):

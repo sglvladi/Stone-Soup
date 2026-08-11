@@ -5,6 +5,8 @@ from abc import abstractmethod
 from ..base import Base, Property
 from ..types.hypothesis import JointHypothesis
 from ..hypothesiser import Hypothesiser
+from stonesoup.types.detection import MissedDetection
+from stonesoup.types.multihypothesis import MultipleHypothesis
 
 
 class DataAssociator(Base):
@@ -21,8 +23,10 @@ class DataAssociator(Base):
         doc="Generate a set of hypotheses for each track-detection pair")
 
     def generate_hypotheses(self, tracks, detections, time, **kwargs):
+        misdet = MissedDetection(timestamp=time)
+        mult = MultipleHypothesis()
         return {track: self.hypothesiser.hypothesise(
-                    track, detections, time, **kwargs)
+                    track, detections, time, missed_detection=misdet, mult=mult, **kwargs)
                 for track in tracks}
 
     @abstractmethod
