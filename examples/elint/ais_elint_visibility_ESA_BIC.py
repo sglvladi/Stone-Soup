@@ -124,18 +124,21 @@ if __name__ == '__main__':
     ##########################################################################
     # Tracking components                                                    #
     ##########################################################################
-    file_name = 'IFM4_PDW_t_pulseFreq_pulseLen_bandWidth.mat'
+    #file_name = 'IFM4_PDW_t_pulseFreq_pulseLen_bandWidth.mat'
+    file_name = 'IFM4_PDW_t_freq_PW_BW_tm10_vm0.25_stos2.5.mat'
     file_path = r'C:\Users\marfon\OneDrive - The University of Liverpool\Code\ESA_BIC\data\{}'.format(
         file_name)
     pdw_features = ['pulseFreq','pulseLen','bandWidth'] # time is always considered to generate timestamps
     scaling_factors = [1e9,1e-3,1e6]
     units_labels = ['GHz', 'ms', 'Mhz']
-    pdw_features_process_noise = [1, 0.001, 200] #  this should be manually aligned with 'pdw_features'
-    pdw_features_meas_noise = [1, 0.001, 200]
+    pdw_features_process_noise = [0.1, 0.001, 200] #  [1, 0.001, 200]
+    pdw_features_meas_noise = [0.1, 0.001, 200] #[1, 0.001, 200]
     sd_val_prior = [5, 5, 100]
+    gating_th = 0.25
+    PLOT_ONLY_UPD = True
 
     # select features
-    sel_feat = [1,2]
+    sel_feat = [0,1,2]
     pdw_features = [pdw_features[i] for i in sel_feat]
     scaling_factors = [scaling_factors[i] for i in sel_feat]
     units_labels = [units_labels[i] for i in sel_feat]
@@ -157,7 +160,7 @@ if __name__ == '__main__':
         {
             'type': 'ELINT',
             'rates': {
-                'meas': 1 / (90*mins2sec),
+                'meas': 1 / 0.0053, #(90*mins2sec),
                 'reveal': 1 / days2sec,
                 'hide': 1 / (2 * days2sec)
             },
@@ -174,7 +177,7 @@ if __name__ == '__main__':
         'existStates': np.array([1])
     }
     visibility['loglik'] = -np.sum(measrates * visibility['visStates'], 0)
-    logNullLogLikelihoods = [-8.669524141543720 + np.log(sensor['rates']['firstmeas']) for sensor in sensors]
+    logNullLogLikelihoods = [5 + np.log(sensor['rates']['firstmeas']) for sensor in sensors] #[-10.435428449990612]
 
     # Transition, Measurement models & Detector
     # =========================================
@@ -184,8 +187,8 @@ if __name__ == '__main__':
                                        noise_covar=np.diag(pdw_features_meas_noise)) #0.001
 
     detector = ElintDetectionReader(path=file_path, sensors=sensors, meas_model=measurement_model,
-                                    timestamp=True, start_offset=timedelta(seconds=36.5),#36.5
-                                    length=timedelta(seconds=3), pdw_features=pdw_features,
+                                    timestamp=True, start_offset=timedelta(seconds=0),#36.5
+                                    length=timedelta(seconds=1), pdw_features=pdw_features,
                                     scaling_factors=scaling_factors)
 
     # Predictor & Updater
@@ -202,7 +205,7 @@ if __name__ == '__main__':
                                                 logNullLogLikelihoods,
                                                 sensors, visibility,
                                                 Mahalanobis(),
-                                                missed_distance=1
+                                                missed_distance=gating_th
                                                 )
         hypothesiser = FilteredDetectionsHypothesiser(hypothesiser, 'MMSI')
     else:
@@ -246,19 +249,22 @@ if __name__ == '__main__':
     # Use list comprehension without pop() if data can be reused, or vectorize if possible
     alltimesteps = np.array([next(iter(x)).timestamp for x in detection_sets])
     allmeas = np.array([next(iter(x)).state_vector for x in detection_sets])
+    if 'id' in next(iter(detection_sets[0])).metadata:
+        allids = np.array([next(iter(x)).metadata['id'] for x in detection_sets])
+    else:
+        allids = None
 
     prev_time = None
     k = 0
     sensor_idx = 0
-    num_dims = 1
-    mapping = [0]
     fig, axes = plt.subplots(len(pdw_features), 1, figsize=(12, 4 * len(pdw_features)))
     if EVENT_DRIVEN_ON:
-        fig.suptitle('Event-driven ON')
+        fig.suptitle(file_name + ', event-driven ON')
     else:
-        fig.suptitle('Event-driven OFF')
+        fig.suptitle(file_name + ', event-driven OFF')
     if len(pdw_features) == 1:
         axes = [axes]
+    # RECURSION
     for scan_time, detections in detector.detections_gen():
         if prev_time is None:
             prev_time = scan_time
@@ -316,23 +322,32 @@ if __name__ == '__main__':
             if k == 0:
                 # Scatter all measurements for each feature
                 for feat_idx in range(len(pdw_features)):
-                    axes[feat_idx].scatter(alltimesteps, allmeas[:, feat_idx],
-                                           c='b', marker='o', s=20, label='Measurements')
+                    if allids is None:
+                        axes[feat_idx].scatter(alltimesteps, allmeas[:, feat_idx],
+                                               c='b', marker='o', s=20, label='Measurements')
+                    else:
+                        indices_zero = np.where(allids == 0)[0]
+                        axes[feat_idx].scatter(alltimesteps[indices_zero], allmeas[indices_zero, feat_idx],
+                                               c='b', marker='o', s=20, label='Measurements emitter 0')
+                        indices_zero = np.where(allids == 1)[0]
+                        axes[feat_idx].scatter(alltimesteps[indices_zero], allmeas[indices_zero, feat_idx],
+                                               c='orange', marker='o', s=20, label='Measurements emitter 1')
 
             # Plot estimated trajectory for each feature
-            track_state = np.array(track.state_vector)
-            for feat_idx in range(len(pdw_features)):
-                color = colormap((id_dict[track.id] - 1) % num_colors / num_colors)
-                axes[feat_idx].scatter(scan_time, track_state[feat_idx],
-                                       c=[color], marker='x', s=10,
-                                       label='Track ' + str(id_dict[track.id]-1) if len(track) == 1 else '')
-                #axes[feat_idx].set_yscale('log')
-                axes[feat_idx].grid(True)
-                axes[feat_idx].set_xlabel('Time')
-                axes[feat_idx].set_ylabel(pdw_features[feat_idx] + ' [' + units_labels[feat_idx] + ']')
+            if isinstance(track.state, GaussianStateUpdate) or not PLOT_ONLY_UPD:
+                track_state = np.array(track.state_vector)
+                for feat_idx in range(len(pdw_features)):
+                    color = colormap((id_dict[track.id] - 1) % num_colors / num_colors)
+                    axes[feat_idx].scatter(scan_time, track_state[feat_idx],
+                                           c=[color], marker='x', s=10,
+                                           label='Track ' + str(id_dict[track.id]-1) if len(track) == 1 else '')
+                    #axes[feat_idx].set_yscale('log')
+                    axes[feat_idx].grid(True)
+                    axes[feat_idx].set_xlabel('Time')
+                    axes[feat_idx].set_ylabel(pdw_features[feat_idx] + ' [' + units_labels[feat_idx] + ']')
 
-                if len(track) == 1:
-                    axes[feat_idx].legend()
+                    if len(track) == 1:
+                        axes[feat_idx].legend()
 
         plt.pause(0.0001)
         k = k + 1

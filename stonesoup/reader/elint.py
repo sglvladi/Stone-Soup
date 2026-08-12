@@ -197,6 +197,18 @@ class ElintDetectionReader(DetectionReader, TextFileReader):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        # Check if 'id' feature needs to be added
+        if self.path.exists():
+            wp = loadmat(self.path)
+            if 'id' in wp.keys():
+                if self.pdw_features is None:
+                    self.pdw_features = []
+                if self.scaling_factors is None:
+                    self.scaling_factors = []
+                self.pdw_features = self.pdw_features.copy()
+                self.pdw_features.append('id')
+                self.scaling_factors = self.scaling_factors.copy()
+                self.scaling_factors.append(1)
 
     @BufferedGenerator.generator_method
     def detections_gen(self):
@@ -211,9 +223,9 @@ class ElintDetectionReader(DetectionReader, TextFileReader):
         # Generate detections
         for (t, meas) in zip(timeIndices, elintdata):
             if self.start_offset < timedelta(seconds=float(t)) < self.start_offset + self.length:
-                yield self._extract_measurement(t, meas)
+                yield self._extract_measurement(t, meas, 'id' in wp.keys())
 
-    def _extract_measurement(self, timestamp, meas):
+    def _extract_measurement(self, timestamp, meas, is_id=False):
 
         # Process timestamp
         if self.time_field_format is not None:
@@ -228,88 +240,33 @@ class ElintDetectionReader(DetectionReader, TextFileReader):
             time_field_value = parse(timestamp)
 
         # ELINT
-        metadata = {'sensor': self.sensors[0]}
+        metadata = {'sensor': self.sensors[0], 'id': int(meas[-1]) if is_id else None}
+        if is_id:
+            meas = meas[:-1]
         detect = Detection(np.array(meas, dtype=np.float32),
                            time_field_value,
                            measurement_model=self.meas_model,
                            metadata=metadata)
         return time_field_value, {detect}
 
-    def _generate_pdws(
-            self,
-            duration=1.0,
-            target_pri=5e-3,
-            target_pw_mean=5e-6,
-            target_pw_std=0.2e-6,
-            n_clutter=0,
-            clutter_pw_range=(1e-6, 20e-6),
-            toa_noise_std=1e-6,
-            seed=1
-    ):
 
-        if seed is not None:
-            rng = np.random.default_rng(seed)
-        else:
-            rng = np.random.default_rng()
+class ElintDetectionRadarReader(ElintDetectionReader):
+    target_feature = Property(int, default=None, doc='Features to distinguish between comm and radar signal')
+    target_feature_th = Property(float, default=None, doc='Threshold to distinguish between comm and radar signal')
 
-        # -----------------------------
-        # Target pulse train
-        # -----------------------------
-        target_times = np.arange(0, duration, target_pri)
+    def __init__(self, *args, **kwargs):
+        super().__init__(*args, **kwargs)
 
-        # Add TOA measurement noise
-        target_times += rng.normal(
-            0,
-            toa_noise_std,
-            len(target_times)
-        )
+    def detections_gen(self):
+        # Load data from mat file
+        wp = loadmat(self.path)
+        elintdata = np.column_stack([wp[feature].ravel() for feature in self.pdw_features])
+        if self.scaling_factors is not None:
+            elintdata = elintdata / self.scaling_factors
+        timeIndices = wp['t']
 
-        # Target pulse widths
-        target_pw = rng.normal(
-            target_pw_mean,
-            target_pw_std,
-            len(target_times)
-        )
-
-        target_pw = np.clip(target_pw, 0, None)
-
-        target_pdws = np.column_stack(
-            (target_times, target_pw)
-        )
-
-        # -----------------------------
-        # Clutter detections
-        # -----------------------------
-        clutter_times = rng.uniform(
-            0,
-            duration,
-            n_clutter
-        )
-
-        clutter_pw = rng.uniform(
-            clutter_pw_range[0],
-            clutter_pw_range[1],
-            n_clutter
-        )
-
-        clutter_pdws = np.column_stack(
-            (clutter_times, clutter_pw)
-        )
-
-        # -----------------------------
-        # Combine and shuffle
-        # -----------------------------
-        pdws = np.vstack(
-            (target_pdws, clutter_pdws)
-        )
-
-        labels = np.concatenate(
-            (
-                np.ones(len(target_pdws)),
-                np.zeros(len(clutter_pdws))
-            )
-        )
-
-        idx = rng.permutation(len(pdws))
-
-        return pdws[idx], labels[idx]
+        #pdws, labels = self._generate_pdws()
+        # Generate detections
+        for (t, meas) in zip(timeIndices, elintdata):
+            if self.start_offset < timedelta(seconds=float(t)) < self.start_offset + self.length:
+                yield self._extract_measurement(t, meas)
