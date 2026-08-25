@@ -331,11 +331,10 @@ class ELINTHypothesiser(Hypothesiser):
             measurement_prediction = self.updater.predict_measurement(
                 prediction, detection.measurement_model)
             log_meas = mn.logpdf(detection.state_vector.ravel(),
-                                measurement_prediction.state_vector.ravel(),
-                                measurement_prediction.covar)
+                                 measurement_prediction.state_vector.ravel(),
+                                 measurement_prediction.covar)
             log_pdf = np.log(self.prob_detect) + np.log(p_exist) + log_meas
             pdf = Probability(log_pdf, log_value=True)
-
             # True detection hypothesis
             hypotheses.append(
                 SingleProbabilityHypothesis(
@@ -362,6 +361,18 @@ class ELINTHypothesiserFast(Hypothesiser):
     )
     deathRate = Property(float, doc="")
     logNullLikelihood = Property(float, doc="")
+    measure = Property(
+        Measure,
+        doc="Measure class used to calculate the distance between two states.")
+    missed_distance = Property(
+        float,
+        default=float('inf'),
+        doc="Distance for a missed detection. Default is set to infinity")
+    include_all = Property(
+        bool,
+        default=False,
+        doc="If `True`, hypotheses beyond missed distance will be returned. "
+            "Default `False`")
 
     def hypothesise(self, track, detections, timestamp, missed_detection=None, mult=None):
         hypotheses = list()
@@ -398,19 +409,21 @@ class ELINTHypothesiserFast(Hypothesiser):
                 # Compute measurement prediction and probability measure
                 measurement_prediction = self.updater.predict_measurement(
                     prediction, detection.measurement_model)
-                log_meas = mn.logpdf(detection.state_vector.ravel(),
-                                    measurement_prediction.state_vector.ravel(),
-                                    measurement_prediction.covar)
-                log_pdf = np.log(self.prob_detect) + np.log(p_exist) + log_meas
-                pdf = Probability(log_pdf, log_value=True)
+                distance = self.measure(measurement_prediction, detection)
+                if self.include_all or distance < self.missed_distance:
+                    log_meas = mn.logpdf(detection.state_vector.ravel(),
+                                        measurement_prediction.state_vector.ravel(),
+                                        measurement_prediction.covar)
+                    log_pdf = np.log(self.prob_detect) + np.log(p_exist) + log_meas
+                    pdf = Probability(log_pdf, log_value=True)
 
-                # True detection hypothesis
-                hypotheses.append(
-                    SingleProbabilityHypothesis(
-                        prediction,
-                        detection,
-                        pdf,
-                        measurement_prediction))
+                    # True detection hypothesis
+                    hypotheses.append(
+                        SingleProbabilityHypothesis(
+                            prediction,
+                            detection,
+                            pdf,
+                            measurement_prediction))
         else:
             # If a prediction already exists simple set it as mis-detected
             if isinstance(track.state, Prediction):

@@ -25,6 +25,7 @@ class ELINTInitiator(GaussianInitiator):
 
     prior = Property(dict)
     measurement_model = Property(MeasurementModel, doc="Measurement model")
+    event_driven_on = Property(bool, default=True)
 
     def initiate(self, detections, **kwargs):
         updater = KalmanUpdater(self.measurement_model)
@@ -67,23 +68,8 @@ class ELINTInitiator(GaussianInitiator):
 
         """
 
-        initvel_metres = self.prior["initspeed_sd_metres"] ** 2 * np.eye(2)
-        H = np.diag(1/degree2meters(pos).ravel())
-        priorcov_lonlatvel = H @ initvel_metres @ H
-        priormeanLonLat = np.array([[Longitude(self.prior["lonlat_mean"][0, 0])],
-                                    [0],
-                                    [Latitude(self.prior["lonlat_mean"][1, 0])],
-                                    [0]])
-        priorcovLonLat = np.zeros((4,4))
-        priorcovLonLat[0, 0] = np.array(self.prior["lonlat_cov"])[0, 0]
-        priorcovLonLat[2, 2] = np.array(self.prior["lonlat_cov"])[1, 1]
-        priorcovLonLat[1, 1] = priorcov_lonlatvel[0, 0]
-        priorcovLonLat[3, 3] = priorcov_lonlatvel[1, 1]
-        # priorcovLonLat[[0, 2], :][:, [0, 2]]= self.prior["lonlat_cov"]
-        # priorcovLonLat[[1, 3], :][:, [1, 3]] = priorcov_lonlatvel
-
-        priormean = StateVector(priormeanLonLat)
-        priorcov = CovarianceMatrix(priorcovLonLat)
+        priormean = StateVector(self.prior['colour_mean'].ravel())
+        priorcov = CovarianceMatrix(np.diag(self.prior['colour_sd'] ** 2))
 
         return GaussianState(priormean, priorcov)
 

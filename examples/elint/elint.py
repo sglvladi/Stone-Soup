@@ -309,7 +309,9 @@ if __name__ == '__main__':
     ################################################################################
 
     tracks = set()  # Main set of tracks
-    file_path = r"C:\Users\sglvladi\OneDrive\Workspace\PostDoc\CADMURI\MATLAB\ELINT\smalldata20tracks_elint_LV.mat"
+    file_name = 'simulatedELINTWithColour100tracks_StoneSoup.mat'
+    file_path = r'C:\Users\marfon\OneDrive - The University of Liverpool\Code\ELINT\ELINT\Stone-Soup\examples\elint\{}'.format(
+        file_name)
     detector = BasicELINTDetectionReader(path=file_path, )
 
 

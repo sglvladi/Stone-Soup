@@ -240,7 +240,10 @@ class ElintDetectionReader(DetectionReader, TextFileReader):
             time_field_value = parse(timestamp)
 
         # ELINT
-        metadata = {'sensor': self.sensors[0], 'id': int(meas[-1]) if is_id else None}
+        if isinstance(self.sensors,dict):
+            metadata = {'sensor': self.sensors["ELINT"], 'id': int(meas[-1]) if is_id else None}
+        else:
+            metadata = {'sensor': self.sensors[0], 'id': int(meas[-1]) if is_id else None}
         if is_id:
             meas = meas[:-1]
         detect = Detection(np.array(meas, dtype=np.float32),
