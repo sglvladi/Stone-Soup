@@ -1,4 +1,4 @@
-from math import trunc, ceil, floor
+from math import trunc, ceil, floor, log
 from numbers import Real, Integral
 
 import numpy as np
@@ -36,12 +36,7 @@ class Probability(Real):
         elif other == 0:
             return float("-inf")
         else:
-            with np.errstate(invalid="raise"):
-                try:
-                    log_value = np.log(other)
-                except FloatingPointError:
-                    raise ValueError("value must be greater than 0")
-            return log_value
+            return log(other)
 
     def __hash__(self):
         value = float(self)
