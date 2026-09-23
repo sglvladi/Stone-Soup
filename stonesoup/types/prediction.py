@@ -25,11 +25,29 @@ class Prediction(Type, CreatableFromState):
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
         if hasattr(self.prior, 'hypothesis'):
+            predictions = []
+            # Handle both single and multiple hypotheses.
             if hasattr(self.prior.hypothesis, 'prediction'):
                 prior_prediction_prior = getattr(self.prior.hypothesis.prediction, 'prior', None)
                 if prior_prediction_prior is not None:
-                    # Create weakref to avoid using significant memory
-                    self.prior.hypothesis.prediction.prior = weakref.ref(prior_prediction_prior)
+                    predictions = [self.prior.hypothesis.prediction]
+            elif hasattr(self.prior.hypothesis, 'single_hypotheses'):
+                predictions = [
+                    hyp.prediction
+                    for hyp in self.prior.hypothesis.single_hypotheses
+                    if (hasattr(hyp, 'prediction')
+                        and getattr(hyp.prediction, 'prior', None) is not None)
+                ]
+
+            # Multiple hypotheses may share the same prediction.
+            for prediction in {id(pred): pred for pred in predictions}.values():
+                # Create weakref to avoid using significant memory
+                prediction._weaken_historical_references()
+
+    def _weaken_historical_references(self):
+        if (self._property_prior is not None
+                and not isinstance(self._property_prior, weakref.ReferenceType)):
+            self._property_prior = weakref.ref(self._property_prior)
 
     @prior.getter
     def prior(self):

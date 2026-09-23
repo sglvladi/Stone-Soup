@@ -1,11 +1,13 @@
 import datetime
 import pickle
+import weakref
 
 import numpy as np
 import pytest
 from scipy.stats import multivariate_normal
 
 from ..hypothesis import SingleHypothesis
+from ..multihypothesis import MultipleHypothesis
 from ..prediction import (
     Prediction, MeasurementPrediction,
     StatePrediction, StateMeasurementPrediction,
@@ -50,6 +52,72 @@ def test_prediction_prior():
 
     assert pred1.prior is None
     assert update1.hypothesis.prediction.prior is None
+    assert pred2.prior is update1
+
+    pickle.dumps(pred1)
+
+
+def test_prediction_prior_multiple_hypothesis():
+    state0 = State([[1, 2, 3]])
+    state1 = State([[4, 5, 6]])
+
+    pred1 = StatePrediction([[2, 3, 1]], prior=state0)
+    pred2 = StatePrediction([[5, 6, 4]], prior=state1)
+
+    update1 = StateUpdate(
+        [[2, 3, 1]],
+        hypothesis=MultipleHypothesis([
+            SingleHypothesis(pred1, None),
+            SingleHypothesis(pred2, None),
+        ])
+    )
+
+    pred3 = StatePrediction([[3, 1, 2]], prior=update1)
+
+    assert pred1.prior is state0
+    assert pred2.prior is state1
+    assert update1.hypothesis.single_hypotheses[0].prediction.prior is state0
+    assert update1.hypothesis.single_hypotheses[1].prediction.prior is state1
+    assert pred3.prior is update1
+
+    del state0
+    del state1
+
+    assert pred1.prior is None
+    assert pred2.prior is None
+    assert update1.hypothesis.single_hypotheses[0].prediction.prior is None
+    assert update1.hypothesis.single_hypotheses[1].prediction.prior is None
+    assert pred3.prior is update1
+
+    pickle.dumps(pred1)
+    pickle.dumps(pred2)
+
+
+def test_prediction_prior_multiple_hypothesis_shared_prediction():
+    state0 = State([[1, 2, 3]])
+
+    pred1 = StatePrediction([[2, 3, 1]], prior=state0)
+
+    update1 = StateUpdate(
+        [[2, 3, 1]],
+        hypothesis=MultipleHypothesis([
+            SingleHypothesis(pred1, None),
+            SingleHypothesis(pred1, None),
+        ])
+    )
+
+    pred2 = StatePrediction([[3, 1, 2]], prior=update1)
+
+    assert pred1.prior is state0
+    assert update1.hypothesis.single_hypotheses[0].prediction.prior is state0
+    assert update1.hypothesis.single_hypotheses[1].prediction.prior is state0
+    assert pred2.prior is update1
+
+    del state0
+
+    assert pred1.prior is None
+    assert update1.hypothesis.single_hypotheses[0].prediction.prior is None
+    assert update1.hypothesis.single_hypotheses[1].prediction.prior is None
     assert pred2.prior is update1
 
     pickle.dumps(pred1)
